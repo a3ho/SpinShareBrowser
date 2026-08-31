@@ -1,0 +1,491 @@
+"""Download and install official SpinShare chart archives."""
+from __future__ import annotations
+
+import dataclasses
+import email.message
+import logging
+import os
+from pathlib import Path
+import queue
+import re
+import secrets
+import shutil
+import stat
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
+
+def known_folder_path(identifier):
+    """Read a per-user Windows Known Folder without assuming a user name."""
+    if os.name != "nt":
+        raise OSError("Windows Known Folders are only available on Windows")
+    import ctypes
+    import uuid
+    raw_guid = (ctypes.c_ubyte * 16).from_buffer_copy(uuid.UUID(identifier).bytes_le)
+    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    ole32 = ctypes.WinDLL("ole32", use_last_error=True)
+    shell32.SHGetKnownFolderPath.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    shell32.SHGetKnownFolderPath.restype = ctypes.c_long
+    ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    location = ctypes.c_void_p()
+    result = shell32.SHGetKnownFolderPath(ctypes.byref(raw_guid), 0x4000, None, ctypes.byref(location))
+    if result != 0 or not location.value:
+        raise OSError("Cannot resolve the current Windows user directory.")
+    try:
+        return Path(ctypes.wstring_at(location.value))
+    finally:
+        ole32.CoTaskMemFree(location)
+
+
+def default_target_directory():
+    if os.name == "nt":
+        low = known_folder_path("A520A1A4-1780-4FF6-BD18-167343C5AF16")
+    else:
+        low = Path.home() / "AppData" / "LocalLow"
+    return low / "Super Spin Digital" / "Spin Rhythm XD" / "Custom"
+
+
+CHUNK_SIZE = 256 * 1024
+ACTIVE_STATES = {"queued", "downloading", "validating", "extracting"}
+
+
+class InstallError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class InstallLimits:
+    max_archive_bytes: int = 512 * 1024 * 1024
+    max_unpacked_bytes: int = 2 * 1024 * 1024 * 1024
+    max_file_bytes: int = 512 * 1024 * 1024
+    max_entries: int = 4096
+
+
+DEFAULT_LIMITS = InstallLimits()
+
+
+def _deadline(deadline):
+    if deadline is not None and time.monotonic() > deadline:
+        raise InstallError("Installation exceeded 15 minutes.")
+
+
+def _no_link(path):
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+        raise InstallError("The target contains a symbolic link or reparse point.")
+    if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+        raise InstallError("The destination has hard links.")
+    return info
+
+
+def _root(directory):
+    root = Path(os.path.abspath(os.fspath(directory)))
+    if root == Path(root.anchor) or str(root).startswith("\\\\"):
+        raise InstallError("The installation directory must be an ordinary local folder.")
+    current = Path(root.anchor)
+    for part in root.parts[1:]:
+        current = current / part
+        if os.path.lexists(current):
+            if not stat.S_ISDIR(_no_link(current).st_mode):
+                raise InstallError("An ancestor of the installation directory is not an ordinary folder.")
+        else:
+            current.mkdir()
+    if os.path.normcase(str(root.resolve())) != os.path.normcase(str(root)):
+        raise InstallError("The installation directory resolves to another location.")
+    return root
+
+
+def _owned(root, path, *, directory=False):
+    path = Path(os.path.abspath(os.fspath(path)))
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise InstallError("The archive or destination escapes the selected installation directory.") from exc
+    if not relative.parts:
+        raise InstallError("The installation root itself cannot be overwritten or deleted.")
+    current = root
+    _no_link(root)
+    for index, part in enumerate(relative.parts):
+        current = current / part
+        if os.path.lexists(current):
+            info = _no_link(current)
+            want_directory = index < len(relative.parts) - 1 or directory
+            if want_directory and not stat.S_ISDIR(info.st_mode):
+                raise InstallError("The target has a file/directory conflict.")
+            if not want_directory and not stat.S_ISREG(info.st_mode):
+                raise InstallError("The destination is not an ordinary file.")
+    if os.path.commonpath([os.path.normcase(str(root)), os.path.normcase(str(path.resolve()))]) != os.path.normcase(str(root)):
+        raise InstallError("The destination resolves outside the installation directory.")
+    return path
+
+
+def _ensure_parent(root, path):
+    parent = path.parent
+    if parent == root:
+        _no_link(root)
+        return
+    _owned(root, parent, directory=True)
+    current = root
+    for part in parent.relative_to(root).parts:
+        current = current / part
+        if not current.exists():
+            current.mkdir()
+        _no_link(current)
+
+
+def _temporary(root, parent, prefix):
+    if parent != root:
+        _owned(root, parent, directory=True)
+    _no_link(root)
+    descriptor, name = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=parent)
+    path = _owned(root, name)
+    return descriptor, path
+
+
+def _replace(root, source, target):
+    source, target = _owned(root, source), _owned(root, target)
+    if target.exists() and not target.stat().st_mode & stat.S_IWRITE:
+        target.chmod(stat.S_IREAD | stat.S_IWRITE)
+    os.replace(source, target)
+
+
+def _unlink(root, path):
+    if not os.path.lexists(path):
+        return
+    path = _owned(root, path)
+    if not path.stat().st_mode & stat.S_IWRITE:
+        path.chmod(stat.S_IREAD | stat.S_IWRITE)
+    path.unlink()
+
+
+def _member_parts(name):
+    if not name or "\\" in name or name.startswith("/") or "\x00" in name:
+        raise InstallError("The ZIP contains an unsafe member path.")
+    parts = name.rstrip("/").split("/")
+    for part in parts:
+        if (part in {"", ".", ".."} or part.endswith((" ", ".")) or
+                any(ord(char) < 32 or char in '<>:"|?*' for char in part) or
+                re.match(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", part, re.I)):
+            raise InstallError("The ZIP contains path traversal or an unsafe Windows filename.")
+    return parts
+
+
+def _archive_plan(archive, root, limits):
+    infos = archive.infolist()
+    if not infos or len(infos) > limits.max_entries:
+        raise InstallError("The ZIP is empty or exceeds the member-count limit.")
+    seen, files, charts, unpacked = set(), [], [], 0
+    for info in infos:
+        parts = _member_parts(info.filename)
+        folded = "/".join(parts).casefold()
+        if folded in seen:
+            raise InstallError("The ZIP contains duplicate or case-colliding Windows paths.")
+        seen.add(folded)
+        kind = stat.S_IFMT(info.external_attr >> 16)
+        if kind not in (0, stat.S_IFREG, stat.S_IFDIR) or info.flag_bits & 1 or info.external_attr & 0x400:
+            raise InstallError("The ZIP contains links, special files, or encrypted members.")
+        if info.is_dir():
+            if parts not in (["AlbumArt"], ["AudioClips"]):
+                raise InstallError("The ZIP contains directories outside the supported official chart structure.")
+            _owned(root, root.joinpath(*parts), directory=True)
+            continue
+        if kind == stat.S_IFDIR:
+            raise InstallError("A ZIP entry type does not match its path.")
+        if info.file_size < 0 or info.file_size > limits.max_file_bytes:
+            raise InstallError("A ZIP member exceeds the per-file size limit.")
+        unpacked += info.file_size
+        if unpacked > limits.max_unpacked_bytes:
+            raise InstallError("The ZIP exceeds the total unpacked size limit.")
+        if len(parts) == 1 and re.fullmatch(r"spinshare_[a-fA-F0-9]{1,64}\.srtb", parts[0]):
+            charts.append(parts[0][:-5])
+        target = _owned(root, root.joinpath(*parts))
+        files.append((info, target, parts))
+    if len(charts) != 1:
+        raise InstallError("The ZIP must contain exactly one official root-level .srtb chart.")
+    reference = re.escape(charts[0])
+    for _, _, parts in files:
+        name = "/".join(parts)
+        allowed = (re.fullmatch(reference + r"\.srtb", name) or
+                   re.fullmatch(r"AlbumArt/" + reference + r"\.png", name) or
+                   re.fullmatch(r"AudioClips/" + reference + r"_[0-9]+\.(ogg|mp3)", name))
+        if not allowed:
+            raise InstallError("The ZIP contains unrelated files or an unsupported layout.")
+    return files, unpacked
+
+
+def _copy_member(archive, info, destination, deadline):
+    written = 0
+    with archive.open(info) as source:
+        while True:
+            _deadline(deadline)
+            block = source.read(CHUNK_SIZE)
+            if not block:
+                break
+            written += len(block)
+            if written > info.file_size:
+                raise InstallError("The actual unpacked size does not match the ZIP metadata.")
+            if destination is not None:
+                destination.write(block)
+    if written != info.file_size:
+        raise InstallError("A ZIP member is incomplete.")
+
+
+def _rollback(root, records):
+    errors = []
+    for record in reversed(records):
+        try:
+            if record["backup"] is not None:
+                _replace(root, record["backup"], record["target"])
+                if record["old_mode"] is not None:
+                    record["target"].chmod(record["old_mode"])
+                record["backup"] = None
+            elif record["committed"]:
+                _unlink(root, record["target"])
+            _unlink(root, record["temp"])
+        except (OSError, InstallError) as exc:
+            errors.append(str(exc))
+    return errors
+
+
+def install_archive(zip_path, target_dir, report=lambda update: None, limits=DEFAULT_LIMITS, deadline=None):
+    root = _root(target_dir)
+    zip_path = _owned(root, zip_path)
+    if not zip_path.is_file() or zip_path.stat().st_size > limits.max_archive_bytes:
+        raise InstallError("The ZIP is missing or exceeds the archive size limit.")
+    records, overwritten, written = [], 0, 0
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            files, unpacked = _archive_plan(archive, root, limits)
+            report({"state": "validating", "message": "Checking ZIP contents.", "fileCount": len(files)})
+            for info, _, _ in files:
+                _copy_member(archive, info, None, deadline)
+            if shutil.disk_usage(root).free < unpacked:
+                raise InstallError("The target disk has insufficient free space.")
+            report({"state": "extracting", "message": "Extracting chart files."})
+            for info, target, _ in files:
+                _deadline(deadline)
+                _ensure_parent(root, target)
+                descriptor, temp = _temporary(root, target.parent, ".spinshare-stage-")
+                record = {"target": target, "temp": temp, "backup": None, "old_mode": None, "committed": False}
+                records.append(record)
+                with os.fdopen(descriptor, "wb") as destination:
+                    _copy_member(archive, info, destination, deadline)
+                    destination.flush()
+                    os.fsync(destination.fileno())
+        # All bytes and CRCs are checked before any old payload is replaced.
+        for record in records:
+            target = _owned(root, record["target"])
+            if target.exists():
+                record["old_mode"] = target.stat().st_mode
+                descriptor, backup = _temporary(root, target.parent, ".spinshare-rollback-")
+                os.close(descriptor)
+                try:
+                    _replace(root, target, backup)
+                except Exception:
+                    _unlink(root, backup)
+                    raise
+                record["backup"] = backup
+                overwritten += 1
+            _replace(root, record["temp"], target)
+            record["committed"] = True
+            written += 1
+            report({"state": "extracting", "message": "Replacing installed chart files.", "filesWritten": written})
+    except Exception as exc:
+        rollback_errors = _rollback(root, records)
+        if rollback_errors:
+            raise InstallError("Installation failed and some originals could not be restored. The ZIP and recovery files were retained; check for files locked by the game.") from exc
+        report({"filesWritten": 0})
+        message = str(exc) if isinstance(exc, InstallError) else "The ZIP is corrupt or a file write failed: " + str(exc)
+        raise InstallError(message + " Original files are intact; the ZIP was retained.") from exc
+    try:
+        for record in records:
+            if record["backup"] is not None:
+                _unlink(root, record["backup"])
+        _unlink(root, zip_path)
+    except (OSError, InstallError) as exc:
+        raise InstallError("Extraction completed, but cleanup failed. Check for locked ZIP or recovery files.") from exc
+    return {"filesWritten": written, "overwrittenFiles": overwritten, "fileCount": len(records), "zipRemoved": True}
+
+
+class OfficialRedirects(urllib.request.HTTPRedirectHandler):
+    max_redirections = 3
+
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        parsed = urllib.parse.urlsplit(new_url)
+        if (parsed.scheme != "https" or parsed.hostname not in {"spinsha.re", "spinshare.b-cdn.net"} or
+                parsed.port not in (None, 443) or parsed.username is not None or parsed.password is not None):
+            raise InstallError("The download redirected to an unapproved location.")
+        return super().redirect_request(request, file_pointer, code, message, headers, new_url)
+
+
+def download_archive(song_id, target_dir, report, limits=DEFAULT_LIMITS, deadline=None):
+    if type(song_id) is not int or not 0 < song_id <= 9007199254740991:
+        raise InstallError("Invalid chart ID.")
+    root = _root(target_dir)
+    opener = urllib.request.build_opener(OfficialRedirects())
+    request = urllib.request.Request(
+        "https://spinsha.re/api/song/" + str(song_id) + "/download",
+        headers={"User-Agent": "SpinShareBrowser/1.0.0", "Cache-Control": "no-store", "Pragma": "no-cache", "Accept": "application/zip"},
+    )
+    temp = None
+    try:
+        with opener.open(request, timeout=30) as response:
+            if response.getcode() != 200:
+                raise InstallError("The official server did not provide a download; HTTP " + str(response.getcode()) + ".")
+            content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            if content_type not in {"application/zip", "application/x-zip-compressed", "application/octet-stream"}:
+                raise InstallError("The official server returned no ZIP. Open the chart on SpinShare for details.")
+            length = response.headers.get("Content-Length")
+            total = int(length) if length and length.isdigit() else None
+            if total is not None and (total <= 0 or total > limits.max_archive_bytes):
+                raise InstallError("The official download is empty or exceeds the 512 MiB size limit.")
+            disposition = email.message.Message()
+            disposition["Content-Disposition"] = response.headers.get("Content-Disposition", "")
+            name = disposition.get_filename() or ""
+            if not re.fullmatch(r"spinshare_[a-fA-F0-9]{1,64}\.zip", name):
+                name = "spinshare-download-" + str(song_id) + ".zip"
+            destination = _owned(root, root / name)
+            descriptor, temp = _temporary(root, root, ".spinshare-download-")
+            received, last_report = 0, 0
+            report({"state": "downloading", "message": "Downloading the official ZIP.", "downloadedBytes": 0, "totalBytes": total, "zipName": name})
+            with os.fdopen(descriptor, "wb") as output:
+                while True:
+                    _deadline(deadline)
+                    block = response.read(CHUNK_SIZE)
+                    if not block:
+                        break
+                    received += len(block)
+                    if received > limits.max_archive_bytes or total is not None and received > total:
+                        raise InstallError("The actual download exceeds its declared size or the safety limit.")
+                    output.write(block)
+                    if time.monotonic() - last_report >= 0.2:
+                        report({"downloadedBytes": received})
+                        last_report = time.monotonic()
+                output.flush()
+                os.fsync(output.fileno())
+            if not received or total is not None and received != total:
+                raise InstallError("The ZIP download is incomplete.")
+            if not zipfile.is_zipfile(temp):
+                raise InstallError("The official response is not a valid ZIP.")
+            _replace(root, temp, destination)
+            temp = None
+            report({"downloadedBytes": received})
+            return destination
+    except urllib.error.HTTPError as exc:
+        raise InstallError("The official download failed; HTTP " + str(exc.code) + ".") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise InstallError("The download connection failed or timed out.") from exc
+    finally:
+        if temp is not None:
+            _unlink(root, temp)
+
+
+def install_song(song_id, target_dir, report):
+    deadline = time.monotonic() + 15 * 60
+    archive = download_archive(song_id, target_dir, report, deadline=deadline)
+    return install_archive(archive, target_dir, report, deadline=deadline)
+
+
+class JobManager:
+    def __init__(self, target_dir):
+        self.target_dir = Path(os.path.abspath(os.fspath(target_dir)))
+        self.lock = threading.RLock()
+        self.jobs = {}
+        self.requests = {}
+        self.work = queue.Queue()
+        self.closed = False
+        self.worker = threading.Thread(target=self._run, name="SpinShareInstaller", daemon=True)
+        self.worker.start()
+
+    def submit(self, song_id, request_id):
+        if type(song_id) is not int or not 0 < song_id <= 9007199254740991:
+            raise InstallError("The chart ID must be a positive integer.")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[a-f0-9]{32}", request_id):
+            raise InstallError("Invalid installation request ID.")
+        with self.lock:
+            if self.closed:
+                raise InstallError("The installer is exiting. Reopen SpinShareBrowser.exe.")
+            if request_id in self.requests:
+                existing = self.jobs[self.requests[request_id]]
+                if existing["songId"] != song_id:
+                    raise InstallError("The same request ID cannot be used for different charts.")
+                return dict(existing)
+            for job in self.jobs.values():
+                if job["songId"] == song_id and job["state"] in ACTIVE_STATES:
+                    self.requests[request_id] = job["id"]
+                    return dict(job)
+            if self.active_count() >= 16:
+                raise InstallError("The install queue is full (16 tasks). Wait for a task to finish.")
+            identifier = secrets.token_hex(16)
+            job = {
+                "id": identifier, "songId": song_id, "state": "queued",
+                "message": "Queued for installation.", "downloadedBytes": 0,
+                "totalBytes": None, "fileCount": 0, "filesWritten": 0,
+                "overwrittenFiles": 0, "zipRemoved": False,
+                "targetDirectory": str(self.target_dir),
+            }
+            self.jobs[identifier] = job
+            self.requests[request_id] = identifier
+            if len(self.jobs) > 128:
+                for old_id in list(self.jobs):
+                    if len(self.jobs) <= 128:
+                        break
+                    if self.jobs[old_id]["state"] not in ACTIVE_STATES:
+                        del self.jobs[old_id]
+                self.requests = {key: value for key, value in self.requests.items() if value in self.jobs}
+            self.work.put(identifier)
+            return dict(job)
+
+    def get(self, identifier):
+        with self.lock:
+            job = self.jobs.get(identifier)
+            return dict(job) if job is not None else None
+
+    def active_count(self):
+        with self.lock:
+            return sum(job["state"] in ACTIVE_STATES for job in self.jobs.values())
+
+    def close_if_idle(self):
+        with self.lock:
+            if self.active_count():
+                return False
+            if not self.closed:
+                self.closed = True
+                self.work.put(None)
+            return True
+
+    def _run(self):
+        while True:
+            identifier = self.work.get()
+            if identifier is None:
+                self.work.task_done()
+                return
+
+            def report(update):
+                allowed = {"state", "message", "downloadedBytes", "totalBytes", "fileCount", "filesWritten", "zipName"}
+                with self.lock:
+                    self.jobs[identifier].update({key: value for key, value in update.items() if key in allowed})
+
+            try:
+                with self.lock:
+                    song_id = self.jobs[identifier]["songId"]
+                    target_dir = Path(self.jobs[identifier]["targetDirectory"])
+                result = install_song(song_id, target_dir, report)
+                if result.get("zipRemoved") is not True:
+                    raise InstallError("Installation did not finish.")
+                with self.lock:
+                    self.jobs[identifier].update({
+                        key: result[key] for key in ("filesWritten", "overwrittenFiles", "fileCount", "zipRemoved") if key in result
+                    })
+                    self.jobs[identifier].update({"state": "complete", "message": "Installed; matching files replaced and ZIP deleted."})
+            except Exception as exc:
+                message = str(exc) if isinstance(exc, InstallError) else "Installation failed: " + str(exc)
+                with self.lock:
+                    self.jobs[identifier].update({"state": "error", "message": message})
+                logging.warning("An installation failed: %s", type(exc).__name__)
+            finally:
+                self.work.task_done()
