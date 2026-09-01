@@ -38,14 +38,22 @@ function createNodes() {
 const node = createNodes();
 const api = vm.createContext({
   __SPINSHARE_UI_CATALOG__: catalog, TextDecoder, AbortController,
-  $: node, document: {activeElement: null}, Date: {now: () => now},
+  $: node, document: {activeElement: null, hidden: false, documentElement: {clientWidth: 1200, clientHeight: 800}, addEventListener() {}}, Date: {now: () => now},
   setTimeout: (callback, delay) => { const id = ++nextTimer; timers.set(id, {callback, delay}); return id; },
   clearTimeout: id => timers.delete(id),
-  phase: 'idle', applied: null, appExiting: false, catalogNextAllowedAt: 0,
+  phase: 'idle', applied: null, appExiting: false, catalogNextAllowedAt: 0, catalogAutomaticNextAllowedAt: 0,
+  catalogStartupBusy: false, catalogManualBusy: false, catalogAutomaticBusy: false, catalogAutomaticTimer: null,
+  catalogStartupWork: null, catalogFailureHasData: false, catalogStatusPoll: null, catalogHelpTimer: null,
+  catalogDialogCloseTimer: null, catalogToastTimer: null, catalogToastMotion: null, catalogToastStartedAt: 0,
+  catalogToastRemaining: 0, catalogPendingToast: null, hostVisible: true,
+  CHART_ENDPOINTS: {cache: '/v1/charts', manual: '/v1/charts/manual', automatic: '/v1/charts/automatic', status: '/v1/charts/status'},
+  CATALOG_STALE_MS: 43200000, CATALOG_STATUS_POLL_MS: 500, CHART_ERROR_TEXT: {}, INSTALLER_ERROR_TEXT: {},
   INSTALL_ORIGIN: 'http://127.0.0.1:12345', INSTALL_KEY: 'a'.repeat(64), responseLimit: 32 * 1024 * 1024,
   settingsStale: false, searchFields: {title: 1, subtitle: 2, artist: 3, creator: 4},
   searchScopes: new Set(['title', 'subtitle', 'artist', 'creator']), textSearchWork: null, textSearchProblem: '',
-  loadingIndicator() {}, setStatus() {}, filtersChanged: () => false,
+  loadingIndicator() {}, setStatus() {}, filtersChanged: () => false, playMotion() { return null; }, motionAllowed() { return false; },
+  number: value => String(value),
+  MOTION_MS: {feedback: 150, standard: 180, panel: 220, expressive: 280},
   syncResultTools() {}, syncTagControls() {}, unknownSearchUploaders: () => false,
   updateAllInstallationViews: () => assert.fail('Queue saturation must not invalidate installation settings'),
   fetch: async (url, options) => {
@@ -120,9 +128,15 @@ function applyHarness() {
   class ClockDate extends Date { static now() { return now; } }
   const app = vm.createContext({
     __SPINSHARE_UI_CATALOG__: catalog, TextDecoder, AbortController, DOMException, TypeError, URL, Date: ClockDate,
-    $: node, document: {activeElement: null},
+    $: node, document: {activeElement: null, hidden: false, documentElement: {clientWidth: 1200, clientHeight: 800}, addEventListener() {}},
     INSTALL_ORIGIN: 'http://127.0.0.1:12345', INSTALL_KEY: 'a'.repeat(64),
     phase: 'idle', applied: null, appExiting: false, controller: null, catalog: null, catalogFetchedAt: null, catalogNextAllowedAt: 0,
+    catalogAutomaticNextAllowedAt: 0, catalogStartupBusy: false, catalogManualBusy: false, catalogAutomaticBusy: false,
+    catalogAutomaticTimer: null, catalogStartupWork: null, catalogFailureHasData: false, catalogStatusPoll: null,
+    catalogHelpTimer: null, catalogDialogCloseTimer: null, catalogToastTimer: null, catalogToastMotion: null,
+    catalogToastStartedAt: 0, catalogToastRemaining: 0, catalogPendingToast: null, hostVisible: true,
+    CHART_ENDPOINTS: {cache: '/v1/charts', manual: '/v1/charts/manual', automatic: '/v1/charts/automatic', status: '/v1/charts/status'},
+    CATALOG_STALE_MS: 43200000, CATALOG_STATUS_POLL_MS: 500, CHART_ERROR_TEXT: {}, INSTALLER_ERROR_TEXT: {},
     currentRows: [], filtered: [], lastAppliedCriteria: null, appliedText: '', page: 1, visibleCount: 20, scrollBatchSize: 20,
     textSearchWork: null, textSearchProblem: '', textFilterTimer: null,
     searchFields: {title: 1, subtitle: 2, artist: 3, creator: 4}, searchScopes: new Set(['title']),
@@ -131,6 +145,8 @@ function applyHarness() {
     selectedTags: new Map(), tagCatalog: new Map(), tagResultCounts: new Map(), installationCandidates: [], pendingTagAnchor: null,
     readCriteria: () => ({...criteria, diffs: [...criteria.diffs]}), filtersChanged: () => false,
     loadingIndicator() {}, syncResultTools() {}, syncTagControls() {}, syncInstallationFilter() {},
+    playMotion() { return null; }, motionAllowed() { return false; }, number: value => String(value),
+    MOTION_MS: {feedback: 150, standard: 180, panel: 220, expressive: 280},
     installationFilterMode: () => 'all', captureTagViewport: () => ({viewport: true}), dismissChartTags() {}, flyTag() {}, pulseTag() {},
     readUserSearch() { assert.fail('Title and tag filtering must not fetch uploader profiles'); },
     setStatus(message = '', error = false) { statuses.push({message, error}); },
@@ -183,7 +199,7 @@ function applyHarness() {
   };
   const trigger = async (id, type, details = {}) => {
     const element = node(id), handler = element.events.get(type); assert(handler, `No production handler for ${id}:${type}`);
-    const event = {target: element, preventDefault() { this.defaultPrevented = true; }, ...details};
+    const event = {target: element, preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.propagationStopped = true; }, ...details};
     await completes(handler(event)); return event;
   };
   return {app, node, timers, requests, statuses, renders, criteria, respond, advance, trigger,
@@ -291,54 +307,16 @@ async function checkApplyFlows() {
     h.node('sort').value = 'title'; h.node('sort-direction').value = 'asc'; await h.trigger('sort', 'change');
     assert.deepEqual(h.ids(), [1, 2]); assert.equal(h.app.addTagFilter('Piano'), true); assert.deepEqual(h.ids(), [1]);
     h.app.selectedTags.clear(); h.criteria.diffs = [1]; await h.trigger('apply-filters', 'click'); assert.deepEqual(h.ids(), [3]);
-    h.advance(599999); await h.trigger('refresh-data', 'click'); assert.deepEqual(h.ids(), [3]);
+    h.advance(599999); assert.deepEqual(h.ids(), [3]);
     assert.strictEqual(h.app.catalog, saved); assert.equal(h.requests.length, 1);
     assertDerivedCaches(h, caches, false); assert.deepEqual(h.status(), {text: '', error: false}); assert.equal(h.timers.size, 0);
   });
-  await check('the exact expiry boundary automatically obtains a fresh generation through Filter charts', async () => {
-    const h = applyHarness(); await restoreCatalog(h); const caches = seedDerivedCaches(h);
-    h.advance(599999); await h.trigger('apply-filters', 'click'); assert.equal(h.requests.length, 1);
-    h.advance(1); const work = h.trigger('apply-filters', 'click'); assert.equal(h.requests.length, 2);
-    assert.equal(h.app.phase, 'loading'); assert.equal(h.node('refresh-data').disabled, true);
-    await h.apply(); assert.equal(h.requests.length, 2, 'Concurrent filter activation must not duplicate the active request');
-    h.respond({data: [chart(9, 'Updated chart', ['New tag'])], cached: false, fetchedAt: h.now(), nextAllowedAt: h.now() + 600000});
-    await work;
-    assert.deepEqual(h.ids(), [9]); assert.equal(h.app.catalogFetchedAt, h.now()); assertDerivedCaches(h, caches, true);
-    assert.equal(h.app.tagCatalog.has('new tag'), true); assert.equal(h.app.phase, 'ready'); assert.equal(h.app.controller, null);
-    assert.equal(h.timers.size, 0);
-  });
-  await check('same-version cached responses retain derived data while a newer saved version invalidates it', async () => {
-    for (const newer of [false, true]) {
-      const h = applyHarness(); await restoreCatalog(h); const caches = seedDerivedCaches(h), fetchedAt = h.app.catalogFetchedAt;
-      h.advance(600000); const work = h.trigger('refresh-data', 'click');
-      h.respond({data: newer ? [chart(8)] : [chart(1), chart(2)], cached: true,
-        fetchedAt: newer ? fetchedAt + 1 : fetchedAt, nextAllowedAt: h.now() + 600000});
-      await work; assertDerivedCaches(h, caches, newer); assert.deepEqual(h.ids(), newer ? [8] : [2, 1]);
-      assert.deepEqual(h.status(), {text: '', error: false}); assert.equal(h.timers.size, 0);
-    }
-  });
-  await check('saved data survives service failures, connection loss and timeout without becoming an error page', async () => {
-    for (const failure of ['cache-write', 'connection', 'timeout', 'empty-cache-timeout']) {
-      const h = applyHarness(), saved = await restoreCatalog(h, failure === 'empty-cache-timeout' ? [] : [chart(1), chart(2)]);
-      const caches = seedDerivedCaches(h), fetchedAt = h.app.catalogFetchedAt;
-      h.advance(600000); const work = h.apply(), request = h.requests.at(-1);
-      if (failure === 'cache-write') h.respond({code: 'charts_cache_error', nextAllowedAt: h.now() + 600000}, request, 503);
-      else if (failure === 'connection') request.reject(new TypeError('Local connection failed'));
-      else h.advance(h.timeout);
-      await work;
-      assert.strictEqual(h.app.catalog, saved); assert.equal(h.app.catalogFetchedAt, fetchedAt); assertDerivedCaches(h, caches, false);
-      assert.equal(h.app.phase, 'ready'); assert(h.app.applied); assert.deepEqual(h.ids(), saved.length ? [2, 1] : []);
-      assert.equal(h.status().error, false); assert.match(h.status().text, /last saved copy/); assert.equal(h.timers.size, 0);
-      if (failure.includes('timeout')) assert.equal(request.options.signal.aborted, true);
-    }
-  });
-  await check('a local cached fallback response reports a neutral notice without clearing review data', async () => {
-    const h = applyHarness(); await restoreCatalog(h); const caches = seedDerivedCaches(h), fetchedAt = h.app.catalogFetchedAt;
-    h.advance(600000); const work = h.apply();
-    h.respond({data: [chart(1), chart(2)], cached: true, fetchedAt, nextAllowedAt: h.now() + 600000, refreshError: 'The remote service is offline'});
-    await work; assertDerivedCaches(h, caches, false); assert.deepEqual(h.ids(), [2, 1]);
-    assert.equal(h.status().error, false); assert.match(h.status().text, /last saved copy/);
-    await h.trigger('refresh-data', 'click'); assert.equal(h.requests.length, 2); assert.deepEqual(h.status(), {text: '', error: false});
+  await check('filtering stays cache-only after the saved table becomes stale', async () => {
+    const h = applyHarness(), saved = await restoreCatalog(h); const caches = seedDerivedCaches(h), fetchedAt = h.app.catalogFetchedAt;
+    h.advance(12 * 60 * 60 * 1000); await h.trigger('apply-filters', 'click');
+    assert.equal(h.requests.length, 1, 'Filter charts must not turn a stale cache read into a network update');
+    assert.strictEqual(h.app.catalog, saved); assert.equal(h.app.catalogFetchedAt, fetchedAt); assertDerivedCaches(h, caches, false);
+    assert.deepEqual(h.ids(), [2, 1]); assert.equal(h.app.phase, 'ready'); assert.equal(h.timers.size, 0);
   });
   await check('without any saved catalog, service failure and timeout stay errors', async () => {
     for (const failure of ['network', 'timeout']) {
@@ -353,33 +331,31 @@ async function checkApplyFlows() {
     }
   });
   await check('explicit cancellation cannot republish a late response or its deadline and status', async () => {
-    const h = applyHarness(), saved = await restoreCatalog(h), caches = seedDerivedCaches(h), fetchedAt = h.app.catalogFetchedAt;
-    h.advance(600000); const work = h.apply(), request = h.requests.at(-1); request.ignoreAbort = true;
+    const h = applyHarness(), work = h.apply(), request = h.requests.at(-1); request.ignoreAbort = true;
     h.app.cancelQuery(); const deadline = h.app.catalogNextAllowedAt, status = h.status(), renders = h.renders.length;
     assert.equal(request.options.signal.aborted, true);
-    h.respond({data: [chart(99)], cached: false, fetchedAt: h.now(), nextAllowedAt: h.now() + 600000}, request); await work;
+    h.respond({data: [chart(99)], cached: true, stale: false, fetchedAt: h.now(), nextAllowedAt: h.now() + 600000, changed: false}, request); await work;
     assert.equal(h.app.phase, 'idle'); assert.equal(h.app.controller, null); assert.equal(h.app.applied, null); assert.deepEqual(h.ids(), []);
-    assert.strictEqual(h.app.catalog, saved); assert.equal(h.app.catalogFetchedAt, fetchedAt); assert.equal(h.app.catalogNextAllowedAt, deadline);
-    assertDerivedCaches(h, caches, false); assert.equal(h.renders.length, renders); assert.deepEqual(h.status(), status);
+    assert.equal(h.app.catalog, null); assert.equal(h.app.catalogFetchedAt, null); assert.equal(h.app.catalogNextAllowedAt, deadline);
+    assert.equal(h.app.cacheGeneration, 0); assert.equal(h.app.presenceGeneration, 0); assert.equal(h.renders.length, renders); assert.deepEqual(h.status(), status);
     assert.equal(h.timers.size, 0);
   });
   await check('a superseded response cannot clear a newer controller or overwrite its finished results', async () => {
     for (const finishNewFirst of [false, true]) {
-      const h = applyHarness(); await restoreCatalog(h); seedDerivedCaches(h); h.advance(600000);
-      const oldWork = h.apply(), oldRequest = h.requests.at(-1); oldRequest.ignoreAbort = true; h.app.cancelQuery();
+      const h = applyHarness(), oldWork = h.apply(), oldRequest = h.requests.at(-1); oldRequest.ignoreAbort = true; h.app.cancelQuery();
       const newWork = h.apply(), newRequest = h.requests.at(-1), active = h.app.controller;
       if (finishNewFirst) {
-        h.respond({data: [chart(20)], cached: false, fetchedAt: h.now() + 2, nextAllowedAt: h.now() + 600000}, newRequest); await newWork;
+        h.respond({data: [chart(20)], cached: true, stale: false, changed: false, fetchedAt: h.now() + 2, nextAllowedAt: h.now() + 600000}, newRequest); await newWork;
       }
       const deadline = h.app.catalogNextAllowedAt, status = h.status(), renders = h.renders.length;
-      h.respond({data: [chart(90)], cached: false, fetchedAt: h.now() + 1, nextAllowedAt: h.now() + 300000}, oldRequest); await oldWork;
+      h.respond({data: [chart(90)], cached: true, stale: false, changed: false, fetchedAt: h.now() + 1, nextAllowedAt: h.now() + 300000}, oldRequest); await oldWork;
       assert.equal(h.app.catalogNextAllowedAt, deadline); assert.equal(h.renders.length, renders); assert.deepEqual(h.status(), status);
       if (!finishNewFirst) {
         assert.strictEqual(h.app.controller, active); assert.equal(h.app.phase, 'loading'); assert.equal(newRequest.options.signal.aborted, false);
         assert.equal(h.timers.size, 1, 'The old finally block must not cancel the current timeout');
-        h.respond({data: [chart(20)], cached: false, fetchedAt: h.now() + 2, nextAllowedAt: h.now() + 600000}, newRequest); await newWork;
+        h.respond({data: [chart(20)], cached: true, stale: false, changed: false, fetchedAt: h.now() + 2, nextAllowedAt: h.now() + 600000}, newRequest); await newWork;
       }
-      assert.deepEqual(h.ids(), [20]); assert.equal(h.app.cacheGeneration, 5); assert.equal(h.app.presenceGeneration, 9);
+      assert.deepEqual(h.ids(), [20]); assert.equal(h.app.cacheGeneration, 0); assert.equal(h.app.presenceGeneration, 0);
       assert.equal(h.app.controller, null); assert.equal(h.timers.size, 0);
     }
   });
@@ -398,7 +374,7 @@ async function main() {
   assert.match(html, /id="query-retry"[\s\S]*data-ui-static="Retry"/, 'A failed first load needs one explicit retry action in the result stage');
   assert.match(html, /\$\('query-retry'\)\.addEventListener\('click',\(\)=>apply\(\)\)/, 'Retry must re-enter the guarded catalog flow');
   api.syncFilters();
-  assert.equal(node('refresh-data').disabled, true, 'Refresh list requires an applied result set');
+  assert.equal(node('refresh-data').disabled, false, 'Manual updates stay available before filters are applied');
   assert.equal(node('apply-filters').disabled, false, 'The first filter operation must still be available');
   assert.equal(node('local-search').disabled, true, 'Search still requires an applied filter');
 
@@ -438,7 +414,7 @@ async function main() {
   assert.equal(node('refresh-data').disabled, false);
   checkNoCountdown();
   for (const phase of ['idle', 'loading', 'error']) {
-    api.phase = phase; api.syncCatalogRefresh(); assert.equal(node('refresh-data').disabled, true);
+    api.phase = phase; api.syncCatalogRefresh(); assert.equal(node('refresh-data').disabled, false, 'Query state does not own catalog update availability');
   }
   api.phase = 'ready'; api.appExiting = true; api.syncCatalogRefresh(); assert.equal(node('refresh-data').disabled, true);
   api.appExiting = false; api.syncCatalogRefresh(); assert.equal(node('refresh-data').disabled, false);

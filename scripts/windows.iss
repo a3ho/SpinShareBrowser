@@ -39,6 +39,7 @@
 AppId={#AppId}
 AppName={#AppName}
 AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion}
 AppPublisher=Liu Yishou
 DefaultDirName={#InstallDir}
 DefaultGroupName={#ShortcutGroup}
@@ -55,6 +56,7 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\SpinShareBrowser.exe
 CloseApplications=no
 RestartApplications=no
+DisableWelcomePage=no
 DisableProgramGroupPage=yes
 AllowRootDirectory=no
 AllowNetworkDrive=no
@@ -68,6 +70,7 @@ SolidCompression=yes
 MergeDuplicateFiles=yes
 WizardStyle=modern dark includetitlebar hidebevels
 WizardBackColor=#22272a
+VersionInfoVersion={#AppVersion}.0
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
@@ -106,6 +109,14 @@ en.PreparingFiles=Preparing app files...
 zh_CN.PreparingFiles=正在准备工具文件...
 en.InstallingWebView2=Installing or updating Microsoft Edge WebView2 Runtime...
 zh_CN.InstallingWebView2=正在安装或更新 Microsoft Edge WebView2 Runtime...
+en.UpdateWelcomeTitle=Update {#AppName}
+zh_CN.UpdateWelcomeTitle=覆盖/更新 {#AppName}
+en.UpdateWelcomeBody={#AppName} %1 is already installed. Setup will update or overwrite its app files with version %2. Your settings and charts in the game's Custom directory will not be changed.
+zh_CN.UpdateWelcomeBody=已安装 {#AppName} %1。安装程序将使用 %2 版覆盖/更新工具文件；您的设置以及游戏 Custom 目录中的谱面不会受到影响。
+en.UpdateReady=Setup is ready to update or overwrite {#AppName}. Your settings and charts in the game's Custom directory will be kept.
+zh_CN.UpdateReady=安装程序已准备覆盖/更新 {#AppName}。您的设置以及游戏 Custom 目录中的谱面将完整保留。
+en.NewerVersionInstalled=A newer version of {#AppName} (%1) is already installed. This %2 installer cannot downgrade it.
+zh_CN.NewerVersionInstalled=已安装更高版本的 {#AppName}（%1），此 %2 安装程序不会执行降级覆盖。
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
@@ -146,6 +157,8 @@ var
   MaintenanceGate: THandle;
   GateOwned: Boolean;
   PayloadReady: Boolean;
+  ExistingInstall: Boolean;
+  ExistingVersion: String;
   ProgramDirectories: TStringList;
   ProgramDirectoryHandles: TProgramHandles;
 
@@ -455,6 +468,22 @@ begin
   Result := WebView2InRegistry(HKLM32) or WebView2InRegistry(HKCU);
 end;
 
+function DetectExistingInstall(var Version: String): Boolean;
+begin
+  Result := RegQueryStringValue(HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1',
+    'DisplayVersion', Version);
+end;
+
+function ExistingVersionIsNewer: Boolean;
+var
+  Installed, Current: Int64;
+begin
+  Result := StrToVersion(ExistingVersion, Installed) and
+    StrToVersion('{#AppVersion}', Current) and
+    (ComparePackedVersion(Installed, Current) > 0);
+end;
+
 function RunChild(const FileName, Parameters, WorkingDirectory: String;
   var ExitCode: Integer): Boolean;
 begin
@@ -546,6 +575,13 @@ end;
 function InitializeSetup: Boolean;
 begin
   Result := False;
+  ExistingInstall := DetectExistingInstall(ExistingVersion);
+  if ExistingInstall and ExistingVersionIsNewer then
+  begin
+    SuppressibleMsgBox(FmtMessage(CustomMessage('NewerVersionInstalled'), [ExistingVersion, '{#AppVersion}']),
+      mbError, MB_OK, IDOK);
+    Exit;
+  end;
   if not DotNetAvailable then
   begin
     SuppressibleMsgBox(CustomMessage('DotNetRequired'), mbError, MB_OK, IDOK);
@@ -556,6 +592,16 @@ begin
   except
     ReleaseMaintenanceGate;
     SuppressibleMsgBox(CustomMessage('MaintenanceGateFailed'), mbError, MB_OK, IDOK);
+  end;
+end;
+
+procedure InitializeWizard;
+begin
+  if ExistingInstall then
+  begin
+    WizardForm.WelcomeLabel1.Caption := CustomMessage('UpdateWelcomeTitle');
+    WizardForm.WelcomeLabel2.Caption := FmtMessage(CustomMessage('UpdateWelcomeBody'), [ExistingVersion, '{#AppVersion}']);
+    WizardForm.ReadyLabel.Caption := CustomMessage('UpdateReady');
   end;
 end;
 

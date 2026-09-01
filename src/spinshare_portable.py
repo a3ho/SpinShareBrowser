@@ -41,6 +41,8 @@ MAX_CHART_BYTES = 32 * 1024 * 1024
 CHART_CACHE_NAME = "charts-cache.json"
 MAX_CHART_CACHE_BYTES = MAX_CHART_BYTES + MAX_SETTINGS_BYTES
 CHART_REFRESH_INTERVAL_MS = 10 * 60 * 1000
+CHART_FRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
+CHART_AUTOMATIC_BACKOFF_MS = (5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000, 6 * 60 * 60 * 1000)
 
 
 class PortableError(installer.InstallError):
@@ -507,6 +509,9 @@ def _fetch_chart_catalog(on_remote_attempt=None, on_cheap_rejection=None):
         if length is not None and int(length) > MAX_CHART_BYTES:
             raise ChartFetchError("charts_response_too_large", "The full chart response exceeds the size limit.")
         raw = bytearray()
+        on_progress = getattr(on_remote_attempt, "progress", None)
+        if on_progress is not None:
+            on_progress(0, int(length) if length is not None else None)
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -517,6 +522,8 @@ def _fetch_chart_catalog(on_remote_attempt=None, on_cheap_rejection=None):
             if not chunk:
                 break
             raw.extend(chunk)
+            if on_progress is not None:
+                on_progress(len(raw), int(length) if length is not None else None)
             if len(raw) > MAX_CHART_BYTES:
                 raise ChartFetchError("charts_response_too_large", "The full chart response exceeds the size limit.")
         if length is not None and len(raw) != int(length):
@@ -552,13 +559,25 @@ def _fetch_chart_catalog(on_remote_attempt=None, on_cheap_rejection=None):
 
 
 def validate_chart_cache(value):
-    fields = {"schemaVersion", "lastAttemptAt", "fetchedAt", "refreshError", "data"}
-    if (not isinstance(value, dict) or set(value) != fields or type(value["schemaVersion"]) is not int or value["schemaVersion"] not in {1, 2} or
+    legacy_fields = {"schemaVersion", "lastAttemptAt", "fetchedAt", "refreshError", "data"}
+    fields = legacy_fields | {"automaticFailureCount", "automaticLastAttemptAt", "automaticNextAllowedAt",
+                              "automaticRefreshError", "automaticErrorCode"}
+    if (not isinstance(value, dict) or type(value.get("schemaVersion")) is not int or value["schemaVersion"] not in {1, 2, 3} or
+            set(value) != (fields if value["schemaVersion"] == 3 else legacy_fields) or
             value["lastAttemptAt"] is not None and (type(value["lastAttemptAt"]) is not int or not 0 <= value["lastAttemptAt"] < 2 ** 53 - CHART_REFRESH_INTERVAL_MS) or
             value["refreshError"] is not None and (not isinstance(value["refreshError"], str) or len(value["refreshError"]) > 512) or
             (value["data"] is None) != (value["fetchedAt"] is None) or
             value["data"] is not None and (not isinstance(value["data"], list) or any(not isinstance(row, dict) for row in value["data"]) or
-                type(value["fetchedAt"]) is not int or not 0 <= value["fetchedAt"] < 2 ** 53)):
+                type(value["fetchedAt"]) is not int or not 0 <= value["fetchedAt"] < 2 ** 53) or
+            value["schemaVersion"] == 3 and (
+                type(value["automaticFailureCount"]) is not int or not 0 <= value["automaticFailureCount"] <= len(CHART_AUTOMATIC_BACKOFF_MS) or
+                value["automaticLastAttemptAt"] is not None and (type(value["automaticLastAttemptAt"]) is not int or not 0 <= value["automaticLastAttemptAt"] < 2 ** 53 - CHART_AUTOMATIC_BACKOFF_MS[-1]) or
+                value["automaticNextAllowedAt"] is not None and (type(value["automaticNextAllowedAt"]) is not int or not 0 <= value["automaticNextAllowedAt"] < 2 ** 53) or
+                value["automaticRefreshError"] is not None and (not isinstance(value["automaticRefreshError"], str) or len(value["automaticRefreshError"]) > 512) or
+                value["automaticErrorCode"] is not None and (not isinstance(value["automaticErrorCode"], str) or not re.fullmatch(r"[a-z0-9_]{1,64}", value["automaticErrorCode"])) or
+                (value["automaticFailureCount"] == 0) != (value["automaticNextAllowedAt"] is None) or
+                value["automaticFailureCount"] > 0 and (value["automaticLastAttemptAt"] is None or
+                    value["automaticNextAllowedAt"] < value["automaticLastAttemptAt"]))):
         raise PortableError("The saved chart catalog format is invalid.")
     if len(_json_bytes(value)) > MAX_CHART_CACHE_BYTES:
         raise PortableError("The saved chart catalog exceeds the size limit.")
@@ -566,11 +585,23 @@ def validate_chart_cache(value):
 
 
 class ChartCatalogCache:
+    _UNSET = object()
+
     def __init__(self, state_dir):
         self.path = _directory_syntax(state_dir) / CHART_CACHE_NAME
         self.lock = threading.Lock()
+        self.activity_lock = threading.Lock()
         self.state = None
         self.monotonic_until = 0
+        self.automatic_monotonic_until = 0
+        self._activity = {"syncing": False, "phase": "idle", "syncChannel": None,
+                          "bytesReceived": 0, "contentLength": None}
+
+    @staticmethod
+    def _empty_state():
+        return {"schemaVersion": 3, "lastAttemptAt": None, "fetchedAt": None, "refreshError": None, "data": None,
+                "automaticFailureCount": 0, "automaticLastAttemptAt": None, "automaticNextAllowedAt": None,
+                "automaticRefreshError": None, "automaticErrorCode": None}
 
     def _load(self):
         if self.state is not None:
@@ -578,28 +609,64 @@ class ChartCatalogCache:
         if os.path.lexists(self.path):
             self.state = validate_chart_cache(_parse_json(_read_bytes(self.path, limit=MAX_CHART_CACHE_BYTES)))
         else:
-            self.state = {"schemaVersion": 2, "lastAttemptAt": None, "fetchedAt": None, "refreshError": None, "data": None}
+            self.state = self._empty_state()
         # Schema 1 cannot distinguish a cheap connection failure from a request
         # that reached the server. Preserve its timestamp conservatively so an
         # upgrade or restart cannot shorten an unfinished cooldown.
-        if self.state["schemaVersion"] == 1:
-            self.state = dict(self.state, schemaVersion=2)
+        if self.state["schemaVersion"] < 3:
+            self.state = dict(self.state, schemaVersion=3, automaticFailureCount=0, automaticLastAttemptAt=None,
+                              automaticNextAllowedAt=None, automaticRefreshError=None, automaticErrorCode=None)
             with contextlib.suppress(OSError, ValueError, PortableError):
                 self._save(self.state)
         attempt = self.state["lastAttemptAt"]
         remaining = 0 if attempt is None else max(0, attempt + CHART_REFRESH_INTERVAL_MS - time.time_ns() // 1000000)
         self.monotonic_until = time.monotonic_ns() + remaining * 1000000
+        automatic_next = self.state["automaticNextAllowedAt"]
+        automatic_remaining = 0 if automatic_next is None else max(0, automatic_next - time.time_ns() // 1000000)
+        self.automatic_monotonic_until = time.monotonic_ns() + automatic_remaining * 1000000
 
-    def _metadata(self, *, cached):
+    def _activity_snapshot(self):
+        with self.activity_lock:
+            return dict(self._activity)
+
+    def _set_activity(self, channel=None, phase="idle", bytes_received=0, content_length=None):
+        with self.activity_lock:
+            self._activity = {"syncing": phase != "idle", "phase": phase, "syncChannel": channel,
+                              "bytesReceived": bytes_received, "contentLength": content_length}
+
+    def _progress(self, channel, received, content_length):
+        self._set_activity(channel, "receiving", received, content_length)
+
+    def _metadata(self, *, cached, attempted=False, outcome="local", changed=False, channel=None,
+                  refresh_error=_UNSET, error_code=_UNSET, state=None):
         now = time.time_ns() // 1000000
-        state = self.state or {}
+        state = state or self.state or self._empty_state()
         attempt = state.get("lastAttemptAt")
         # Clock changes cannot shorten a cooldown while this process is running.
         remaining = max(0, (self.monotonic_until - time.monotonic_ns() + 999999) // 1000000,
                         0 if attempt is None else attempt + CHART_REFRESH_INTERVAL_MS - now)
-        return {"cached": cached, "serverNow": now, "fetchedAt": state.get("fetchedAt"),
+        automatic_next = state.get("automaticNextAllowedAt")
+        automatic_remaining = max(0, (self.automatic_monotonic_until - time.monotonic_ns() + 999999) // 1000000,
+                                  0 if automatic_next is None else automatic_next - now)
+        if refresh_error is self._UNSET:
+            refresh_error = (state.get("automaticRefreshError") if channel == "automatic" else
+                             state.get("refreshError") if channel == "manual" else
+                             state.get("automaticRefreshError") or state.get("refreshError"))
+        if error_code is self._UNSET:
+            error_code = state.get("automaticErrorCode") if channel != "manual" else None
+        fetched_at = state.get("fetchedAt")
+        return {"data": state.get("data"), "cached": cached, "serverNow": now, "fetchedAt": fetched_at,
+                "stale": fetched_at is None or now >= fetched_at + CHART_FRESH_INTERVAL_MS,
+                "attempted": attempted, "outcome": outcome, "changed": changed,
                 "lastAttemptAt": attempt, "nextAllowedAt": now + remaining,
-                "retryAfterSeconds": (remaining + 999) // 1000, "refreshError": state.get("refreshError")}
+                "retryAfterSeconds": (remaining + 999) // 1000, "refreshError": refresh_error,
+                "manualRefreshError": state.get("refreshError"),
+                "automaticLastAttemptAt": state.get("automaticLastAttemptAt"),
+                "automaticNextAllowedAt": now + automatic_remaining,
+                "automaticRetryAfterSeconds": (automatic_remaining + 999) // 1000,
+                "automaticFailureCount": state.get("automaticFailureCount", 0),
+                "automaticRefreshError": state.get("automaticRefreshError"),
+                "errorCode": error_code, **self._activity_snapshot()}
 
     def _save(self, state):
         raw = _json_bytes(state)
@@ -607,20 +674,46 @@ class ChartCatalogCache:
             raise PortableError("The saved chart catalog exceeds the size limit.")
         _atomic_write(self.path, raw)
 
+    def status(self, *, include_data=True):
+        acquired = self.lock.acquire(blocking=False)
+        try:
+            if acquired:
+                try:
+                    self._load()
+                except (OSError, ValueError, PortableError) as exc:
+                    message = "The chart cache could not be read safely. No remote request was sent."
+                    raise APIError(500, "charts_cache_error", message,
+                                   **self._metadata(cached=False, outcome="failed", refresh_error=message,
+                                                    error_code="charts_cache_error")) from exc
+            state = self.state or self._empty_state()
+            result = self._metadata(cached=state["data"] is not None, state=state)
+            if not include_data:
+                result.pop("data")
+            return result
+        finally:
+            if acquired:
+                self.lock.release()
+
     def get(self):
+        """Backward-compatible alias for an explicit foreground update."""
+        return self.manual_update()
+
+    def manual_update(self):
         # The launcher already holds the per-directory process lock. This lock
-        # coalesces page reloads and concurrent local HTTP requests during a fetch.
+        # coalesces foreground and background callers during a fetch.
         with self.lock:
             try:
                 self._load()
             except (OSError, ValueError, PortableError) as exc:
-                raise APIError(500, "charts_cache_error", "The chart cache could not be read safely. No remote request was sent.",
-                               **self._metadata(cached=False)) from exc
-            metadata = self._metadata(cached=self.state["data"] is not None)
+                message = "The chart cache could not be read safely. No remote request was sent."
+                raise APIError(500, "charts_cache_error", message,
+                               **self._metadata(cached=False, outcome="failed", channel="manual",
+                                                refresh_error=message, error_code="charts_cache_error")) from exc
+            metadata = self._metadata(cached=self.state["data"] is not None, outcome="cooldown", channel="manual")
             if metadata["retryAfterSeconds"]:
                 if self.state["data"] is None:
                     raise APIError(409, "charts_cooldown", "The chart refresh is cooling down.", **metadata)
-                return {"data": self.state["data"], **metadata}
+                return metadata
             previous = self.state
             try:
                 # Prove that the current state can still be replaced safely
@@ -630,16 +723,18 @@ class ChartCatalogCache:
                 self._save(previous)
             except OSError as exc:
                 message = "The chart cache could not be written. No remote request was sent."
-                metadata = dict(self._metadata(cached=previous["data"] is not None), refreshError=message)
+                metadata = self._metadata(cached=previous["data"] is not None, outcome="failed", channel="manual",
+                                          refresh_error=message, error_code="charts_cache_error")
                 if previous["data"] is not None:
-                    return {"data": previous["data"], **metadata}
+                    return metadata
                 raise APIError(500, "charts_cache_error", message, **metadata) from exc
             except (ValueError, PortableError) as exc:
                 # Unsafe paths and invalid cache serialization must never be
                 # treated as an ordinary transient disk failure or fallback.
                 message = "The chart cache is unsafe. No remote request was sent."
                 raise APIError(500, "charts_cache_error", message,
-                               **dict(self._metadata(cached=False), refreshError=message)) from exc
+                               **self._metadata(cached=False, outcome="failed", channel="manual", state=self._empty_state(),
+                                                refresh_error=message, error_code="charts_cache_error")) from exc
             reservation = None
 
             def begin_remote_attempt():
@@ -647,8 +742,8 @@ class ChartCatalogCache:
                 if reservation is not None:
                     return
                 started_at = time.time_ns() // 1000000
-                candidate = dict(previous, schemaVersion=2, lastAttemptAt=started_at,
-                                 refreshError="A remote chart request did not finish. Try again after the refresh cooldown.")
+                candidate = dict(previous, schemaVersion=3, lastAttemptAt=started_at,
+                                  refreshError="A remote chart request did not finish. Try again after the refresh cooldown.")
                 try:
                     # Persist before sending any HTTP bytes. Connection setup
                     # failures never reach this callback; explicit cheap
@@ -657,11 +752,13 @@ class ChartCatalogCache:
                 except OSError as exc:
                     message = "The refresh cooldown could not be saved. No remote request was sent."
                     raise APIError(500, "charts_cache_error", message,
-                                   **dict(self._metadata(cached=previous["data"] is not None), refreshError=message)) from exc
+                                   **self._metadata(cached=previous["data"] is not None, outcome="failed", channel="manual",
+                                                    refresh_error=message, error_code="charts_cache_error")) from exc
                 except (ValueError, PortableError) as exc:
                     message = "The chart cache became unsafe. No remote request was sent."
                     raise APIError(500, "charts_cache_error", message,
-                                   **dict(self._metadata(cached=False), refreshError=message)) from exc
+                                   **self._metadata(cached=False, outcome="failed", channel="manual", state=self._empty_state(),
+                                                    refresh_error=message, error_code="charts_cache_error")) from exc
                 reservation = candidate
                 self.state = candidate
                 self.monotonic_until = time.monotonic_ns() + CHART_REFRESH_INTERVAL_MS * 1000000
@@ -679,26 +776,31 @@ class ChartCatalogCache:
                     message = "The cheap-response cooldown could not be cleared safely."
                     self.state = dict(reservation, refreshError=message)
                     raise APIError(500, "charts_cache_error", message,
-                                   **self._metadata(cached=previous["data"] is not None)) from exc
+                                   **self._metadata(cached=previous["data"] is not None, outcome="failed", channel="manual",
+                                                    refresh_error=message, error_code="charts_cache_error")) from exc
                 except (ValueError, PortableError) as exc:
                     message = "The chart cache became unsafe while clearing a cheap response."
                     self.state = dict(reservation, refreshError=message)
                     raise APIError(500, "charts_cache_error", message,
-                                   **self._metadata(cached=False)) from exc
+                                   **self._metadata(cached=False, outcome="failed", channel="manual", state=self._empty_state(),
+                                                    refresh_error=message, error_code="charts_cache_error")) from exc
                 reservation = None
                 self.state = previous
                 self.monotonic_until = time.monotonic_ns()
 
+            begin_remote_attempt.progress = lambda received, length: self._progress("manual", received, length)
+            self._set_activity("manual", "connecting")
             try:
                 rows = _fetch_chart_catalog(begin_remote_attempt, release_cheap_rejection)
                 # Test doubles and alternate fetchers may return a complete
                 # catalog directly; a completed full fetch still owns cooldown.
                 begin_remote_attempt()
             except APIError as exc:
+                self._set_activity()
                 if previous["data"] is None or not isinstance(exc.__cause__, OSError):
                     raise
-                return {"data": previous["data"],
-                        **dict(self._metadata(cached=True), refreshError=str(exc))}
+                return self._metadata(cached=True, attempted=True, outcome="failed", channel="manual",
+                                      refresh_error=str(exc), error_code=exc.code)
             except ChartFetchError as exc:
                 if reservation is None:
                     # Confirmed DNS/connect/TLS failures and explicit 401/403
@@ -711,7 +813,9 @@ class ChartCatalogCache:
                     self.state = dict(reservation, refreshError=str(exc))
                     with contextlib.suppress(OSError, ValueError, PortableError):
                         self._save(self.state)
-                metadata = self._metadata(cached=self.state["data"] is not None)
+                self._set_activity()
+                metadata = self._metadata(cached=self.state["data"] is not None, attempted=True, outcome="failed",
+                                          channel="manual", error_code=exc.code)
                 if self.state["data"] is None:
                     status = 504 if exc.code in {"charts_request_timeout", "charts_remote_timeout"} else 502
                     raise APIError(status, exc.code, str(exc), **metadata) from exc
@@ -722,23 +826,145 @@ class ChartCatalogCache:
                 self.state = dict(reservation or previous, refreshError=message)
                 with contextlib.suppress(OSError, ValueError, PortableError):
                     self._save(self.state)
-                metadata = self._metadata(cached=self.state["data"] is not None)
+                self._set_activity()
+                metadata = self._metadata(cached=self.state["data"] is not None, attempted=True, outcome="failed",
+                                          channel="manual", error_code=code)
                 if self.state["data"] is None:
                     raise APIError(502, code, message, **metadata) from exc
                 return {"data": self.state["data"], **metadata}
             completed_at = time.time_ns() // 1000000
-            updated = dict(reservation, data=rows, fetchedAt=completed_at, refreshError=None)
+            changed = previous["data"] != rows
+            updated = dict(reservation, data=rows, fetchedAt=completed_at, refreshError=None,
+                           automaticFailureCount=0, automaticNextAllowedAt=None,
+                           automaticRefreshError=None, automaticErrorCode=None)
+            self._set_activity("manual", "saving")
             try:
                 self._save(updated)
             except (OSError, ValueError, PortableError) as exc:
                 # Do not publish a catalog that a restarted process cannot read.
                 self.state = dict(reservation, refreshError="Charts were received, but the local cache could not be saved.")
-                metadata = self._metadata(cached=self.state["data"] is not None)
+                self._set_activity()
+                metadata = self._metadata(cached=self.state["data"] is not None, attempted=True, outcome="failed",
+                                          channel="manual", error_code="charts_cache_error")
                 if not isinstance(exc, OSError) or self.state["data"] is None:
                     raise APIError(500, "charts_cache_error", self.state["refreshError"], **metadata) from exc
                 return {"data": self.state["data"], **metadata}
             self.state = updated
-            return {"data": self.state["data"], **self._metadata(cached=False)}
+            self.automatic_monotonic_until = time.monotonic_ns()
+            self._set_activity()
+            return self._metadata(cached=False, attempted=True, outcome="updated" if changed else "unchanged",
+                                  changed=changed, channel="manual")
+
+    def automatic_update(self):
+        with self.lock:
+            try:
+                self._load()
+            except (OSError, ValueError, PortableError):
+                message = "The chart cache could not be read safely. No remote request was sent."
+                return self._metadata(cached=False, outcome="failed", channel="automatic", state=self._empty_state(),
+                                      refresh_error=message, error_code="charts_cache_error")
+            state = self.state
+            metadata = self._metadata(cached=state["data"] is not None, channel="automatic")
+            if not metadata["stale"]:
+                return self._metadata(cached=True, outcome="fresh", channel="automatic")
+            if metadata["retryAfterSeconds"]:
+                return self._metadata(cached=state["data"] is not None, outcome="manual_cooldown", channel="automatic")
+            if metadata["automaticRetryAfterSeconds"]:
+                return self._metadata(cached=state["data"] is not None, outcome="backoff", channel="automatic")
+            previous = state
+            try:
+                self._save(previous)
+            except OSError:
+                message = "The chart cache could not be written. No remote request was sent."
+                return self._metadata(cached=previous["data"] is not None, outcome="failed", channel="automatic",
+                                      refresh_error=message, error_code="charts_cache_error")
+            except (ValueError, PortableError):
+                message = "The chart cache is unsafe. No remote request was sent."
+                return self._metadata(cached=False, outcome="failed", channel="automatic", state=self._empty_state(),
+                                      refresh_error=message, error_code="charts_cache_error")
+
+            started_at = time.time_ns() // 1000000
+            failures = min(previous["automaticFailureCount"] + 1, len(CHART_AUTOMATIC_BACKOFF_MS))
+            delay = CHART_AUTOMATIC_BACKOFF_MS[failures - 1]
+            reservation = dict(previous, automaticFailureCount=failures, automaticLastAttemptAt=started_at,
+                               automaticNextAllowedAt=started_at + delay,
+                               automaticRefreshError="An automatic chart request did not finish.",
+                               automaticErrorCode="charts_response_incomplete")
+            try:
+                self._save(reservation)
+            except OSError:
+                message = "The automatic retry state could not be saved. No remote request was sent."
+                return self._metadata(cached=previous["data"] is not None, outcome="failed", channel="automatic",
+                                      refresh_error=message, error_code="charts_cache_error")
+            except (ValueError, PortableError):
+                message = "The chart cache became unsafe. No remote request was sent."
+                return self._metadata(cached=False, outcome="failed", channel="automatic", state=self._empty_state(),
+                                      refresh_error=message, error_code="charts_cache_error")
+            self.state = reservation
+            self.automatic_monotonic_until = time.monotonic_ns() + delay * 1000000
+            remote_attempt = False
+
+            def begin_remote_attempt():
+                nonlocal remote_attempt
+                remote_attempt = True
+
+            def release_cheap_rejection():
+                nonlocal remote_attempt
+                remote_attempt = False
+
+            begin_remote_attempt.progress = lambda received, length: self._progress("automatic", received, length)
+            self._set_activity("automatic", "connecting")
+            try:
+                rows = _fetch_chart_catalog(begin_remote_attempt, release_cheap_rejection)
+            except APIError as exc:
+                failed = dict(reservation, automaticRefreshError=str(exc), automaticErrorCode=exc.code)
+                self.state = failed
+                with contextlib.suppress(OSError, ValueError, PortableError):
+                    self._save(failed)
+                self._set_activity()
+                return self._metadata(cached=failed["data"] is not None, attempted=True, outcome="failed",
+                                      channel="automatic", error_code=exc.code)
+            except ChartFetchError as exc:
+                failed = dict(reservation, automaticRefreshError=str(exc), automaticErrorCode=exc.code)
+                self.state = failed
+                with contextlib.suppress(OSError, ValueError, PortableError):
+                    self._save(failed)
+                self._set_activity()
+                return self._metadata(cached=failed["data"] is not None, attempted=True, outcome="failed",
+                                      channel="automatic", error_code=exc.code)
+            except (OSError, ValueError, PortableError, http.client.HTTPException) as exc:
+                code = "charts_response_incomplete" if remote_attempt else "charts_network_error"
+                message = "The chart request or response was interrupted." if remote_attempt else "The chart server could not be reached."
+                failed = dict(reservation, automaticRefreshError=message, automaticErrorCode=code)
+                self.state = failed
+                with contextlib.suppress(OSError, ValueError, PortableError):
+                    self._save(failed)
+                self._set_activity()
+                return self._metadata(cached=failed["data"] is not None, attempted=True, outcome="failed",
+                                      channel="automatic", error_code=code)
+
+            completed_at = time.time_ns() // 1000000
+            changed = previous["data"] != rows
+            updated = dict(reservation, data=rows, fetchedAt=completed_at, refreshError=None,
+                           automaticFailureCount=0, automaticNextAllowedAt=None,
+                           automaticRefreshError=None, automaticErrorCode=None)
+            self._set_activity("automatic", "saving")
+            try:
+                self._save(updated)
+            except (OSError, ValueError, PortableError):
+                message = "Charts were received, but the local cache could not be saved."
+                self.state = dict(reservation, automaticRefreshError=message, automaticErrorCode="charts_cache_error")
+                self._set_activity()
+                return self._metadata(cached=reservation["data"] is not None, attempted=True, outcome="failed",
+                                      channel="automatic", refresh_error=message, error_code="charts_cache_error")
+            self.state = updated
+            self.automatic_monotonic_until = time.monotonic_ns()
+            self._set_activity()
+            return self._metadata(cached=False, attempted=True, outcome="updated" if changed else "unchanged",
+                                  changed=changed, channel="automatic")
+
+    def automatic_check(self):
+        return self.automatic_update()
 
 
 def validate_catalog(catalog):
@@ -1088,7 +1314,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/health", "/v1/activity", "/v1/charts", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check"} and
+        if (self.path not in {"/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check"} and
                 not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
@@ -1124,9 +1350,9 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
         if not self._authenticated():
             return
         manager = self.server.manager
-        if self.path == "/v1/charts":
+        if self.path in {"/v1/charts", "/v1/charts/status"}:
             try:
-                self._respond(200, self.server.chart_cache.get())
+                self._respond(200, self.server.chart_cache.status(include_data=self.path == "/v1/charts"))
             except APIError as exc:
                 self._respond(exc.status, {"error": str(exc), "code": exc.code, **exc.details})
         elif self.path == "/v1/settings":
@@ -1181,11 +1407,18 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check"}:
+        if self.path not in {"/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
             data = self._body()
+            if self.path in {"/v1/charts/manual", "/v1/charts/automatic"}:
+                if data:
+                    raise APIError(400, "invalid_body", "Chart update requests do not accept additional fields.")
+                update = (self.server.chart_cache.manual_update if self.path.endswith("/manual") else
+                          self.server.chart_cache.automatic_update)
+                self._respond(200, update())
+                return
             if self.path == "/v1/desktop/dialog":
                 if (not {"id", "action"} <= set(data) <= {"id", "action", "remember"} or
                         not isinstance(data["id"], str) or not RE_HEX32.fullmatch(data["id"]) or
@@ -1279,7 +1512,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                     self.server.desktop.activity_changed()
             self._respond(202, {"job": job})
         except APIError as exc:
-            self._respond(exc.status, {"error": str(exc), "code": exc.code})
+            self._respond(exc.status, {"error": str(exc), "code": exc.code, **exc.details})
         except installer.InstallError as exc:
             queue_full = getattr(exc, "code", "") == "queue_full"
             self._respond(429 if queue_full else 400, {"error": str(exc), "code": "queue_full" if queue_full else "invalid_request"})
@@ -1311,7 +1544,8 @@ class PortableApplication:
             self.server = PortableHTTPServer((HOST, 0), PortableHandler)
             self.server.capability = self.config["token"]
             self.server.manager = self.manager
-            self.server.chart_cache = ChartCatalogCache(self.store.directory)
+            self.chart_cache = ChartCatalogCache(self.store.directory)
+            self.server.chart_cache = self.chart_cache
             self.server.instance_id = self.instance_id
             self.port = self.server.server_address[1]
             self.origin = "http://127.0.0.1:" + str(self.port)
@@ -1346,6 +1580,15 @@ class PortableApplication:
         self.server.desktop = value
         self.manager.directory_picker = value.choose_directory if value is not None else None
         self.manager.settings_changed = value.settings_changed if value is not None else None
+
+    def chart_catalog_status(self, *, include_data=True):
+        return self.chart_cache.status(include_data=include_data)
+
+    def update_chart_catalog(self):
+        return self.chart_cache.manual_update()
+
+    def check_chart_catalog_automatically(self):
+        return self.chart_cache.automatic_update()
 
     def bootstrap(self, config=None):
         config = self.manager.config if config is None else config

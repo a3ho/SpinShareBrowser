@@ -11,12 +11,219 @@ import re
 import secrets
 import sys
 import threading
+import time
 import unicodedata
 from urllib.parse import urlsplit
 import webbrowser
 
 
 TITLE = "SpinShare Browser"
+CATALOG_POLL_SECONDS = 60
+TOAST_ENTER_SECONDS = 0.42
+TOAST_HOLD_SECONDS = 4.2
+TOAST_EXIT_SECONDS = 0.36
+
+_NOTICE_TEXT = {
+    "en": {
+        "Still running in the tray.": "Still running in the tray",
+        "Use the tray icon to reopen it.": "Use the tray icon to reopen it.",
+        "Chart data updated.": "Chart data updated",
+        "Chart data could not be updated.": "Chart data could not be updated",
+        "The latest chart catalog is ready.": "The latest chart catalog is ready.",
+        "Open SpinShare Browser for details and retry.": "Open SpinShare Browser for details and retry.",
+    },
+    "zh-CN": {
+        "Still running in the tray.": "已在系统托盘中运行",
+        "Use the tray icon to reopen it.": "双击托盘图标即可重新打开。",
+        "Chart data updated.": "谱面数据已更新",
+        "Chart data could not be updated.": "谱面数据更新失败",
+        "The latest chart catalog is ready.": "最新谱面目录已在后台准备完成。",
+        "Open SpinShare Browser for details and retry.": "打开 SpinShare Browser 查看详情并重试。",
+    },
+}
+
+
+def _clean_notice_text(value, limit=220):
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def _toast_width(work_width, scale, brand_text_width, status_text_width):
+    edge = round(12 * scale)
+    brand_required = (edge * 2 + round(17 * scale) + round(7 * scale) + brand_text_width +
+                      round(8 * scale) + round(6 * scale))
+    status_required = edge * 2 + status_text_width
+    width = max(round(184 * scale), min(round(280 * scale), max(brand_required, status_required)))
+    return min(max(1, work_width), width)
+
+
+def _toast_layout(width, scale, brand_text_width, status_text_width):
+    edge = round(12 * scale)
+    icon_size = round(17 * scale)
+    icon_gap = round(7 * scale)
+    dot_gap = round(8 * scale)
+    dot_size = round(6 * scale)
+    brand_available = max(1, width - edge * 2 - icon_size - icon_gap - dot_gap - dot_size)
+    brand_draw_width = min(brand_text_width, brand_available)
+    brand_group_width = icon_size + icon_gap + brand_draw_width + dot_gap + dot_size
+    icon_left = max(0, (width - brand_group_width) // 2)
+    text_left = icon_left + icon_size + icon_gap
+    dot_left = text_left + brand_draw_width + dot_gap
+    status_draw_width = min(status_text_width, max(1, width - edge * 2))
+    status_left = max(0, (width - status_draw_width) // 2)
+    return icon_left, text_left, brand_draw_width, dot_left, status_left, status_draw_width
+
+
+def _toast_geometry(work, scale, width=None):
+    width = min(width if width is not None else round(280 * scale), max(1, work.Width))
+    height = min(round(58 * scale), max(1, work.Height))
+    return work.Right - width, work.Bottom - height, width, height
+
+
+def _catalog_sync_result(result=None, **details):
+    if isinstance(result, dict):
+        details = {**result, **details}
+    elif isinstance(result, bool):
+        details.setdefault("changed", result)
+    attempted = details.get("attempted", True) is True
+    changed = details.get("changed", False) is True
+    error = next((_clean_notice_text(details.get(name)) for name in ("refreshError", "error", "message")
+                  if details.get(name)), "")
+    if attempted and details.get("stale") is True and not error:
+        error = "The latest chart catalog could not be fetched."
+    return attempted, changed, error, details
+
+
+def _client_animations_enabled():
+    if sys.platform != "win32":
+        return False
+    enabled = ctypes.c_int(1)
+    try:
+        user = ctypes.WinDLL("user32")
+        return bool(user.SystemParametersInfoW(0x1042, 0, ctypes.byref(enabled), 0) and enabled.value)
+    except (AttributeError, OSError):
+        return True
+
+
+def _fullscreen_app_active():
+    """Use the shell signal first, then a visible-frame fallback for older Windows."""
+    if sys.platform != "win32":
+        return False
+    try:
+        state = ctypes.c_int()
+        query = ctypes.WinDLL("shell32").SHQueryUserNotificationState
+        query.argtypes = [ctypes.POINTER(ctypes.c_int)]
+        query.restype = ctypes.c_long
+        if query(ctypes.byref(state)) == 0:
+            return state.value in {2, 3, 4}  # Full screen/busy, Direct3D full screen, presentation mode.
+    except (AttributeError, OSError):
+        pass
+
+    class Rect(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_long) for name in ("left", "top", "right", "bottom")]
+
+    class MonitorInfo(ctypes.Structure):
+        _fields_ = [("size", ctypes.c_uint32), ("monitor", Rect), ("work", Rect), ("flags", ctypes.c_uint32)]
+
+    try:
+        user = ctypes.WinDLL("user32")
+        user.GetForegroundWindow.restype = ctypes.c_void_p
+        user.GetShellWindow.restype = ctypes.c_void_p
+        user.GetDesktopWindow.restype = ctypes.c_void_p
+        user.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(Rect)]
+        user.MonitorFromWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        user.MonitorFromWindow.restype = ctypes.c_void_p
+        user.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MonitorInfo)]
+        hwnd = user.GetForegroundWindow()
+        if not hwnd or hwnd in {user.GetShellWindow(), user.GetDesktopWindow()}:
+            return False
+        bounds = Rect()
+        try:
+            dwm = ctypes.WinDLL("dwmapi").DwmGetWindowAttribute
+            dwm.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32]
+            if dwm(hwnd, 9, ctypes.byref(bounds), ctypes.sizeof(bounds)) != 0:
+                raise OSError
+        except (AttributeError, OSError):
+            if not user.GetWindowRect(hwnd, ctypes.byref(bounds)):
+                return False
+        monitor = user.MonitorFromWindow(hwnd, 2)
+        info = MonitorInfo(ctypes.sizeof(MonitorInfo))
+        if not monitor or not user.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            return False
+        tolerance = 2
+        return (bounds.left <= info.monitor.left + tolerance and bounds.top <= info.monitor.top + tolerance and
+                bounds.right >= info.monitor.right - tolerance and bounds.bottom >= info.monitor.bottom - tolerance)
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def _battery_saver_active():
+    if sys.platform != "win32":
+        return False
+
+    class PowerStatus(ctypes.Structure):
+        _fields_ = [("acLineStatus", ctypes.c_byte), ("batteryFlag", ctypes.c_byte),
+                    ("batteryLifePercent", ctypes.c_byte), ("systemStatusFlag", ctypes.c_byte),
+                    ("batteryLifeTime", ctypes.c_uint32), ("batteryFullLifeTime", ctypes.c_uint32)]
+
+    try:
+        status = PowerStatus()
+        return bool(ctypes.WinDLL("kernel32").GetSystemPowerStatus(ctypes.byref(status)) and
+                    status.systemStatusFlag)
+    except (AttributeError, OSError):
+        return False
+
+
+def _metered_network_active():
+    """Read Windows' current connection cost through the documented Network List Manager COM API."""
+    if sys.platform != "win32":
+        return False
+
+    class Guid(ctypes.Structure):
+        _fields_ = [("data1", ctypes.c_uint32), ("data2", ctypes.c_uint16), ("data3", ctypes.c_uint16),
+                    ("data4", ctypes.c_ubyte * 8)]
+
+    def guid(value):
+        raw = bytes.fromhex(value.replace("-", ""))
+        return Guid(int.from_bytes(raw[0:4], "big"), int.from_bytes(raw[4:6], "big"),
+                    int.from_bytes(raw[6:8], "big"), (ctypes.c_ubyte * 8)(*raw[8:]))
+
+    ole = None
+    manager = ctypes.c_void_p()
+    release = None
+    initialized = False
+    try:
+        ole = ctypes.WinDLL("ole32")
+        ole.CoInitializeEx.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        ole.CoInitializeEx.restype = ctypes.c_long
+        result = ole.CoInitializeEx(None, 2)
+        initialized = result in {0, 1}
+        if result not in {0, 1, -2147417850}:  # RPC_E_CHANGED_MODE still permits the current apartment.
+            return False
+        class_id = guid("dcb00c01-570f-4a9b-8d69-199fdba5723b")
+        interface_id = guid("dcb00008-570f-4a9b-8d69-199fdba5723b")
+        ole.CoCreateInstance.argtypes = [ctypes.POINTER(Guid), ctypes.c_void_p, ctypes.c_uint32,
+                                         ctypes.POINTER(Guid), ctypes.POINTER(ctypes.c_void_p)]
+        ole.CoCreateInstance.restype = ctypes.c_long
+        if ole.CoCreateInstance(ctypes.byref(class_id), None, 23, ctypes.byref(interface_id),
+                                ctypes.byref(manager)) != 0:
+            return False
+        methods = ctypes.cast(manager, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        get_cost = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p,
+                                     ctypes.POINTER(ctypes.c_uint32), ctypes.c_void_p)(methods[3])
+        release = ctypes.WINFUNCTYPE(ctypes.c_uint32, ctypes.c_void_p)(methods[2])
+        cost = ctypes.c_uint32()
+        if get_cost(manager, ctypes.byref(cost), None) != 0:
+            return False
+        return bool(cost.value & (0x2 | 0x4 | 0x10000 | 0x20000 | 0x40000 | 0x80000))
+    except (AttributeError, OSError, ValueError):
+        return False
+    finally:
+        if manager.value and release is not None:
+            with contextlib.suppress(Exception):
+                release(manager)
+        if initialized and ole is not None:
+            ole.CoUninitialize()
 
 
 def _icon_path():
@@ -162,6 +369,9 @@ class Desktop:
         self.webview = webview
         self.url = application.origin + application.ui_path
         self.window = self.form = self.tray = self.menu = self.timer = None
+        self.toast_form = self.toast_timer = self.toast_pending = None
+        self.toast_fonts = ()
+        self.toast_icon = None
         self.ready = threading.Event()
         self.finished = threading.Event()
         self.exit_lock = threading.RLock()
@@ -179,6 +389,10 @@ class Desktop:
         self.frame_callback = None
         self.frame_handles = set()
         self.frame_cursor_callback = self.frame_cursor_hook = None
+        self.toast_phase = None
+        self.catalog_sync_due = 0.0
+        self.catalog_sync_thread = None
+        self.catalog_failure_key = None
 
     def text(self, key):
         language = self.manager.config.get("language", "en")
@@ -225,6 +439,27 @@ class Desktop:
             if self.prompt is not None and self.prompt["kind"] == "close":
                 self._emit_dialog()
         return self.post(publish)
+
+    def notify_catalog_sync(self, result=None, **details):
+        """Publish one completed automatic-sync result without touching UI off-thread."""
+        with self.exit_lock:
+            if self.exiting or self.final_close or self.finished.is_set():
+                return False
+        attempted, changed, error, values = _catalog_sync_result(result, **details)
+        if not attempted:
+            return False
+        if error:
+            attempt = values.get("automaticLastAttemptAt")
+            failure_key = (("attempt", attempt, values.get("errorCode")) if attempt is not None else
+                           ("fallback", values.get("errorCode"), error))
+            with self.exit_lock:
+                if failure_key == self.catalog_failure_key:
+                    return False
+                self.catalog_failure_key = failure_key
+            return self.post(lambda: self._queue_toast("error", ""))
+        with self.exit_lock:
+            self.catalog_failure_key = None
+        return changed and self.post(lambda: self._queue_toast("success", ""))
 
     def window_state(self):
         with self.manager.lock:
@@ -746,7 +981,6 @@ class Desktop:
         self.tray.Icon = self.form.Icon
         self.tray.ContextMenuStrip = self.menu
         self.tray.DoubleClick += lambda *_: self.show()
-        self.tray.BalloonTipClicked += lambda *_: self.show()
         self.tray.Visible = True
         self.timer = Forms.Timer()
         self.timer.Interval = 1500
@@ -798,12 +1032,316 @@ class Desktop:
         return get_rect(ctypes.byref(request), ctypes.byref(rect)) == 0
 
     def _check_tray(self, *_):
+        if self.form.Visible:
+            return
         try:
-            if not self.form.Visible and not self._tray_registered():
+            if not self._tray_registered():
                 self._show()
+                return
         except Exception:
             with contextlib.suppress(Exception):
                 self._show()
+            return
+        with contextlib.suppress(Exception):
+            if not self.exiting:
+                self._flush_pending_toast()
+        with contextlib.suppress(Exception):
+            if not self.exiting:
+                self._start_catalog_sync()
+
+    def _start_catalog_sync(self):
+        now = time.monotonic()
+        with self.exit_lock:
+            if (self.exiting or self.final_close or now < self.catalog_sync_due or
+                    self.catalog_sync_thread is not None and self.catalog_sync_thread.is_alive()):
+                return
+            self.catalog_sync_due = now + CATALOG_POLL_SECONDS
+            if _fullscreen_app_active() or _battery_saver_active() or _metered_network_active():
+                return
+            update = getattr(self.application, "check_chart_catalog_automatically", None)
+            if not callable(update):
+                update = getattr(getattr(self.application, "chart_cache", None), "automatic_update", None)
+            if not callable(update):
+                return
+            self.catalog_sync_thread = threading.Thread(
+                target=self._run_catalog_sync, args=(update,), name="SpinShareCatalogSync", daemon=True)
+            self.catalog_sync_thread.start()
+
+    def _run_catalog_sync(self, update):
+        try:
+            with contextlib.suppress(AttributeError, OSError):
+                kernel = ctypes.WinDLL("kernel32")
+                kernel.GetCurrentThread.restype = ctypes.c_void_p
+                kernel.SetThreadPriority.argtypes = [ctypes.c_void_p, ctypes.c_int]
+                kernel.SetThreadPriority(kernel.GetCurrentThread(), -1)
+            result = update()
+        except Exception as exc:
+            result = {"attempted": True, "refreshError": _clean_notice_text(exc)}
+        finally:
+            with self.exit_lock:
+                self.catalog_sync_thread = None
+        self.notify_catalog_sync(result)
+
+    def _notice_text(self, key):
+        language = self.manager.config.get("language", "en")
+        translated = self.application.catalog.get(language, {}).get(key)
+        return translated or _NOTICE_TEXT.get(language, _NOTICE_TEXT["en"]).get(key, key)
+
+    def _queue_toast(self, kind, body):
+        if (self.form is None or self.form.IsDisposed or self.final_close or self.exiting or
+                self.finished.is_set() or self.form.Visible):
+            return
+        if kind == "success":
+            title = self._notice_text("Chart data updated.")
+            body = self._notice_text("The latest chart catalog is ready.")
+        elif kind == "error":
+            title = self._notice_text("Chart data could not be updated.")
+            body = body or self._notice_text("Open SpinShare Browser for details and retry.")
+        else:
+            title = self._notice_text("Still running in the tray.")
+            body = self._notice_text("Use the tray icon to reopen it.")
+        self.toast_pending = kind, title, _clean_notice_text(body)
+        self._flush_pending_toast()
+
+    def _flush_pending_toast(self):
+        if self.toast_pending is None:
+            return
+        if self.form.Visible:
+            self.toast_pending = None
+            return
+        if _fullscreen_app_active():
+            return
+        notice = self.toast_pending
+        self.toast_pending = None
+        try:
+            self._create_toast(*notice)
+        except Exception:
+            # A cosmetic notification failure must never open or destabilize the app.
+            self._dispose_toast()
+
+    def _notification_screen(self):
+        from System import IntPtr
+
+        user = ctypes.WinDLL("user32")
+        user.GetForegroundWindow.restype = ctypes.c_void_p
+        hwnd = user.GetForegroundWindow()
+        return self.Forms.Screen.FromHandle(IntPtr(hwnd)) if hwnd else self.Forms.Screen.PrimaryScreen
+
+    @staticmethod
+    def _toast_scale(handle):
+        user = ctypes.WinDLL("user32")
+        dpi = 96
+        with contextlib.suppress(AttributeError, OSError):
+            get_dpi = user.GetDpiForWindow
+            get_dpi.argtypes = [ctypes.c_void_p]
+            get_dpi.restype = ctypes.c_uint
+            dpi = get_dpi(handle) or 96
+        return dpi / 96
+
+    @staticmethod
+    def _position_toast(handle, left, top, width=0, height=0, *, show=False):
+        user = ctypes.WinDLL("user32")
+        user.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
+                                      ctypes.c_int, ctypes.c_int, ctypes.c_uint32]
+        user.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        flags = 0x10 | (0 if width and height else 0x1) | (0x40 if show else 0)
+        if not user.SetWindowPos(handle, ctypes.c_void_p(-1), left, top, width, height, flags):
+            raise OSError("The notification window could not be positioned.")
+        if show:
+            user.ShowWindow(handle, 4)  # SW_SHOWNOACTIVATE
+
+    @staticmethod
+    def _set_toast_window_style(handle):
+        user = ctypes.WinDLL("user32")
+        get_style = getattr(user, "GetWindowLongPtrW", user.GetWindowLongW)
+        set_style = getattr(user, "SetWindowLongPtrW", user.SetWindowLongW)
+        get_style.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        get_style.restype = ctypes.c_ssize_t
+        set_style.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+        set_style.restype = ctypes.c_ssize_t
+        style = get_style(handle, -20)
+        set_style(handle, -20, style | 0x80 | 0x08000000)  # tool window + no activate
+        if get_style(handle, -20) & 0x08000080 != 0x08000080:
+            raise OSError("The notification window could not be made non-activating.")
+        with contextlib.suppress(AttributeError, OSError):
+            rounded = ctypes.c_int(1)  # Keep the flush right and bottom edges square on Windows 11.
+            set_attribute = ctypes.WinDLL("dwmapi").DwmSetWindowAttribute
+            set_attribute.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32]
+            set_attribute(handle, 33, ctypes.byref(rounded), ctypes.sizeof(rounded))
+
+    def _create_toast(self, kind, title, body):
+        from System.Drawing import Color, Font, FontStyle, Icon, Pen, Rectangle, Size, SolidBrush
+        from System.Drawing.Drawing2D import SmoothingMode
+
+        self._dispose_toast()
+        screen = self._notification_screen()
+        work = screen.WorkingArea
+        form = self.Forms.Form()
+        self.toast_form = form
+        form.Text = TITLE
+        form.FormBorderStyle = getattr(self.Forms.FormBorderStyle, "None")
+        form.StartPosition = self.Forms.FormStartPosition.Manual
+        form.ShowInTaskbar = False
+        form.ControlBox = False
+        form.AutoScaleMode = getattr(self.Forms.AutoScaleMode, "None")
+        form.BackColor = Color.FromArgb(17, 23, 25)
+        form.Bounds = Rectangle(work.Left, work.Top, 1, 1)
+        handle = form.Handle.ToInt64()
+        self._set_toast_window_style(handle)
+        scale = self._toast_scale(handle)
+        icon_size = round(17 * scale)
+        icon_top = round(8 * scale)
+        self.toast_fonts = (Font("Segoe UI Semibold", 9.0, FontStyle.Regular),
+                            Font("Segoe UI Semibold", 11.0, FontStyle.Regular))
+        text_flags = (self.Forms.TextFormatFlags.SingleLine | self.Forms.TextFormatFlags.VerticalCenter |
+                      self.Forms.TextFormatFlags.EndEllipsis | self.Forms.TextFormatFlags.NoPrefix |
+                      self.Forms.TextFormatFlags.NoPadding)
+        measure_flags = (self.Forms.TextFormatFlags.SingleLine | self.Forms.TextFormatFlags.NoPrefix |
+                         self.Forms.TextFormatFlags.NoPadding)
+        graphics = form.CreateGraphics()
+        try:
+            proposed = Size(32767, 32767)
+            brand_text_width = self.Forms.TextRenderer.MeasureText(
+                graphics, TITLE, self.toast_fonts[0], proposed, measure_flags).Width
+            status_text_width = self.Forms.TextRenderer.MeasureText(
+                graphics, title, self.toast_fonts[1], proposed, measure_flags).Width
+        finally:
+            graphics.Dispose()
+        measured_width = _toast_width(work.Width, scale, brand_text_width, status_text_width)
+        left, rest_top, width, height = _toast_geometry(work, scale, measured_width)
+        (icon_left, text_left, brand_draw_width, dot_left,
+         status_left, status_draw_width) = _toast_layout(
+             width, scale, brand_text_width, status_text_width)
+        self._position_toast(handle, left, rest_top, width, height)
+        form.Opacity = 0.0
+        form.Cursor = self.Forms.Cursors.Hand
+        form.AccessibleName = title
+        form.AccessibleDescription = title
+
+        accent = Color.FromArgb(111, 188, 147) if kind == "success" else (
+            Color.FromArgb(213, 143, 84) if kind == "error" else Color.FromArgb(119, 137, 146))
+
+        with contextlib.suppress(Exception):
+            # Select a larger ICO frame and downsample it at paint time.  This avoids
+            # enlarging a 16/20 px frame on scaled displays.
+            source_icon_size = min(128, max(32, round(icon_size * 1.5)))
+            self.toast_icon = Icon(str(_icon_path()), Size(source_icon_size, source_icon_size))
+
+        def paint(sender, args):
+            border = Pen(Color.FromArgb(43, 54, 59), max(1, round(scale)))
+            marker = SolidBrush(accent)
+            try:
+                args.Graphics.DrawRectangle(border, 0, 0, sender.ClientSize.Width - 1, sender.ClientSize.Height - 1)
+                if self.toast_icon is not None:
+                    args.Graphics.DrawIcon(self.toast_icon, Rectangle(icon_left, icon_top, icon_size, icon_size))
+                self.Forms.TextRenderer.DrawText(
+                    args.Graphics, TITLE, self.toast_fonts[0],
+                    Rectangle(text_left, round(6 * scale), brand_draw_width, round(21 * scale)),
+                    Color.FromArgb(169, 180, 185), text_flags)
+                self.Forms.TextRenderer.DrawText(
+                    args.Graphics, title, self.toast_fonts[1],
+                    Rectangle(status_left, round(30 * scale), status_draw_width, round(21 * scale)),
+                    Color.FromArgb(238, 242, 243), text_flags)
+                dot_size = max(5, round(6 * scale))
+                dot_top = round(13 * scale)
+                smoothing = args.Graphics.SmoothingMode
+                args.Graphics.SmoothingMode = SmoothingMode.AntiAlias
+                try:
+                    args.Graphics.FillEllipse(marker, dot_left, dot_top, dot_size, dot_size)
+                finally:
+                    args.Graphics.SmoothingMode = smoothing
+            finally:
+                border.Dispose()
+                marker.Dispose()
+
+        form.Paint += paint
+        def clicked(sender, args):
+            if args.Button == self.Forms.MouseButtons.Left:
+                self._dismiss_toast(open_app=True)
+
+        form.MouseUp += clicked
+
+        self.toast_phase = "enter" if _client_animations_enabled() else "hold"
+        self.toast_phase_started = time.monotonic()
+        self.toast_deadline = self.toast_phase_started + TOAST_HOLD_SECONDS
+        self.toast_last_tick = self.toast_phase_started
+        # WinForms Form.Show() rewrites the extended style and activates the HWND.
+        # Reassert the style after all managed properties, then show only through
+        # Win32's explicit no-activate path.
+        self._set_toast_window_style(handle)
+        self._position_toast(handle, left, rest_top, width, height, show=True)
+        if self.toast_phase == "hold":
+            form.Opacity = 1.0
+            form.Invalidate()
+            form.Update()
+        if self.toast_timer is None:
+            self.toast_timer = self.Forms.Timer()
+            self.toast_timer.Tick += self._animate_toast
+        self.toast_timer.Interval = 16 if self.toast_phase == "enter" else 100
+        self.toast_timer.Start()
+
+    def _animate_toast(self, *_):
+        form = self.toast_form
+        if form is None or form.IsDisposed:
+            self._dispose_toast()
+            return
+        now = time.monotonic()
+        if self.toast_phase == "enter":
+            progress = min(1.0, (now - self.toast_phase_started) / TOAST_ENTER_SECONDS)
+            eased = progress * progress * (3 - 2 * progress)
+            form.Opacity = eased
+            if progress >= 1:
+                # Opacity 1 removes WinForms' layered-window path, allowing GDI
+                # ClearType text for the entire steady state.
+                form.Opacity = 1.0
+                form.Invalidate()
+                form.Update()
+                self.toast_phase = "hold"
+                self.toast_deadline = now + TOAST_HOLD_SECONDS
+                self.toast_timer.Interval = 100
+        elif self.toast_phase == "hold":
+            with contextlib.suppress(Exception):
+                if form.ClientRectangle.Contains(form.PointToClient(self.Forms.Cursor.Position)):
+                    self.toast_deadline += now - self.toast_last_tick
+            if now >= self.toast_deadline:
+                if _client_animations_enabled():
+                    self.toast_phase = "exit"
+                    self.toast_phase_started = now
+                    self.toast_timer.Interval = 16
+                else:
+                    self._dispose_toast()
+                    return
+        else:
+            progress = min(1.0, (now - self.toast_phase_started) / TOAST_EXIT_SECONDS)
+            eased = progress * progress * (3 - 2 * progress)
+            form.Opacity = 1 - eased
+            if progress >= 1:
+                self._dispose_toast()
+                return
+        self.toast_last_tick = now
+
+    def _dispose_toast(self):
+        if self.toast_timer is not None:
+            self.toast_timer.Stop()
+        form, self.toast_form = self.toast_form, None
+        fonts, self.toast_fonts = self.toast_fonts, ()
+        icon, self.toast_icon = self.toast_icon, None
+        self.toast_phase = None
+        if form is not None:
+            with contextlib.suppress(Exception):
+                form.Dispose()
+        for font in fonts:
+            with contextlib.suppress(Exception):
+                font.Dispose()
+        if icon is not None:
+            with contextlib.suppress(Exception):
+                icon.Dispose()
+
+    def _dismiss_toast(self, open_app=False):
+        self.toast_pending = None
+        self._dispose_toast()
+        if open_app:
+            self.show()
 
     def _refresh_labels(self):
         if self.menu is not None:
@@ -819,6 +1357,8 @@ class Desktop:
             return
         if self.timer is not None:
             self.timer.Stop()
+        self.toast_pending = None
+        self._dispose_toast()
         self.form.Show()
         if self.form.WindowState == self.Forms.FormWindowState.Minimized:
             self.form.WindowState = self.Forms.FormWindowState.Maximized if self.maximized else self.Forms.FormWindowState.Normal
@@ -840,13 +1380,14 @@ class Desktop:
             return
         if remember:
             self.manager.update_close_behavior("tray")
-        if not self.manager.config.get("trayNoticeShown", False):
-            with contextlib.suppress(Exception):
-                self.tray.ShowBalloonTip(3000, TITLE,
-                    self.text("SpinShare Browser is still running. Use the tray icon to reopen it."), self.Forms.ToolTipIcon.Info)
+        show_notice = not self.manager.config.get("trayNoticeShown", False)
+        if show_notice:
             self.manager.mark_tray_notice()
         self.form.Hide()
         self.timer.Start()
+        if show_notice:
+            self._queue_toast("info", self.text(
+                "SpinShare Browser is still running. Use the tray icon to reopen it."))
 
     def _closing(self):
         if self.final_close:
@@ -971,11 +1512,22 @@ class Desktop:
             self.exit_failed = False
             self.exit_thread = threading.Thread(target=self._finish_exit, name="SpinShareExit")
             self.exit_thread.start()
+        self.post(self._stop_background_ui)
         self.activity_changed()
+
+    def _stop_background_ui(self):
+        if self.timer is not None:
+            with contextlib.suppress(Exception):
+                self.timer.Stop()
+        self.toast_pending = None
+        with contextlib.suppress(Exception):
+            self._dispose_toast()
 
     def _finish_exit(self):
         try:
             self.manager.work.join()
+            # The catalog refresh is low-priority daemon work and may be waiting on
+            # the network.  It must never hold an explicit app exit open.
             if self.security_ready and self.window_size is not None:
                 with contextlib.suppress(Exception):
                     self.manager.update_window_size(dict(self.window_size))
@@ -991,7 +1543,9 @@ class Desktop:
 
     def _destroy(self):
         self.final_close = True
-        for component in (self.timer, self.tray, self.menu):
+        self.toast_pending = None
+        self._dispose_toast()
+        for component in (self.toast_timer, self.timer, self.tray, self.menu):
             if component is not None:
                 with contextlib.suppress(Exception):
                     component.Dispose()

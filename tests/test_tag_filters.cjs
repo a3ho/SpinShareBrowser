@@ -201,17 +201,18 @@ async function checkRequestPaths() {
   const api = vm.createContext({
     DOMException, responseLimit: 32 * 1024 * 1024, cacheGeneration: 0, reviewCache: new Map(),
     INSTALL_ORIGIN: 'http://127.0.0.1:12345', INSTALL_KEY: 'test-key', INSTALLER_ERROR_TEXT: {},
-    catalogNextAllowedAt: 0, syncCatalogRefresh: () => {},
-    m: text => text, uiError: text => new Error(text), setStatus: () => {},
+    CHART_ENDPOINTS: {cache: '/v1/charts', manual: '/v1/charts/manual', automatic: '/v1/charts/automatic'},
+    catalogNextAllowedAt: 0, catalogAutomaticNextAllowedAt: 0, syncCatalogRefresh: () => {},
+    m: text => text, number: value => String(value), uiError: text => new Error(text), setStatus: () => {},
     readJSONResponse: async response => response.body,
     remember: (cache, id, value) => cache.set(id, value),
     fetch: async (url, options) => {
       requests.push({url, options});
       assert(responses.length, `Unexpected additional request: ${url}`);
-      return {ok: true, headers: {}, body: responses.shift()};
+      return {ok: true, headers: {get: () => null}, body: responses.shift()};
     },
   });
-  vm.runInContext(extract('async function loadRemote(', 'async function readJSONResponse(')
+  vm.runInContext(extract('function catalogPayloadError(', 'async function readJSONResponse(')
     + extract('async function readReviews(', 'async function readSharedUser('), api);
   const controller = new AbortController();
   const catalog = await api.loadRemote(controller.signal);

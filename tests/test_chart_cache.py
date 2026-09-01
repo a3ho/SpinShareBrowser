@@ -94,7 +94,8 @@ def run_catalog_process_fixture(options):
             for _ in range(2):
                 connection = http.client.HTTPConnection(portable.HOST, app.port, timeout=3)
                 try:
-                    connection.request("GET", "/v1/charts", headers={"Origin": app.origin, "X-SpinShare-Key": app.token})
+                    connection.request("POST", "/v1/charts/manual", body=b"{}", headers={
+                        "Origin": app.origin, "X-SpinShare-Key": app.token, "Content-Type": "application/json"})
                     response = connection.getresponse()
                     responses.append({"status": response.status, "body": json.loads(response.read())})
                 finally:
@@ -218,9 +219,139 @@ class ChartCacheTests(unittest.TestCase):
                     self.assertEqual(result["retryAfterSeconds"], 600)
                     self.assertEqual(result["data"], ROWS)
                 migrated = json.loads(path.read_bytes())
-                self.assertEqual(migrated["schemaVersion"], 2)
+                self.assertEqual(migrated["schemaVersion"], 3)
                 self.assertEqual(migrated["lastAttemptAt"], self.wall_ms)
+                self.assertEqual(migrated["automaticFailureCount"], 0)
+                self.assertIsNone(migrated["automaticNextAllowedAt"])
         self.fetch.assert_not_called()
+
+    def test_automatic_update_uses_fetched_time_and_never_starts_manual_cooldown(self):
+        self.assertEqual(portable.CHART_FRESH_INTERVAL_MS, 12 * 60 * 60 * 1000)
+        empty = self.cache.status()
+        self.assertIsNone(empty["data"])
+        self.assertTrue(empty["stale"])
+        self.fetch.assert_not_called()
+
+        first = self.cache.automatic_update()
+        self.assertTrue(first["attempted"])
+        self.assertTrue(first["changed"])
+        self.assertEqual(first["outcome"], "updated")
+        self.assertEqual(first["data"], ROWS)
+        self.assertIsNone(first["lastAttemptAt"])
+        self.assertEqual(first["retryAfterSeconds"], 0)
+        self.assertEqual(first["automaticRetryAfterSeconds"], 0)
+        self.assertFalse(first["stale"])
+
+        self.advance(portable.CHART_FRESH_INTERVAL_MS - 1)
+        fresh = self.cache.automatic_update()
+        self.assertFalse(fresh["attempted"])
+        self.assertEqual(fresh["outcome"], "fresh")
+        self.assertEqual(self.fetch.call_count, 1)
+
+        self.advance(1)
+        unchanged = self.cache.automatic_update()
+        self.assertTrue(unchanged["attempted"])
+        self.assertFalse(unchanged["changed"])
+        self.assertEqual(unchanged["outcome"], "unchanged")
+        self.assertIsNone(unchanged["lastAttemptAt"])
+        self.assertEqual(self.fetch.call_count, 2)
+
+    def test_schema_two_migration_keeps_catalog_and_adds_idle_automatic_state(self):
+        legacy = {"schemaVersion": 2, "lastAttemptAt": None,
+                  "fetchedAt": self.wall_ms - portable.CHART_FRESH_INTERVAL_MS,
+                  "refreshError": "old manual error", "data": ROWS}
+        self.cache.path.write_bytes(portable._json_bytes(legacy))
+        cache = portable.ChartCatalogCache(self.state)
+        status = cache.status()
+        self.assertEqual(status["data"], ROWS)
+        self.assertTrue(status["stale"])
+        self.assertEqual(status["manualRefreshError"], "old manual error")
+        migrated = json.loads(cache.path.read_bytes())
+        self.assertEqual(migrated["schemaVersion"], 3)
+        self.assertEqual(migrated["automaticFailureCount"], 0)
+        self.assertIsNone(migrated["automaticLastAttemptAt"])
+        self.assertIsNone(migrated["automaticNextAllowedAt"])
+        self.fetch.assert_not_called()
+
+    def test_automatic_failures_persist_independent_backoff_and_manual_bypasses_it(self):
+        self.fetch.side_effect = OSError("offline")
+        expected_delays = (*portable.CHART_AUTOMATIC_BACKOFF_MS, portable.CHART_AUTOMATIC_BACKOFF_MS[-1])
+        for index, delay in enumerate(expected_delays, 1):
+            with self.subTest(failure=index):
+                failed = self.cache.automatic_update()
+                self.assertTrue(failed["attempted"])
+                self.assertEqual(failed["outcome"], "failed")
+                self.assertEqual(failed["errorCode"], "charts_network_error")
+                self.assertEqual(failed["automaticRetryAfterSeconds"], delay // 1000)
+                self.assertEqual(failed["automaticFailureCount"], min(index, len(portable.CHART_AUTOMATIC_BACKOFF_MS)))
+                self.assertIsNone(failed["lastAttemptAt"])
+                saved = json.loads(self.cache.path.read_bytes())
+                self.assertIsNone(saved["lastAttemptAt"])
+                self.assertEqual(saved["automaticNextAllowedAt"], self.wall_ms + delay)
+
+                self.cache = portable.ChartCatalogCache(self.state)
+                self.advance(delay - 1)
+                waiting = self.cache.automatic_update()
+                self.assertFalse(waiting["attempted"])
+                self.assertEqual(waiting["outcome"], "backoff")
+                self.assertEqual(waiting["automaticRetryAfterSeconds"], 1)
+                if index < len(expected_delays):
+                    self.advance(1)
+
+        automatic_calls = self.fetch.call_count
+        self.fetch.side_effect = None
+        manual = self.cache.manual_update()
+        self.assertTrue(manual["attempted"])
+        self.assertEqual(manual["data"], ROWS)
+        self.assertEqual(manual["automaticFailureCount"], 0)
+        self.assertEqual(manual["automaticRetryAfterSeconds"], 0)
+        self.assertEqual(self.fetch.call_count, automatic_calls + 1)
+
+    def test_automatic_update_respects_an_existing_manual_cooldown(self):
+        old = dict(self.cache._empty_state(), lastAttemptAt=self.wall_ms,
+                   fetchedAt=self.wall_ms - portable.CHART_FRESH_INTERVAL_MS, data=ROWS)
+        self.cache.path.write_bytes(portable._json_bytes(old))
+        cache = portable.ChartCatalogCache(self.state)
+        blocked = cache.automatic_update()
+        self.assertTrue(blocked["stale"])
+        self.assertFalse(blocked["attempted"])
+        self.assertEqual(blocked["outcome"], "manual_cooldown")
+        self.assertEqual(blocked["retryAfterSeconds"], 600)
+        self.fetch.assert_not_called()
+
+        self.advance(portable.CHART_REFRESH_INTERVAL_MS)
+        due = cache.automatic_update()
+        self.assertTrue(due["attempted"])
+        self.assertEqual(due["lastAttemptAt"], old["lastAttemptAt"])
+        self.fetch.assert_called_once()
+
+    def test_status_stays_nonblocking_during_single_flight_and_reports_progress(self):
+        entered, release = threading.Event(), threading.Event()
+
+        def delayed_fetch(on_remote_attempt, _on_cheap_rejection=None):
+            on_remote_attempt()
+            on_remote_attempt.progress(123, 456)
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return ROWS
+
+        self.fetch.side_effect = delayed_fetch
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            foreground = workers.submit(self.cache.manual_update)
+            self.assertTrue(entered.wait(2))
+            snapshot = self.cache.status(include_data=False)
+            self.assertTrue(snapshot["syncing"])
+            self.assertEqual(snapshot["phase"], "receiving")
+            self.assertEqual(snapshot["bytesReceived"], 123)
+            self.assertEqual(snapshot["contentLength"], 456)
+            self.assertNotIn("data", snapshot)
+            background = workers.submit(self.cache.automatic_update)
+            release.set()
+            self.assertTrue(foreground.result(timeout=3)["attempted"])
+            automatic = background.result(timeout=3)
+        self.assertFalse(automatic["attempted"])
+        self.assertEqual(automatic["outcome"], "fresh")
+        self.fetch.assert_called_once()
 
     def test_concurrent_callers_share_one_remote_fetch(self):
         entered, release = threading.Event(), threading.Event()
@@ -341,7 +472,7 @@ class ChartCacheTests(unittest.TestCase):
 
     def test_system_clock_jump_cannot_shorten_running_process_cooldown(self):
         self.cache.get()
-        self.wall_ms += 86400000
+        self.wall_ms += portable.CHART_FRESH_INTERVAL_MS
         self.monotonic_ms += 1000
         cached = self.cache.get()
         self.assertTrue(cached["cached"])
@@ -800,9 +931,22 @@ class ChartCacheTests(unittest.TestCase):
         self.fetch.assert_not_called()
         status, first = request()
         self.assertEqual(status, 200)
-        self.assertEqual(first["data"], ROWS)
+        self.assertIsNone(first["data"])
         self.assertFalse(first["cached"])
+        self.assertTrue(first["stale"])
+        self.assertEqual(first["phase"], "idle")
+        compact_status = request("/v1/charts/status")[1]
+        self.assertNotIn("data", compact_status)
+        self.assertEqual(compact_status["fetchedAt"], first["fetchedAt"])
+        status, updated = request("/v1/charts/manual", method="POST", body="{}")
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"], ROWS)
+        self.assertTrue(updated["attempted"])
+        self.assertFalse(updated["cached"])
         self.assertTrue(request()[1]["cached"])
+        automatic = request("/v1/charts/automatic", method="POST", body="{}")[1]
+        self.assertEqual(automatic["outcome"], "fresh")
+        self.assertFalse(automatic["attempted"])
         self.assertEqual(request(method="POST", body="{}")[0], 404)
         self.fetch.assert_called_once()
         error = installer.InstallError("Queue full")

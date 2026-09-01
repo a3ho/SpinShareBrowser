@@ -52,7 +52,7 @@ function harness(songs, installed = new Set()) {
     INSTALL_DIRECTORY: 'fixture-directory-a', DEFAULT_INSTALL_DIRECTORY: 'fixture-directory-a', settingsRevision: 'a'.repeat(32),
     settingsStale: false, settingsBusy: '', settingsLoaded: true, appExiting: false, activityJobs: [], installationActivityIds: new Map(),
     installationStates: new Map(), installationViews: new Map(), installedCharts: new Map(), presenceQueue: new Map(),
-    presenceBusy: false, presenceGeneration: 0, installationCandidates: [], installationFilterPending: false, presenceRefreshQueued: false,
+    presenceBusy: false, presenceGeneration: 0, installationCandidates: [], installationFilterPending: false, installationFilterRemaining: 0, presenceRefreshQueued: false,
     currentRows: [], applied: criteria, lastAppliedCriteria: criteria, filtered: [], appliedText: '', phase: 'ready', page: 1, visibleCount: 20, scrollBatchSize: 20, controller: null,
     renderedCount: 0, pageDetails: null, pendingTagAnchor: null, cardViews: new Map(), tagResultCounts: new Map(), selectedTags: new Map(),
     searchFields: {title: 1, subtitle: 2, artist: 3, creator: 4}, searchScopes: new Set(['title']), userSearchCache: new Map(), profileCache: new Map(),
@@ -61,7 +61,7 @@ function harness(songs, installed = new Set()) {
     fetch: () => assert.fail('Installation filtering must not use network fetch'),
     startTextSearch: text => { assert.equal(text, '', 'A presence refresh must not start uploader lookup'); },
     stopTextSearch() {}, scopeSearchUsers() {}, needsUserSearch: () => false,
-    loadingIndicator() {}, updateTaskProgress() {}, refreshSettingsControls() {}, syncCloseOptions() {}, renderActivity() {}, refreshActivity() {},
+    loadingIndicator(node, active) { node.classList.toggle('is-loading', active); }, updateTaskProgress() {}, refreshSettingsControls() {}, syncCloseOptions() {}, renderActivity() {}, refreshActivity() {},
     syncCatalogRefresh() {}, filtersChanged: () => false, syncResultTools() {}, syncTagControls() {}, syncSearchControls() {}, setStatus() {}, applyDatePreset() {},
     prepareTagAnchor() {}, dismissChartTags() {}, dismissChartDescription() {}, scheduleChartDescriptions() {}, stopPageDetails() {}, prunePageDetails() {}, queueEntry() {}, pruneEntries() {},
     renderPageLinks() {}, syncReviewVisibility() {}, watchMore() {}, syncCovers() {}, restoreTagAnchor() {},
@@ -199,7 +199,11 @@ async function directoryAndMetadataRace() {
 async function changingCandidatesDuringCheck() {
   const h = harness(Array.from({length: 65}, (_, i) => song(i + 1))); h.hold(); h.mode('installed');
   h.node('local-search').value = 'Piano 065'; h.api.selectedTags.set('slow', 'Slow'); h.mode('uninstalled');
-  assert.deepEqual(h.ids(), []); resolveNext(h, new Set(Array.from({length: 30}, (_, i) => i + 1))); await tick();
+  assert.deepEqual(h.ids(), []); assert.equal(h.node('count').textContent, '0 charts');
+  assert.equal(h.node('installation-filter-feedback').hidden, true, 'The empty result stage owns progress instead of duplicating it above');
+  assert.match(h.node('empty').textContent, /^Checking installation status: \d+ \/ \d+$/);
+  assert.equal(h.node('empty').classList.contains('is-loading'), true);
+  resolveNext(h, new Set(Array.from({length: 30}, (_, i) => i + 1))); await tick();
   assert.deepEqual(h.ids(), [], 'The old broader result must not return when its request completes');
   assert.equal(h.deferred.length, 1); assert.deepEqual(Array.from(h.deferred[0].body.charts, chart => chart.songId), [65]);
   let textSearchFired = false;
