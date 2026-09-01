@@ -718,6 +718,31 @@ test('Left and Right seek five seconds globally while preserving native control 
   h.document.emit('keydown', keyEvent(spaceTarget('page'), {key: 'ArrowRight', code: 'ArrowRight'}));
   assert.equal(h.audio.currentTime, 120); assert.equal(h.state().state, 'ended');
 
+  for (const position of ['card', 'player']) {
+    const focused = playerHarness(); focused.setup(); const row = focused.row(31, position === 'card' ? 'spinshare_31ca' : 'spinshare_31b'); focused.makeCover(row);
+    const view = [...focused.coverViews.values()][0], control = position === 'card' ? view.play : focused.node('preview-player-toggle');
+    focused.start(row); focused.audio.duration = 120; focused.audio.readyState = 4; focused.audio.emit('loadedmetadata'); focused.audio.emit('playing'); focused.audio.currentTime = 40.37;
+    const forward = pressKey(focused, control, {key: 'ArrowRight', code: 'ArrowRight'});
+    assert.equal(forward.defaultPrevented, true, `${position}: the current song control joins the global seek path`);
+    assert.equal(focused.audio.currentTime, 45.37, `${position}: a focused playback control seeks forward exactly five seconds`);
+    const back = pressKey(focused, control, {key: 'ArrowLeft', code: 'ArrowLeft'});
+    assert.equal(back.defaultPrevented, true, `${position}: rewind stays on the same global seek path`);
+    assert.equal(focused.audio.currentTime, 40.37, `${position}: a focused playback control seeks back exactly five seconds`);
+  }
+
+  const progressFocused = playerHarness(); progressFocused.setup(); progressFocused.start(progressFocused.row(32, 'spinshare_32'));
+  progressFocused.audio.duration = 120; progressFocused.audio.readyState = 4; progressFocused.audio.emit('loadedmetadata'); progressFocused.audio.emit('playing'); progressFocused.audio.currentTime = 40.37; progressFocused.audio.emit('timeupdate');
+  const progress = progressFocused.node('preview-player-progress'); progressFocused.document.activeElement = progress;
+  const progressArrow = progressFocused.document.emit('keydown', keyEvent(progress, {key: 'ArrowRight', code: 'ArrowRight'}));
+  if (!progressArrow.defaultPrevented) {
+    progress.value = String(Number(progress.value) + .01); progress.emit('input');
+  }
+  assert.equal(progressArrow.defaultPrevented, true, 'The player range must not apply its native 0.01-second Arrow step');
+  assert.equal(progressFocused.audio.currentTime, 45.37, 'A focused player range seeks forward exactly five seconds');
+  const progressBack = progressFocused.document.emit('keydown', keyEvent(progress, {key: 'ArrowLeft', code: 'ArrowLeft'}));
+  assert.equal(progressBack.defaultPrevented, true);
+  assert.equal(progressFocused.audio.currentTime, 40.37, 'A focused player range seeks back exactly five seconds');
+
   const reserved = [
     'input:range', 'input:search', 'textarea', 'select', 'button', 'summary', 'editable',
     'slider', 'menu', 'menuitem', 'listbox', 'option', 'spinbutton', 'tree', 'treeitem',

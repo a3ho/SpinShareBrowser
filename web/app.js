@@ -1339,6 +1339,7 @@ function handlePreviewSpace(event){
 function previewSeekReserved(event){
   if(event.defaultPrevented||event.isComposing||event.ctrlKey||event.altKey||event.metaKey||event.shiftKey)return true;const target=event.target;
   if(!target?.closest)return false;
+  if(currentPreviewControl(target)||target===$('preview-player-progress'))return false;
   const selection=globalThis.getSelection?.();if(selection&&!selection.isCollapsed)return true;
   return Boolean(target.closest('a[href],input,textarea,select,button,summary,[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="textbox"],[role="combobox"],[role="slider"],[role="menu"],[role="menuitem"],[role="listbox"],[role="option"],[role="spinbutton"],[role="tree"],[role="treeitem"],[role="grid"],[role="gridcell"],[role="tab"],.reading-content,.calendar-popover'));
 }

@@ -20,6 +20,7 @@ Version 2.0.0 is a major update to browsing, playback, data synchronization, com
 
 - Added one global header player for complete chart audio, with cover controls, song and artist information, elapsed and total time, and a draggable progress bar.
 - Added Space to pause or resume and Left / Right to seek by 5 seconds when those keys do not belong to an editor or another native control.
+- Fixed Left / Right seeking after selecting a chart cover or focusing the player timeline, so each key press moves exactly 5 seconds.
 - Added robust OGG playback with one MP3 fallback, bounded loading time, state preservation across local browsing operations, and clear playback feedback.
 
 #### Descriptions, reviews, and focus
@@ -58,6 +59,7 @@ Version 2.0.0 is a major update to browsing, playback, data synchronization, com
 
 - 新增顶栏全局播放器，播放谱面的完整歌曲，显示封面、歌名、艺人、当前与总时间，并提供可拖动进度条。
 - 当编辑器或原生控件不占用按键时，Space 可暂停或继续，左右方向键可后退或快进 5 秒。
+- 修复点击谱面封面或聚焦播放器进度条后左右方向键失效或只移动少量时间的问题，现在每次精确移动 5 秒。
 - 完善 OGG 播放与单次 MP3 回退、加载超时、浏览状态保留和播放反馈。
 
 #### 作者说明、评论与聚焦体验

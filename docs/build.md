@@ -64,8 +64,11 @@ $archive = (Resolve-Path "dist\SpinShareBrowser-2.0.0-source.zip").Path
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
 try {
     $entries = $zip.Entries.FullName
+    $prefix = "SpinShareBrowser-2.0.0/"
     $required = "CHANGELOG.md", "README.md", "PRODUCT.md", "DESIGN.md", "src/spinshare_portable.py", "web/app.js"
-    $missing = $required | Where-Object { $_ -notin $entries }
+    $missing = $required |
+        ForEach-Object { "$prefix$_" } |
+        Where-Object { $_ -notin $entries }
     if ($missing) { throw "Source archive is missing: $($missing -join ', ')" }
 } finally {
     $zip.Dispose()
