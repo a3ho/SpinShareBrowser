@@ -78,9 +78,10 @@ body:has(.back-to-top.is-visible) .brand img { opacity: 0; }
 #preview-player-progress:disabled { opacity: .45; cursor: default; }
 .preview-glyphs { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: linear-gradient(180deg, #08090d18, #08090d9c); color: #fff; }
 .global-player-cover .preview-glyphs { opacity: 0; transition: opacity var(--motion-feedback); }
-.global-player-cover:hover .preview-glyphs, .global-player-cover:focus-visible .preview-glyphs, .global-player-cover.is-loading .preview-glyphs, .global-player-cover.is-error .preview-glyphs { opacity: 1; }
+.global-player-cover:hover .preview-glyphs, .global-player-cover:focus-visible .preview-glyphs, .global-player-cover.is-loading .preview-glyphs, .global-player-cover.is-error .preview-glyphs, .global-player-cover.is-shortcut-feedback .preview-glyphs { opacity: 1; }
 .preview-glyphs::before { content: ""; grid-area: 1 / 1; width: 30px; height: 30px; border-radius: 50%; background: #111219b8; box-shadow: 0 4px 14px #0008; transform: scale(.94); transition: transform var(--motion-standard) var(--ease-out), background var(--motion-feedback); }
 .preview-toggle:hover .preview-glyphs::before, .preview-toggle:focus-visible .preview-glyphs::before { background: #171821dc; transform: scale(1); }
+.global-player-cover.is-shortcut-feedback .preview-glyphs::before { transform: scale(1); animation: preview-shortcut-pulse var(--motion-panel) var(--ease-out); }
 .preview-glyph { grid-area: 1 / 1; z-index: 1; width: 17px; height: 17px; opacity: 0; transform: scale(.78); transition: opacity var(--motion-feedback), transform var(--motion-standard) var(--ease-out); }
 .preview-glyph-play { margin-left: 1px; fill: currentColor; stroke: none; opacity: 1; transform: scale(1); }
 .preview-toggle.is-playing .preview-glyph-play { opacity: 0; transform: scale(.75) rotate(-7deg); }
@@ -91,6 +92,7 @@ body:has(.back-to-top.is-visible) .brand img { opacity: 0; }
 .preview-toggle.is-loading .preview-glyph { opacity: 0; transform: scale(.75); }
 .preview-toggle.is-loading .preview-spinner { display: block; }
 @keyframes preview-spin { to { transform: rotate(360deg); } }
+@keyframes preview-shortcut-pulse { from { opacity: .55; transform: scale(.78); } 70% { opacity: 1; transform: scale(1.06); } to { opacity: 1; transform: scale(1); } }
 .app-layout { padding-top: var(--top); min-height: 100vh; }
 body:has(#app-activity:not([hidden])) { --content-bottom: 120px; }
 .content { min-width: 0; max-width: 1640px; margin: 0 auto; padding: 24px 36px var(--content-bottom); }
@@ -667,6 +669,7 @@ html, .settings-panel { --scroll-thumb: #484a57; }
   *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
   .is-loading::before { opacity: 1; animation: none; }
   .preview-spinner { animation: none; }
+  .global-player-cover.is-shortcut-feedback .preview-glyphs::before { animation: none; }
   .settings-panel::backdrop { transition: none; }
   .chart-description.has-overflow::before, .chart-description.has-overflow::after, .chart-description.has-overflow .chart-description-text { transform: none !important; }
 }

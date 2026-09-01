@@ -127,6 +127,18 @@ class WebResourceTests(unittest.TestCase):
         self.assertNotIn("blob:", directives["media-src"])
         self.assertNotIn("data:", directives["media-src"])
 
+    def test_live_ui_does_not_create_native_title_tooltips(self):
+        sources = {
+            name: (ROOT / "web" / name).read_text(encoding="utf-8")
+            for name in ("index.html", "chart-card.js", "app.js")
+        }
+        self.assertIsNone(re.search(r"\s(?:title|data-ui-attr-title)=", sources["index.html"], re.I))
+        for name in ("chart-card.js", "app.js"):
+            with self.subTest(name=name):
+                self.assertIsNone(re.search(r"uiAttr\([^;\n]*,\s*['\"]title['\"]", sources[name]))
+                self.assertIsNone(re.search(r"\.[Tt]itle\s*=", sources[name]))
+        self.assertNotIn("['aria-label','title']", sources["app.js"])
+
 
 if __name__ == "__main__":
     unittest.main()

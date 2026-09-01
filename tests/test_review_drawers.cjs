@@ -338,7 +338,8 @@ test('failed counts never become zero; network retry is bounded and invalid payl
   assert.equal(h.requests.length, 2); assert.equal(h.api.reviewCounts.has(1), false);
   assert.equal(cell.commentValue.textContent, '!'); assert(cell.toggle.classList.contains('is-count-error'));
   assert.equal(cell.toggle.disabled, false);
-  assert.match(cell.toggle.getAttribute('title'), /could not be updated/); assertClosed(cell);
+  assert.equal(cell.toggle.hasAttribute('title'), false);
+  assert.match(cell.toggle.getAttribute('aria-description'), /could not be updated/); assertClosed(cell);
   h.click(cell); assert.equal(h.requests.length, 3);
   assert.equal(h.requests[2].options.priority, 'high');
   h.rawReply(h.requests[2], {status: 200, data: {average: 0}});
@@ -548,13 +549,17 @@ test('popover owner, union hover, keyboard, touch, outside clicks and scroll dis
   first.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: first.refresh});
   assert.equal(first.reviewLeaveTimer, null);
   first.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
-  first.target.hovered = true; h.runTimers(180);
+  first.target.emit('pointerenter', {pointerType: 'mouse'}); h.runTimers(180);
   assert.equal(first.target.matches(':popover-open'), true, 'Moving into the floating descendant must keep it open');
-  first.target.hovered = false;
-  first.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
+  first.target.emit('pointerleave', {pointerType: 'mouse', relatedTarget: first.card});
+  assert.equal(first.reviewLeaveTimer, null, 'Moving from the floating surface into its source card stays inside the union');
+  first.target.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
   first.card.emit('pointerenter'); h.runTimers(180);
   assert.equal(first.target.matches(':popover-open'), true, 'Reentering the card cancels dismissal');
+  first.card.hovered = true;
   first.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null}); h.runTimers(180);
+  first.card.hovered = false;
+  assert.equal(first.target.matches(':popover-open'), false, 'A stale CSS hover state must not veto a real union leave');
   assertClosed(first); assert.equal(h.owner(), null);
   h.click(first, 'keyboard');
   assert.strictEqual(h.document.activeElement, first.target); assert.equal(first.target.focusOptions.preventScroll, true);
@@ -805,16 +810,17 @@ test('description hover never opens; click, keyboard and touch reveal one cached
   assert.equal(h.requests.length, 0); assert.equal(h.profiles.length, 0);
 });
 
-test('description union hover and whole-surface wheel handling retain the source card and dismiss only after the leave delay', () => {
+test('description pointer union and whole-surface wheel handling retain the source card and dismiss only after the leave delay', () => {
   const h = harness(), item = described(h), panel = h.descriptionPanel(); clickDescription(item);
   item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: panel.body});
   assert.equal(h.descriptionTimer(), null);
   item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null}); h.advance(159);
   assert.strictEqual(h.descriptionOwner(), item.view);
-  panel.target.hovered = true; h.advance(1); assert.strictEqual(h.descriptionOwner(), item.view);
-  panel.target.hovered = false; panel.target.emit('pointerleave', {pointerType: 'mouse'});
-  item.cell.card.hovered = true; h.advance(160); assert.strictEqual(h.descriptionOwner(), item.view);
-  item.cell.card.hovered = false; panel.target.emit('pointerleave', {pointerType: 'mouse'});
+  panel.target.emit('pointerenter', {pointerType: 'mouse'}); h.advance(1);
+  assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(h.descriptionTimer(), null);
+  panel.target.emit('pointerleave', {pointerType: 'mouse', relatedTarget: item.cell.card});
+  assert.equal(h.descriptionTimer(), null, 'Moving from the floating surface into its source card stays inside the union');
+  panel.target.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
   item.cell.card.emit('pointerenter', {pointerType: 'mouse'}); h.advance(160);
   assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(h.descriptionTimer(), null);
   panel.list.clientHeight = 120; panel.list.scrollHeight = 600;
@@ -831,8 +837,10 @@ test('description union hover and whole-surface wheel handling retain the source
   assert.equal(short.defaultPrevented, true); assert.equal(short.propagationStopped, true); assert.equal(panel.list.scrollTop, 0);
   const zoom = panel.target.emit('wheel', {deltaY: 80, deltaMode: 0, ctrlKey: true}); assert(!zoom.defaultPrevented); assert(!zoom.propagationStopped);
   h.document.emit('scroll', {target: panel.list}); assert.strictEqual(h.descriptionOwner(), item.view);
-  item.preview.focus(); item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
+  item.cell.card.hovered = true; panel.target.hovered = true;
+  panel.target.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
   h.advance(160); assertDescriptionClosed(h);
+  item.cell.card.hovered = false; panel.target.hovered = false;
   clickDescription(item, 'keyboard');
   item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null}); h.advance(160);
   assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(h.descriptionTimer(), null);

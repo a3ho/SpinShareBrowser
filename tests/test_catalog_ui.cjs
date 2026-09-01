@@ -70,7 +70,7 @@ function checkCachedSearchAvailable() {
   assert.equal(node('refresh-data').disabled, false, 'Refresh list can reuse data during the server interval');
 }
 function checkNoCountdown() {
-  assert.equal(node('refresh-data').attributes.get('title'), catalog['zh-CN']['Refresh list']);
+  assert.equal(node('refresh-data').attributes.has('title'), false, 'Refresh controls must not create native hover tooltips');
   assert.equal(timers.size, 0, 'A catalog deadline must not schedule a UI countdown');
 }
 

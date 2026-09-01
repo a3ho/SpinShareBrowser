@@ -52,7 +52,7 @@ function createChartCard(row){
   const official=element('a',undefined,'chart-official-link');
   songTitle.id='song-title-'+row[0];
   official.href='https://spinsha.re/song/'+row[0];official.target='_blank';official.rel='noopener noreferrer';
-  uiAttr(official,'aria-label',m('Open on SpinShare: ')+row[1]);uiAttr(official,'title',m('Open on SpinShare: ')+row[1]);official.append(icon('external'));
+  uiAttr(official,'aria-label',m('Open on SpinShare: ')+row[1]);official.append(icon('external'));
   titleRow.append(songTitle,official);copy.append(titleRow);
   if(row[2])copy.append(element('p',row[2],'subtitle'));
   copy.append(element('p',row[3]||m('Unknown artist'),'artist'));
@@ -64,7 +64,7 @@ function createChartCard(row){
     const badge=element('span',shortLabels[kind]+(match?' '+match[1]:''),'badge'+(match?'':' is-muted'));
     const description=labels[kind]+(match?' '+match[1]:m(': outside this filter'));
     badge.dataset.difficulty=String(kind);
-    uiAttr(badge,'title',description);uiAttr(badge,'aria-label',description);
+    uiAttr(badge,'aria-label',description);
     levels.append(badge);
   }
 
@@ -89,12 +89,11 @@ function createChartCard(row){
   const metrics=element('div',undefined,'card-metrics');stats.append(metrics);
   const date=element('time',row[5].slice(0,10)||'—','date');
   if(row[5])date.setAttribute('datetime',row[5].slice(0,10));
-  uiAttr(date,'title',m('Upload date'));metrics.append(date);
+  uiAttr(date,'aria-label',m('Upload date')+': '+(row[5].slice(0,10)||'—'));metrics.append(date);
   for(const key of ['views','downloads']){
     const label=key==='views'?m('Views'):m('Downloads');
     const value=row[8][key]===null?'—':number(row[8][key]);
     const metric=element('div',undefined,'metric metric-'+key);
-    uiAttr(metric,'title',row[8][key]===null?m('No data supplied'):label);
     uiAttr(metric,'aria-label',label+m(': ')+value);
     metric.append(icon(key),element('span',value,'metric-value'),element('span',label,'metric-label'));
     metrics.append(metric);
@@ -125,7 +124,6 @@ function createChartCard(row){
   uiAttr(list,'aria-label',m('All public ratings and reviews'));
   refresh.type='button';
   uiAttr(refresh,'aria-label',m('Reload ')+row[1]+m("'s complete reviews"));
-  uiAttr(refresh,'title',m('Refresh reviews'));
   refresh.append(icon('refresh'),refreshLabel);
   heading.append(summary,refresh);reviewBody.append(context,heading,note,list);reviewCell.append(reviewBody);card.append(reviewCell);
   const cell={row,card,target:reviewCell,body:reviewBody,toggle:commentMetric,chevron,context,summary,refresh,refreshLabel,list,note,charterAvatar,charterIdentity,uploader,commentValue,seen:false,pending:false,reviewTemporaryOpen:false};

@@ -10,6 +10,7 @@ const {test} = require('node:test');
 const web = path.join(__dirname, '..', 'web');
 const appSource = fs.readFileSync(path.join(web, 'app.js'), 'utf8');
 const cardSource = fs.readFileSync(path.join(web, 'chart-card.js'), 'utf8');
+const interfaceSource = fs.readFileSync(path.join(web, 'interface.css'), 'utf8');
 const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
 
 function extract(source, start, end) {
@@ -126,6 +127,7 @@ class Element {
     return event;
   }
   focus() { this.focused = true; }
+  blur() { this.blurred = true; }
 }
 
 class AudioElement extends Element {
@@ -223,7 +225,8 @@ function playerHarness() {
     id:previewTrack?.id??null, reference:previewTrack?.reference??'', state:previewState,
     format:previewFormat, source:previewExpectedSource, generation:previewGeneration,
     attempt:previewPlayAttempt, ready:previewReady, wantsPlay:previewWantsPlay,
-    frame:previewFrame, watchdog:previewSourceTimer
+    frame:previewFrame, watchdog:previewSourceTimer, shortcutPending:previewShortcutPending,
+    shortcutTimer:previewShortcutTimer
   })`, context);
   const run = (expression, values = {}) => {
     Object.assign(context, values); return vm.runInContext(expression, context);
@@ -317,9 +320,10 @@ test('a missing cover keeps a valid preview playable while an unavailable previe
   assert.equal(view.state, 'missing');
   assert.equal(view.placeholder.hidden, false);
   assert.equal(view.missing.hidden, false);
-  assert.equal(view.media.getAttribute('title'), 'No cover');
+  assert.equal(view.media.hasAttribute('title'), false, 'Missing artwork must not create a native hover tooltip');
   assert.equal(view.play.disabled, false, 'Missing artwork must not disable a valid audio preview');
   assert.equal(view.play.getAttribute('aria-label'), 'Play preview: Chart 21');
+  assert.equal(view.play.hasAttribute('title'), false, 'The cover control must not create a native hover tooltip');
   assert.equal(view.play.getAttribute('aria-pressed'), 'false');
   assert.equal(view.play.getAttribute('aria-busy'), 'false');
   view.play.emit('click');
@@ -346,6 +350,7 @@ test('top and card controls expose matching pressed and busy states throughout p
     for (const control of [h.node('preview-player-toggle'), view.play]) {
       assert.equal(control.getAttribute('aria-pressed'), String(pressed));
       assert.equal(control.getAttribute('aria-busy'), String(busy));
+      assert.equal(control.hasAttribute('title'), false);
     }
     assert.equal(h.player.getAttribute('aria-busy'), String(busy));
   };
@@ -578,6 +583,47 @@ test('Space toggles globally except where the focused control has its own Space 
   }
   const repeated = modified.document.emit('keydown', keyEvent(spaceTarget('page'), {repeat: true}));
   assert.equal(repeated.defaultPrevented, true); assert.equal(modified.state().state, 'playing');
+});
+
+test('Space feedback uses the top cover only after a real pause or playing event, then retires itself', async () => {
+  assert.match(interfaceSource, /\.global-player-cover\.is-shortcut-feedback \.preview-glyphs\s*\{\s*opacity:\s*1/);
+  const h = playerHarness(), toggle = h.node('preview-player-toggle'), progress = h.node('preview-player-progress');
+  h.setup(); h.audio.readyState = 4; h.start(h.row(30, 'spinshare_30')); h.audio.emit('loadedmetadata'); h.audio.emit('playing');
+
+  h.document.activeElement = progress;
+  const paused = h.document.emit('keydown', keyEvent(spaceTarget('input:range')));
+  assert.equal(paused.defaultPrevented, true);
+  assert.equal(h.state().state, 'paused');
+  assert.equal(progress.blurred, true, 'The global shortcut must not leave a focus frame on the progress range');
+  assert.equal(toggle.classList.contains('is-playing'), false);
+  assert.equal(toggle.classList.contains('is-shortcut-feedback'), true, 'Pause feedback appears on the cover');
+  h.advance(899); assert.equal(toggle.classList.contains('is-shortcut-feedback'), true);
+  h.advance(1); assert.equal(toggle.classList.contains('is-shortcut-feedback'), false);
+
+  h.document.activeElement = null;
+  h.document.emit('keydown', keyEvent(spaceTarget('page')));
+  assert.equal(h.state().state, 'loading');
+  assert.equal(h.state().shortcutPending, h.state().generation);
+  assert.equal(toggle.classList.contains('is-shortcut-feedback'), false, 'A play request is not presented as playback yet');
+  h.audio.emit('playing');
+  assert.equal(h.state().shortcutPending, 0);
+  assert.equal(toggle.classList.contains('is-playing'), true);
+  assert.equal(toggle.classList.contains('is-shortcut-feedback'), true, 'Play feedback begins only when media is actually playing');
+  h.advance(900); assert.equal(toggle.classList.contains('is-shortcut-feedback'), false);
+
+  h.document.emit('keydown', keyEvent(spaceTarget('page'))); h.advance(900);
+  const rejected = deferred(), denied = new Error('Autoplay policy'); denied.name = 'NotAllowedError';
+  h.audio.playResults.push(rejected.promise);
+  h.document.emit('keydown', keyEvent(spaceTarget('page')));
+  assert.equal(h.state().shortcutPending, h.state().generation);
+  rejected.reject(denied); await flush();
+  assert.equal(h.state().shortcutPending, 0);
+  assert.equal(toggle.classList.contains('is-shortcut-feedback'), false, 'Rejected playback never flashes a false play state');
+
+  const loading = playerHarness(); loading.setup(); loading.start(loading.row(31, 'spinshare_31'));
+  loading.document.emit('keydown', keyEvent(spaceTarget('page')));
+  assert.equal(loading.state().state, 'paused');
+  assert.equal(loading.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), false, 'Cancelling a load is not presented as an audible pause');
 });
 
 test('visibility pauses without discarding the song, while page exit disposes media and listeners', () => {
