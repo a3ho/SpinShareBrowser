@@ -342,7 +342,7 @@ async function main() {
   assert.match(markup, /<option value="all" data-ui-static="All installation states">All<\/option>/);
   assert.equal(catalog.en['All installation states'], 'All');
   assert.equal(catalog['zh-CN']['All installation states'], '全部');
-  const sortMarkup = markup.match(/<select id="sort">([\s\S]*?)<\/select>/);
+  const sortMarkup = markup.match(/<select id="sort"[^>]*>([\s\S]*?)<\/select>/);
   assert(sortMarkup, 'The result sort control remains available');
   assert.deepEqual(Array.from(sortMarkup[1].matchAll(/<option value="([^"]+)"/g), match => match[1]), ['date', 'views', 'downloads', 'level', 'title']);
   assert.doesNotMatch(markup, /id="(?:ranking-panel|ranking-status|cancel-ranking)"/);
