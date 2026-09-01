@@ -24,6 +24,7 @@ This maintenance reissue replaces the September 1 release assets with the instal
 - Each full installation-status refresh now enumerates the actual `.srtb` files once and returns a hash inventory that the interface matches against the current catalog in memory, instead of probing each catalog candidate. Returning the window to the foreground still refreshes this local inventory automatically.
 - A completed chart now receives one targeted local hash check and updates its card immediately, even while other downloads or installations remain active; it no longer waits for the whole queue to become idle.
 - Installs and deletions invalidate the affected chart status, while changing the install folder invalidates the previous folder's whole inventory. DLC charts now use the same installed/not-installed matching, progress, filters, installation, reinstallation, and deletion flow as other charts. A genuine check failure keeps the last successful result visible and can be retried.
+- Returning from another window or restoring from the tray now keeps a fully cached installation refresh silent, so the temporary progress row no longer shifts pagination and chart cards. First-time checks, unknown states, and genuine failures remain visible.
 - DLC cards retain their catalog metadata and show a compact requirement label. A strictly valid Steam app-store address makes the label an accessible external link; malformed metadata falls back to a non-blocking generic DLC requirement.
 - Changing already-applied base filters no longer inserts a wrapping message into the action column. The stable submit button changes from **Filter charts** to **Apply changes**, while the full status remains available to assistive technology.
 
@@ -54,6 +55,7 @@ This maintenance reissue replaces the September 1 release assets with the instal
 - 每次完整安装状态刷新改为一次枚举实际存在的 `.srtb` 文件并返回哈希清单，再由界面在内存中与当前谱面数据匹配，不再逐个探测 catalog 候选；窗口重新回到前台时仍会自动刷新这份本地清单。
 - 单首谱面安装完成后改为立即执行一次定向本地哈希核对；即使其它下载或安装仍在进行，对应卡片也会马上更新，不再等待整个队列空闲。
 - 安装和删除只使对应谱面状态失效，修改安装目录会使旧目录的整份清单失效。DLC 现在与普通谱面共用已安装／未安装核对、进度、筛选、安装、重新安装和删除链；真正的核对失败会保留上次成功结果，并可重试。
+- 从其它窗口返回或从托盘恢复时，已有完整缓存的安装状态刷新现在会静默进行，不再由临时进度行推动分页和谱面卡片上下跳动；首次核对、未知状态和真正的失败仍会显示。
 - DLC 卡片保留目录中的完整元数据并显示紧凑的要求标识。只有严格合法的 Steam 应用商店地址会使标识成为无障碍外链；异常元数据退化为不阻塞操作的通用 DLC 要求。
 - 修改已经应用的基础筛选条件时，不再向操作列插入会换行的提示；稳定的提交按钮从“筛选谱面”切换为“应用更改”，完整状态仍会向辅助技术播报。
 

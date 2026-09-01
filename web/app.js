@@ -1743,7 +1743,7 @@ function syncInstallationFilter(){
   const relevantProblem=presenceProblem&&checkable>0,notices=[];
   if(relevantProblem)notices.push(m('Installation status could not be updated. Current results remain visible.'));
   if(unknown)notices.push(m('Installation status unknown: ')+number(unknown)+m(' charts excluded.'));
-  const message=settingsStale?m('Open Settings to confirm the changed install directory.'):pending?installationProgressText(pending,checkable):refreshing?m('Updating installation status... Current results remain visible.'):notices.join(m(' | '));
+  const message=settingsStale?m('Open Settings to confirm the changed install directory.'):pending?installationProgressText(pending,checkable):notices.join(m(' | '));
   $('installation-filter-feedback').hidden=!active||!message||stageOwnsProgress;
   $('installation-filter-retry').hidden=!active||!relevantProblem&&!retry||settingsStale||pending>0||refreshing;
   $('installation-filter-retry').disabled=appExiting||pending>0||refreshing;

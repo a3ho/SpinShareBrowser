@@ -171,12 +171,14 @@ async function unknownIsNotUninstalled() {
   assert.equal(h.node('empty').textContent, 'Checking installation status: 0 / 3', 'DLC uses the same pending work as every chart with valid metadata');
   await idle(h);
   assert.deepEqual(h.ids(), []); assert.equal(h.node('installation-filter-message').textContent, 'Installation status could not be updated. Current results remain visible | Installation status unknown: 4 charts excluded');
+  assert.equal(h.node('installation-filter-feedback').hidden, false, 'A real installation check failure remains visible');
   assert.equal(h.node('installation-filter-retry').hidden, false);
   const calls = h.calls.length; await h.api.rebuild(false); h.api.render(); await idle(h);
   assert.equal(h.calls.length, calls, 'Failed checks are not automatically retried on every render');
   h.service((method, route, body) => h.reply(body, new Set([1])));
   h.node('installation-filter-retry').emit('click'); await idle(h);
   assert.deepEqual(h.ids(), [3, 2]); assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 1 charts excluded');
+  assert.equal(h.node('installation-filter-feedback').hidden, false, 'Unknown metadata remains visible after a successful retry');
   assert.equal(h.node('installation-filter-retry').hidden, true, 'Unsupported metadata is not endlessly retried');
   assert.deepEqual(JSON.parse(JSON.stringify(h.calls.at(-1).body)), {expectedRevision: 'a'.repeat(32)});
   h.mode('all'); await idle(h); assert.equal(h.ids().length, 4, 'All remains available for charts whose presence cannot be verified');
@@ -260,6 +262,7 @@ async function changingCandidatesDuringCheck() {
   h.node('local-search').value = 'Piano 065'; h.api.selectedTags.set('slow', 'Slow'); h.mode('uninstalled');
   assert.deepEqual(h.ids(), []); assert.equal(h.node('count').textContent, '0 charts');
   assert.equal(h.node('installation-filter-feedback').hidden, true, 'The empty result stage owns progress instead of duplicating it above');
+  assert.equal(h.node('installation-filter').getAttribute('aria-busy'), 'true');
   assert.match(h.node('empty').textContent, /^Checking installation status: \d+ \/ \d+$/);
   assert.equal(h.node('empty').classList.contains('is-loading'), true);
   resolveNext(h, new Set(Array.from({length: 30}, (_, i) => i + 1))); await tick();
@@ -280,14 +283,16 @@ async function backgroundChecksPreserveCards() {
   h.api.page = 3; h.api.render(); const before = [...h.node('rows').children], views = [...h.api.cardViews.values()], renders = h.rendered, retired = h.retired;
   views[0].cell.reviewTemporaryOpen = true; h.hold(); h.api.refreshInstallationChecks(); await tick();
   assert.deepEqual(h.node('rows').children, before); assert.equal(h.rendered, renders); assert.equal(h.api.page, 3);
-  assert.equal(h.node('installation-filter-feedback').hidden, false);
-  assert.equal(h.node('installation-filter-message').textContent, 'Updating installation status… Current results remain visible');
+  assert.equal(h.node('installation-filter-feedback').hidden, true, 'A cached background refresh must not insert visible layout');
+  assert.equal(h.node('installation-filter-message').textContent, '');
+  assert.equal(h.node('installation-filter').getAttribute('aria-busy'), 'true', 'The silent refresh remains exposed as busy state');
   assert.deepEqual(JSON.parse(JSON.stringify(h.calls.at(-1).body)), {expectedRevision: 'a'.repeat(32)}, 'A focus refresh sends no catalog-sized chart list');
   resolveNext(h, present); await idle(h);
   assert.deepEqual(h.node('rows').children, before); assert.equal(h.retired, retired); assert.equal(h.api.page, 3);
   assert.equal(views[0].cell.reviewTemporaryOpen, true, 'A same-directory focus check preserves the temporary review drawer');
   assert.equal(h.rendered, renders + 1, 'Refresh results once, after the single index request completes');
   assert.equal(h.node('installation-filter-feedback').hidden, true);
+  assert.equal(h.node('installation-filter').getAttribute('aria-busy'), 'false');
   h.api.page = 5; h.api.render(); h.api.refreshInstallationChecks();
   while (h.deferred.length) { resolveNext(h, new Set([2, 4])); await tick(); }
   await idle(h); assert.equal(h.api.page, 1); assert.equal(h.api.pages(), 1); assert.equal(h.node('count').textContent, '2 charts');
@@ -295,6 +300,7 @@ async function backgroundChecksPreserveCards() {
   h.service(() => { throw new Error('Foreground refresh failed'); }); h.api.refreshInstallationChecks(); await idle(h);
   assert.deepEqual(h.ids(), [4, 2], 'A failed stale-while-revalidate refresh keeps the last complete result set');
   assert.equal(h.node('installation-filter-message').textContent, 'Installation status could not be updated. Current results remain visible');
+  assert.equal(h.node('installation-filter-feedback').hidden, false, 'Silent refreshes must not hide real failures');
   assert.equal(h.node('installation-filter-retry').hidden, false);
 }
 
