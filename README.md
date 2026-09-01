@@ -70,17 +70,15 @@ Short author notes appear directly on the chart card. Select a longer note to re
 
 Select the review count to read reviews in a floating panel. Turn on **Expand all reviews** when you want every chart's reviews visible in the list.
 
-### Download and install
+### Download, install, and delete
 
-Select **Download and install** on a chart card. Check that the displayed chart installation folder is correct, or select **Change directory**.
+Select **Download and install** on a chart card. The first time, confirm the chart installation folder or select **Change directory**.
 
-Installed charts are marked **Installed**. Use **Install again** when you want to replace an installed chart with the listed version. DLC charts use the same installation flow and show a compact requirement label linking to the corresponding Steam store page when the supplied address is valid.
+Installed charts are marked **Installed**. Select **Install again** to replace one with the listed version. If a chart requires DLC, its requirement label can open the relevant Steam page.
 
-A chart, including a DLC chart, that exactly matches the installed version also shows **Delete**. Selecting it immediately and permanently removes that custom chart's `.srtb` file and matching optional cover and audio files, without a confirmation dialog. ZIP archives, unrelated temporary files, shared folders, and Steam's official DLC files are left untouched. You can queue multiple chart deletions; each card shows its own progress, while installation and deletion operations remain mutually exclusive, including while an installation request's result is still unknown. A successful deletion refreshes the installation views and counts automatically. A failed deletion attempts to restore staged files and keeps the `.srtb` installed when possible; an explicit error tells you to inspect the install folder if some resources could not be restored, and the app rechecks the actual installation state.
+When an installed chart shows **Delete**, selecting it immediately and permanently removes that chart's local files without another confirmation. You can select **Delete** on several charts to queue them.
 
-Installation status is still rechecked automatically when the window returns to the foreground. Routine refreshes inventory the actual `.srtb` files once and return their hashes, then the interface matches the current catalog in memory instead of probing every catalog candidate. A completed install uses one targeted local hash check, so its card updates immediately while other jobs continue. A deletion invalidates the affected chart status; changing the install folder invalidates the previous folder's whole inventory. DLC charts participate in the same installed/not-installed filter, progress, count, paging, and retry behavior. If a real inventory check fails, the last successful result remains available and the check can be retried.
-
-During an overwrite update, Setup asks an idle running app to close and waits for its original process to exit before replacing files. Active downloads or installations are never force-terminated. If the app is still exiting or a program file remains locked, Setup offers **Retry** or **Cancel** so the update can continue in place after the lock is released.
+To update SpinShare Browser, run the latest installer. If downloads or installations are still active, let them finish and then select **Retry**.
 
 ### Data updates and background running
 

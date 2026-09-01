@@ -2,6 +2,7 @@
 *
 !/.gitignore
 !/.gitattributes
+!/AGENTS.md
 !/LICENSE
 !/README.md
 !/README.zh-CN.md
