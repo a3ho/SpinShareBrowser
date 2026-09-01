@@ -232,7 +232,7 @@ function playerHarness(options = {}) {
     format:previewFormat, source:previewExpectedSource, generation:previewGeneration,
     attempt:previewPlayAttempt, ready:previewReady, wantsPlay:previewWantsPlay,
     frame:previewFrame, watchdog:previewSourceTimer, shortcutPending:previewShortcutPending,
-    shortcutTimer:previewShortcutTimer, hasPlayed:previewHasPlayed,
+    shortcutTimer:previewShortcutTimer, playbackConfirmed:previewPlaybackConfirmed,
     hintShown:previewShortcutHintShown, hintTimer:previewHintTimer
   })`, context);
   const run = (expression, values = {}) => {
@@ -468,8 +468,8 @@ test('OGG falls back once, restores an interrupted position after MP3 metadata, 
 });
 
 test('a current NotSupportedError falls back once and never returns from a failed MP3', async () => {
-  const h = playerHarness(), work = deferred(), unsupported = new Error('unsupported codec');
-  unsupported.name = 'NotSupportedError'; h.audio.playResults.push(work.promise);
+  const h = playerHarness(), work = deferred(), fallback = deferred(), unsupported = new Error('unsupported codec');
+  unsupported.name = 'NotSupportedError'; h.audio.playResults.push(work.promise, fallback.promise);
   h.start(h.row(24, 'spinshare_24')); work.reject(unsupported); await flush();
   assert.equal(h.state().state, 'loading'); assert.equal(h.state().format, 'mp3');
   assert.deepEqual(h.audio.sourceHistory, [
@@ -674,7 +674,7 @@ test('Left and Right seek five seconds globally while preserving native control 
   }
 });
 
-test('Space feedback uses the top cover only after a real pause or playing event, then retires itself', async () => {
+test('Space feedback follows the earliest real media state transition and retires itself', async () => {
   assert.match(interfaceSource, /\.global-player-cover\.is-shortcut-feedback \.preview-glyphs\s*\{\s*opacity:\s*1/);
   const h = playerHarness(), toggle = h.node('preview-player-toggle'), progress = h.node('preview-player-progress');
   h.setup(); h.audio.readyState = 4; h.start(h.row(30, 'spinshare_30')); h.audio.emit('loadedmetadata'); h.audio.emit('playing');
@@ -690,14 +690,21 @@ test('Space feedback uses the top cover only after a real pause or playing event
   h.advance(1); assert.equal(toggle.classList.contains('is-shortcut-feedback'), false);
 
   h.document.activeElement = null;
+  const resumed = deferred(); h.audio.playResults.push(resumed.promise);
   h.document.emit('keydown', keyEvent(spaceTarget('page')));
   assert.equal(h.state().state, 'loading');
   assert(h.state().shortcutPending > 0);
   assert.equal(toggle.classList.contains('is-shortcut-feedback'), false, 'A play request is not presented as playback yet');
+  resumed.resolve(); await flush();
+  const feedbackTimer = h.state().shortcutTimer;
+  assert.equal(h.state().shortcutPending, 0);
+  assert.equal(h.state().state, 'playing');
+  assert.equal(toggle.classList.contains('is-loading'), false);
+  assert.equal(toggle.classList.contains('is-shortcut-feedback'), true, 'A fulfilled play request gives immediate visible cover feedback');
   h.audio.emit('playing');
   assert.equal(h.state().shortcutPending, 0);
   assert.equal(toggle.classList.contains('is-playing'), true);
-  assert.equal(toggle.classList.contains('is-shortcut-feedback'), true, 'Play feedback begins only when media is actually playing');
+  assert.equal(h.state().shortcutTimer, feedbackTimer, 'The later playing event must not restart the feedback animation');
   h.advance(900); assert.equal(toggle.classList.contains('is-shortcut-feedback'), false);
 
   h.document.emit('keydown', keyEvent(spaceTarget('page'))); h.advance(900);
@@ -709,19 +716,45 @@ test('Space feedback uses the top cover only after a real pause or playing event
   assert.equal(h.state().shortcutPending, 0);
   assert.equal(toggle.classList.contains('is-shortcut-feedback'), false, 'Rejected playback never flashes a false play state');
 
-  const early = playerHarness(); early.setup(); early.start(early.row(32, 'spinshare_32'));
-  early.audio.duration = 180; early.audio.readyState = 4; early.audio.emit('loadedmetadata'); early.audio.emit('playing');
-  early.audio.currentTime = .35; early.audio.emit('timeupdate'); early.audio.emit('waiting');
-  early.audio.paused = true; // Some WebViews report this transiently while the played stream is buffering.
+  const early = playerHarness(), firstPlay = deferred(); early.audio.playResults.push(firstPlay.promise); early.setup(); early.start(early.row(32, 'spinshare_32'));
+  early.audio.duration = 180; early.audio.readyState = 4; early.audio.emit('loadedmetadata');
+  firstPlay.resolve(); await flush();
+  assert.equal(early.state().state, 'playing'); assert.equal(early.state().playbackConfirmed, true);
   const earlyPause = early.document.emit('keydown', keyEvent(spaceTarget('page')));
   assert.equal(earlyPause.defaultPrevented, true); assert.equal(early.state().state, 'paused');
   assert.equal(early.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true,
-    'A real stream paused during its first second must show feedback even from loading state');
+    'Playback confirmed by play() must show pause feedback before the later playing event');
 
   const loading = playerHarness(); loading.setup(); loading.start(loading.row(31, 'spinshare_31'));
   loading.document.emit('keydown', keyEvent(spaceTarget('page')));
   assert.equal(loading.state().state, 'paused');
-  assert.equal(loading.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), false, 'Cancelling a load is not presented as an audible pause');
+  assert.equal(loading.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), false,
+    'Cancelling a still-pending load must not claim that audible playback was paused');
+
+  const cycle = playerHarness(), pendingResume = deferred(); cycle.setup(); cycle.start(cycle.row(34, 'spinshare_34')); cycle.audio.emit('playing');
+  cycle.document.emit('keydown', keyEvent(spaceTarget('page'))); cycle.advance(900);
+  cycle.audio.playResults.push(pendingResume.promise); cycle.document.emit('keydown', keyEvent(spaceTarget('page')));
+  assert.equal(cycle.state().playbackConfirmed, false);
+  cycle.document.emit('keydown', keyEvent(spaceTarget('page')));
+  assert.equal(cycle.state().state, 'paused');
+  assert.equal(cycle.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), false,
+    'Cancelling an unconfirmed resume must not reuse evidence from an earlier play cycle');
+
+  const fallback = playerHarness(), oggPlay = deferred(), mp3Play = deferred(), unsupported = new Error('unsupported codec');
+  unsupported.name = 'NotSupportedError'; fallback.setup(); fallback.start(fallback.row(33, 'spinshare_33'));
+  fallback.audio.duration = 180; fallback.audio.readyState = 4; fallback.audio.emit('loadedmetadata'); fallback.audio.emit('playing'); fallback.audio.currentTime = 12;
+  fallback.document.emit('keydown', keyEvent(spaceTarget('page'))); fallback.advance(900);
+  fallback.audio.playResults.push(oggPlay.promise, mp3Play.promise);
+  fallback.document.emit('keydown', keyEvent(spaceTarget('page')));
+  const oggAttempt = fallback.state().shortcutPending; oggPlay.reject(unsupported); await flush();
+  assert.equal(fallback.state().format, 'mp3'); assert.equal(fallback.state().shortcutPending, 0);
+  fallback.audio.duration = 180; fallback.audio.readyState = 4; fallback.audio.emit('loadedmetadata');
+  assert(fallback.state().shortcutPending > oggAttempt,
+    'The shortcut intent moves to the fallback play attempt');
+  mp3Play.resolve(); await flush();
+  assert.equal(fallback.state().state, 'playing'); assert.equal(fallback.state().shortcutPending, 0);
+  assert.equal(fallback.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true,
+    'Successful fallback playback confirms the same Space action without waiting for playing');
 });
 
 test('visibility pauses without discarding the song, while page exit disposes media and listeners', () => {
