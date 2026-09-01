@@ -326,7 +326,7 @@ async function checkApplyFlows() {
       await work;
       assert.equal(h.app.catalog, null); assert.equal(h.app.catalogFetchedAt, null); assert.equal(h.app.applied, null);
       assert.equal(h.app.phase, 'error'); assert.deepEqual(h.ids(), []); assert.equal(h.status().error, true);
-      assert.match(h.status().text, failure === 'timeout' ? /timed out/ : /could not be reached/);
+      assert.match(h.status().text, failure === 'timeout' ? /timed out/ : /connect to the chart server/);
       assert.equal(h.app.controller, null); assert.equal(h.timers.size, 0);
     }
   });
@@ -385,13 +385,13 @@ async function main() {
   checkNoCountdown();
 
   responses.push({status: 429, body: {code: 'charts_cooldown', nextAllowedAt: now + 95000}});
-  await assert.rejects(api.loadRemote(controller.signal), /previous catalog request used server resources/);
+  await assert.rejects(api.loadRemote(controller.signal), /manual update interval has not ended yet/);
   assert.equal(api.catalogNextAllowedAt, now + 95000);
   checkNoCountdown();
   checkCachedSearchAvailable();
 
   responses.push({status: 502, body: {code: 'charts_network_error', nextAllowedAt: now, retryAfterSeconds: 0}});
-  await assert.rejects(api.loadRemote(controller.signal), /could not be reached/);
+  await assert.rejects(api.loadRemote(controller.signal), /connect to the chart server/);
   assert.equal(api.catalogNextAllowedAt, now);
   checkNoCountdown();
   checkCachedSearchAvailable();

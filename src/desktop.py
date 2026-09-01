@@ -29,7 +29,7 @@ _NOTICE_TEXT = {
         "Use the tray icon to reopen it.": "Use the tray icon to reopen it",
         "Chart data updated.": "Chart data updated",
         "Chart data could not be updated.": "Chart data could not be updated",
-        "The latest chart catalog is ready.": "The latest chart catalog is ready",
+        "The latest chart data is ready.": "The latest chart data is ready",
         "Open SpinShare Browser for details and retry.": "Open SpinShare Browser for details and retry",
     },
     "zh-CN": {
@@ -37,7 +37,7 @@ _NOTICE_TEXT = {
         "Use the tray icon to reopen it.": "双击托盘图标即可重新打开",
         "Chart data updated.": "谱面数据已更新",
         "Chart data could not be updated.": "谱面数据更新失败",
-        "The latest chart catalog is ready.": "最新谱面目录已在后台准备完成",
+        "The latest chart data is ready.": "最新谱面数据已在后台准备完成",
         "Open SpinShare Browser for details and retry.": "打开 SpinShare Browser 查看详情并重试",
     },
 }
@@ -92,7 +92,7 @@ def _catalog_sync_result(result=None, **details):
     error = next((_clean_notice_text(details.get(name)) for name in ("refreshError", "error", "message")
                   if details.get(name)), "")
     if attempted and details.get("stale") is True and not error:
-        error = "The latest chart catalog could not be fetched."
+        error = "The latest chart data could not be fetched."
     return attempted, changed, error, details
 
 
@@ -1095,7 +1095,7 @@ class Desktop:
             return
         if kind == "success":
             title = self._notice_text("Chart data updated.")
-            body = self._notice_text("The latest chart catalog is ready.")
+            body = self._notice_text("The latest chart data is ready.")
         elif kind == "error":
             title = self._notice_text("Chart data could not be updated.")
             body = body or self._notice_text("Open SpinShare Browser for details and retry.")

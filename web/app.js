@@ -83,7 +83,7 @@ const CATALOG_STALE_MS=12*60*60*1000,CATALOG_STATUS_POLL_MS=500;
 let catalogNextAllowedAt=0,catalogAutomaticNextAllowedAt=0,catalogFetchedAt=null;
 let catalogStartupBusy=true,catalogManualBusy=false,catalogAutomaticBusy=false,catalogAutomaticTimer=null,catalogStartupWork=null;
 let catalogFailureHasData=false;
-let catalogStatusPoll=null,catalogHelpTimer=null,catalogDialogCloseTimer=null,catalogToastTimer=null,catalogToastMotion=null,catalogToastStartedAt=0,catalogToastRemaining=0,catalogPendingToast=null;
+let catalogStatusPoll=null,catalogDialogCloseTimer=null,catalogToastTimer=null,catalogToastMotion=null,catalogToastStartedAt=0,catalogToastRemaining=0,catalogPendingToast=null;
 const motionPreference=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion: reduce)'):null;
 const MOTION_MS=Object.freeze({feedback:150,standard:180,panel:220,expressive:280});
 const PREVIEW_LOAD_TIMEOUT_MS=15000,PREVIEW_SHORTCUT_FEEDBACK_MS=900,PREVIEW_SEEK_SECONDS=5,PREVIEW_HINT_MS=6500,PREVIEW_REFERENCE=/^spinshare_[a-f0-9]{1,64}$/i;
@@ -168,8 +168,8 @@ function setStatus(message,error=false){
 }
 const INSTALLER_MESSAGE_REPLACEMENTS=Object.keys(UI_CATALOG.en).filter(key=>key.startsWith("engine.")).map(key=>[UI_CATALOG.en[key],key]).sort((a,b)=>b[0].length-a[0].length);
 const INSTALLER_ERROR_TEXT=Object.freeze({invalid_installations:m("Installation status could not be read."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_confirmation_required:m("Confirm the chart installation directory before downloading."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
-const CHART_ERROR_TEXT=Object.freeze({charts_network_error:m('The chart server could not be reached. Check your network and retry.'),charts_request_timeout:m('The chart server did not respond after the request may have reached it. Retry after the refresh interval.'),charts_access_denied:m('The chart server refused access. No refresh cooldown was used; retry when access is restored.'),charts_rate_limited:m('The chart server limited this request. Retry after the refresh interval.'),charts_server_error:m('The chart server failed after the request may have reached it. Retry after the refresh interval.'),charts_request_rejected:m('The chart server rejected this request. Retry after the refresh interval or check for an app update.'),charts_remote_timeout:m('The full chart transfer timed out. Try again after the refresh interval.'),charts_response_incomplete:m('The chart request or response was interrupted. Try again after the refresh interval.'),charts_response_too_large:m('The full chart response was too large to use safely. Retry after the refresh interval.'),charts_invalid_response:m('The chart server returned invalid data. Try again after the refresh interval.')});
-const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Chart server unavailable.'),charts_request_timeout:m('The chart server timed out.'),charts_access_denied:m('Chart server access was refused.'),charts_rate_limited:m('Chart server rate limit reached.'),charts_server_error:m('The chart server returned an error.'),charts_request_rejected:m('The chart server rejected the update.'),charts_remote_timeout:m('Chart data transfer timed out.'),charts_response_incomplete:m('Chart data transfer was interrupted.'),charts_response_too_large:m('Chart data exceeded the safe size limit.'),charts_invalid_response:m('The chart server returned invalid data.'),charts_cache_error:m('Chart data could not be saved locally.'),charts_cooldown:m('Chart data update is still cooling down.')});
+const CHART_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not connect to the chart server'),charts_request_timeout:m('The chart server did not respond in time'),charts_access_denied:m('The chart server denied access'),charts_rate_limited:m('The chart server is temporarily limiting updates'),charts_server_error:m('The chart server is temporarily unavailable'),charts_request_rejected:m('The chart server rejected this update'),charts_remote_timeout:m('Chart data transfer timed out'),charts_response_incomplete:m('Chart data transfer was interrupted'),charts_response_too_large:m('Chart data exceeded the safe size limit'),charts_invalid_response:m('The chart server returned invalid data')});
+const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not connect to the chart server'),charts_request_timeout:m('The chart server did not respond in time'),charts_access_denied:m('The chart server denied access'),charts_rate_limited:m('The chart server is temporarily limiting updates'),charts_server_error:m('The chart server is temporarily unavailable'),charts_request_rejected:m('The chart server rejected this update'),charts_remote_timeout:m('Chart data transfer timed out'),charts_response_incomplete:m('Chart data transfer was interrupted'),charts_response_too_large:m('Chart data exceeded the safe size limit'),charts_invalid_response:m('The chart server returned invalid data'),charts_cache_error:m('Local chart data could not be read or saved'),charts_cooldown:m('Manual update is not available yet')});
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
@@ -249,13 +249,30 @@ function refreshCloseHelpTasks(){
   const active=hasActiveInstallations()||Boolean(appDialogState?.activeCount>0);
   for(const note of document.querySelectorAll('.close-help-task'))note.hidden=!active;
 }
-const closeHelpIds=['settings-close-help','app-dialog-help'];let closeHelpTimer=null;
+const closeHelpIds=['settings-close-help','app-dialog-help'],helpPopoverTimers=new Map();
+function clearHelpPopoverTimer(id){const timer=helpPopoverTimers.get(id);if(timer!==undefined)clearTimeout(timer);helpPopoverTimers.delete(id);}
+function setupHoverHelp(id,setVisible,{preventClick=false}={}){
+  const button=$(id),panel=$(id+'-panel'),show=()=>{clearHelpPopoverTimer(id);setVisible(true);};
+  const keyboardFocused=()=>document.documentElement.dataset.inputModality==='keyboard'&&button.matches(':focus-visible');
+  const leave=()=>{clearHelpPopoverTimer(id);helpPopoverTimers.set(id,setTimeout(()=>{helpPopoverTimers.delete(id);if(!button.matches(':hover')&&!keyboardFocused()&&!panel.matches(':hover'))setVisible(false);},100));};
+  button.addEventListener('pointerenter',show);panel.addEventListener('pointerenter',show);
+  button.addEventListener('pointerleave',leave);panel.addEventListener('pointerleave',leave);
+  button.addEventListener('focus',()=>{if(keyboardFocused())show();});button.addEventListener('blur',leave);
+  if(preventClick)button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
+}
 function positionCloseHelp(id){
   const button=$(id),panel=$(id+'-panel');if(!panel.matches(':popover-open'))return;
   const anchor=button.getBoundingClientRect(),owner=$(id==='settings-close-help'?'settings-panel':'app-dialog').getBoundingClientRect();
   const width=document.documentElement.clientWidth,height=document.documentElement.clientHeight,gap=8,edge=12;
   if(anchor.bottom<=Math.max(edge,owner.top)||anchor.top>=Math.min(height-edge,owner.bottom)){setCloseHelp(id,false);return;}
-  panel.style.maxHeight=`${height-edge*2}px`;let box=panel.getBoundingClientRect(),left=anchor.right+gap,top=anchor.top-6;
+  panel.style.maxHeight=`${height-edge*2}px`;let box=panel.getBoundingClientRect(),left,top;
+  if(id==='app-dialog-help'){
+    const room=Math.max(1,anchor.top-gap-edge);panel.style.maxHeight=`${room}px`;box=panel.getBoundingClientRect();
+    left=anchor.right-box.width;top=anchor.top-gap-box.height;
+    panel.style.left=`${Math.max(edge,Math.min(left,width-edge-box.width))}px`;
+    panel.style.top=`${Math.max(edge,top)}px`;return;
+  }
+  left=anchor.right+gap;top=anchor.top-6;
   if(left+box.width>width-edge)left=anchor.left-gap-box.width;
   if(left<edge){
     left=Math.max(edge,Math.min(anchor.left,width-edge-box.width));
@@ -267,11 +284,12 @@ function positionCloseHelp(id){
   panel.style.top=`${Math.max(edge,Math.min(top,height-edge-box.height))}px`;
 }
 function setCloseHelp(id,visible){
-  clearTimeout(closeHelpTimer);closeHelpTimer=null;
+  clearHelpPopoverTimer(id);
   const button=$(id),panel=$(id+'-panel'),owner=$(id==='settings-close-help'?'settings-panel':'app-dialog');
   if(visible&&(button.hidden||button.disabled||!owner.open||owner.inert||!hostVisible||document.hidden))return;
   button.classList.toggle('is-active',visible);
   if(!visible){if(panel.matches(':popover-open'))panel.hidePopover();return;}
+  setCatalogHelp(false);
   for(const other of closeHelpIds)if(other!==id&&$(other+'-panel').matches(':popover-open'))setCloseHelp(other,false);
   refreshCloseHelpTasks();if(!panel.matches(':popover-open'))panel.showPopover();positionCloseHelp(id);
 }
@@ -280,17 +298,11 @@ function dismissCloseHelp(panel){
   setCloseHelp(button.id,false);return true;
 }
 function setupCloseHelp(){
-  for(const id of closeHelpIds){
-    const button=$(id),panel=$(id+'-panel'),show=()=>setCloseHelp(id,true);
-    const keyboardFocused=()=>document.documentElement.dataset.inputModality==='keyboard'&&button.matches(':focus-visible');
-    const leave=()=>{clearTimeout(closeHelpTimer);closeHelpTimer=setTimeout(()=>{closeHelpTimer=null;if(!button.matches(':hover')&&!keyboardFocused()&&!panel.matches(':hover'))setCloseHelp(id,false);},100);};
-    button.addEventListener('pointerenter',show);panel.addEventListener('pointerenter',show);
-    button.addEventListener('pointerleave',leave);panel.addEventListener('pointerleave',leave);
-    button.addEventListener('focus',()=>{if(keyboardFocused())show();});button.addEventListener('blur',leave);
-  }
+  for(const id of closeHelpIds)setupHoverHelp(id,visible=>setCloseHelp(id,visible));
   const reposition=()=>{for(const id of closeHelpIds)positionCloseHelp(id);};
   globalThis.addEventListener?.('resize',reposition);globalThis.addEventListener?.('scroll',reposition,true);
   globalThis.addEventListener?.('blur',()=>{for(const id of closeHelpIds)setCloseHelp(id,false);});
+  document.addEventListener('keydown',event=>{if(event.key!=='Escape'||event.defaultPrevented)return;const open=[...closeHelpIds,'refresh-data-help'].find(helpId=>$(helpId+'-panel')?.matches?.(':popover-open'));if(!open)return;event.preventDefault();event.stopPropagation();open==='refresh-data-help'?setCatalogHelp(false):setCloseHelp(open,false);$(open).focus({preventScroll:true});});
   if(typeof ResizeObserver==='function'){const observer=new ResizeObserver(reposition);for(const id of closeHelpIds)observer.observe($(id+'-panel'));}
 }
 async function openSettings(){
@@ -2257,22 +2269,32 @@ function syncCatalogRefresh(){
   $('refresh-data').disabled=appExiting||busy;
   loadingIndicator($('refresh-data'),catalogManualBusy);
 }
-function catalogPayloadError(result,fallback=m('Charts could not be loaded. Try again.')){
+function catalogWaitDuration(value){
+  const seconds=Math.max(1,Math.ceil(Number(value)||0)),minutes=Math.floor(seconds/60),remainder=seconds%60;
+  if(minutes&&remainder)return number(minutes)+m(' min ')+number(remainder)+m(' sec');
+  if(minutes)return number(minutes)+m(' min');
+  return number(seconds)+m(' sec');
+}
+function catalogPayloadError(result,fallback=m('Chart data could not be loaded')){
   const code=typeof result?.errorCode==='string'?result.errorCode:typeof result?.code==='string'?result.code:'';
   const manualWait=Number.isFinite(result?.retryAfterSeconds)&&result.retryAfterSeconds>0?Math.ceil(result.retryAfterSeconds):null,automaticWait=Number.isFinite(result?.automaticRetryAfterSeconds)&&result.automaticRetryAfterSeconds>0?Math.ceil(result.automaticRetryAfterSeconds):null;
-  const cooling=['cooldown','manual_cooldown','backoff'].includes(result?.outcome),specific=code==='charts_cache_error'?m('The chart cache could not be read or saved safely. Check app data permissions and free space.'):CHART_ERROR_TEXT[code]||INSTALLER_ERROR_TEXT[code]||(code==='charts_cooldown'||code==='charts_automatic_backoff'||cooling?m('The previous catalog request used server resources. Retry after the refresh interval.'):fallback);
-  const wait=manualWait!==null?m('Manual update can be retried in ')+number(manualWait)+m(' seconds.'):automaticWait!==null?m('Automatic updates will retry in ')+number(automaticWait)+m(' seconds. Manual retry is still available.'):'',message=wait?specific+'\n'+wait:specific;
-  const error=uiError(message);error.code=code;error.catalogResult=result;return error;
+  const cooling=['cooldown','manual_cooldown','backoff'].includes(result?.outcome),specific=code==='charts_cache_error'?m('Local chart data could not be read or saved'):CHART_ERROR_TEXT[code]||INSTALLER_ERROR_TEXT[code]||(code==='charts_cooldown'||code==='charts_automatic_backoff'||cooling?m('The manual update interval has not ended yet'):fallback);
+  const error=uiError(specific);error.code=code;error.catalogResult=result;error.catalogReason=specific;error.catalogManualWait=manualWait;error.catalogAutomaticWait=automaticWait;error.catalogCooling=cooling||code==='charts_cooldown'||code==='charts_automatic_backoff';return error;
 }
 function catalogUpdateFailed(result){return Boolean(result?.refreshError)||['failed','backoff','cooldown','manual_cooldown'].includes(result?.outcome);}
-function catalogToastFailure(error){return (CHART_TOAST_ERROR_TEXT[error?.code]||errorText(error))+'\n'+m('Continuing with the last saved chart data.');}
+function catalogToastFailure(error,channel='manual'){
+  const wait=channel==='automatic'?error?.catalogAutomaticWait:error?.catalogManualWait;
+  const intervalOnly=error?.catalogCooling&&(!error?.code||['charts_cooldown','charts_automatic_backoff'].includes(error.code));
+  const title=intervalOnly?m(channel==='automatic'?'Automatic sync did not finish':'Manual update is not available yet'):CHART_TOAST_ERROR_TEXT[error?.code]||error?.catalogReason||m('Chart data was not updated');
+  return {title,primary:{label:m(channel==='automatic'?'Automatic retry':'Manual retry'),value:wait!==null&&wait!==undefined?m('Available in ')+catalogWaitDuration(wait):m('Available now')},secondary:{label:m('Currently using'),value:m('Local chart data')}};
+}
 function updateCatalogDeadlines(result){
   if(Number.isFinite(result?.nextAllowedAt))catalogNextAllowedAt=Math.max(0,result.nextAllowedAt);
   if(Number.isFinite(result?.automaticNextAllowedAt))catalogAutomaticNextAllowedAt=Math.max(0,result.automaticNextAllowedAt);
   syncCatalogRefresh();
 }
 async function requestCatalog(kind,signal,onProgress){
-  const path=CHART_ENDPOINTS[kind];if(!path||!['cache','manual','automatic'].includes(kind))throw uiError(m('Charts could not be loaded. Try again.'));
+  const path=CHART_ENDPOINTS[kind];if(!path||!['cache','manual','automatic'].includes(kind))throw uiError(m('Chart data could not be loaded'));
   const method=kind==='cache'?'GET':'POST',headers={'X-SpinShare-Key':INSTALL_KEY};if(method==='POST')headers['Content-Type']='application/json';
   const response=await fetch(INSTALL_ORIGIN+path,{method,mode:'same-origin',credentials:'omit',cache:'no-store',redirect:'error',targetAddressSpace:'loopback',headers,...(method==='POST'?{body:'{}'}:{}),signal});
   const length=Number(response.headers.get('Content-Length')),contentLength=Number.isFinite(length)&&length>0?length:null;
@@ -2330,18 +2352,20 @@ function positionCatalogHelp(){
   panel.style.left=left+'px';panel.style.top=top+'px';
 }
 function setCatalogHelp(visible){
-  clearTimeout(catalogHelpTimer);catalogHelpTimer=null;
+  clearHelpPopoverTimer('refresh-data-help');
   const button=$('refresh-data-help'),panel=$('refresh-data-help-panel');if(!button||!panel)return;
   if(visible&&(button.disabled||!hostVisible||document.hidden))return;
-  const open=panel.matches?.(':popover-open');button.classList.toggle('is-active',visible);button.setAttribute('aria-expanded',String(visible));
+  const open=panel.matches?.(':popover-open');button.classList.toggle('is-active',visible);
   if(!visible){if(open)panel.hidePopover();return;}
+  for(const id of closeHelpIds)setCloseHelp(id,false);
   if(!open)panel.showPopover();positionCatalogHelp();
 }
 function setupCatalogHelp(){
   const button=$('refresh-data-help'),panel=$('refresh-data-help-panel');
-  button.addEventListener('click',event=>event.stopPropagation());
-  panel.addEventListener('toggle',()=>{const visible=panel.matches(':popover-open');button.classList.toggle('is-active',visible);button.setAttribute('aria-expanded',String(visible));if(visible)positionCatalogHelp();});
+  setupHoverHelp('refresh-data-help',setCatalogHelp,{preventClick:true});
+  panel.addEventListener('toggle',()=>{const visible=panel.matches(':popover-open');button.classList.toggle('is-active',visible);if(visible)positionCatalogHelp();});
   globalThis.addEventListener?.('resize',positionCatalogHelp);globalThis.addEventListener?.('scroll',positionCatalogHelp,true);
+  if(typeof ResizeObserver==='function')new ResizeObserver(positionCatalogHelp).observe(panel);
 }
 
 function pauseCatalogToast(){
@@ -2352,7 +2376,7 @@ function resumeCatalogToast(){
   const toast=$('catalog-sync-toast');if(!toast||toast.hidden||catalogToastTimer||document.hidden||!hostVisible)return;
   catalogToastStartedAt=Date.now();catalogToastTimer=setTimeout(()=>hideCatalogToast(),catalogToastRemaining||4200);
 }
-function flushCatalogToast(){if(catalogPendingToast&&hostVisible&&!document.hidden){const pending=catalogPendingToast;catalogPendingToast=null;showCatalogToast(pending.message,pending.kind);}}
+function flushCatalogToast(){if(catalogPendingToast&&hostVisible&&!document.hidden){const pending=catalogPendingToast;catalogPendingToast=null;showCatalogToast(pending.content,pending.kind);}}
 function hideCatalogToast(immediate=false){
   const toast=$('catalog-sync-toast');clearTimeout(catalogToastTimer);catalogToastTimer=null;catalogToastRemaining=0;
   if(!toast||toast.hidden)return;catalogToastMotion?.cancel();catalogToastMotion=null;
@@ -2360,10 +2384,16 @@ function hideCatalogToast(immediate=false){
   const animation=immediate?null:playMotion(toast,[{opacity:1},{opacity:0}],{duration:MOTION_MS.feedback,easing:'cubic-bezier(.4,0,1,1)',fill:'both'});
   if(animation){catalogToastMotion=animation;animation.finished.then(finish,finish);}else finish();
 }
-function showCatalogToast(message,kind='success'){
-  if(!hostVisible||document.hidden){catalogPendingToast={message,kind};return;}
+function setCatalogToastFact(name,fact){
+  const row=$('catalog-sync-toast-fact-'+name),visible=Boolean(fact?.label&&fact?.value);row.hidden=!visible;
+  uiText($('catalog-sync-toast-'+name+'-label'),visible?fact.label:'');uiText($('catalog-sync-toast-'+name+'-value'),visible?fact.value:'');
+}
+function showCatalogToast(content,kind='success'){
+  if(!hostVisible||document.hidden){catalogPendingToast={content,kind};return;}
   const toast=$('catalog-sync-toast');catalogToastMotion?.cancel();catalogToastMotion=null;clearTimeout(catalogToastTimer);
-  toast.hidden=false;toast.dataset.kind=kind;uiText($('catalog-sync-toast-message'),message);
+  const structured=content&&typeof content==='object',primary=structured?content.primary:null,secondary=structured?content.secondary:null;
+  toast.hidden=false;toast.dataset.kind=kind;uiText($('catalog-sync-toast-message'),structured?content.title:content);
+  setCatalogToastFact('primary',primary);setCatalogToastFact('secondary',secondary);$('catalog-sync-toast-facts').hidden=!primary&&!secondary;
   catalogToastMotion=playMotion(toast,[{opacity:0},{opacity:1}],{duration:MOTION_MS.panel,easing:'cubic-bezier(.16,1,.3,1)',fill:'both'});
   catalogToastRemaining=4200;catalogToastStartedAt=Date.now();catalogToastTimer=setTimeout(()=>hideCatalogToast(),catalogToastRemaining);
 }
@@ -2405,23 +2435,28 @@ function closeCatalogSyncDialog(){
   dialog.inert=true;dialog.classList.add('is-closing');const animation=playMotion(dialog,[{opacity:1},{opacity:0}],{duration:MOTION_MS.feedback,easing:'cubic-bezier(.4,0,1,1)',fill:'both'});
   const finish=()=>{dialog.close();dialog.inert=false;dialog.classList.remove('is-closing');};if(animation)animation.finished.then(finish,finish);else finish();
 }
+function setCatalogSyncFacts(visible,error=null,hasData=false){
+  const detail=$('catalog-sync-detail');detail.hidden=!visible;
+  uiText($('catalog-sync-retry-state'),visible?(error?.catalogManualWait!==null&&error?.catalogManualWait!==undefined?m('Available in ')+catalogWaitDuration(error.catalogManualWait):m('Available now')):'');
+  uiText($('catalog-sync-local-state'),visible?m(hasData?'Local chart data':'No local chart data'):'');
+}
 function showCatalogSyncLoading(noCache=false){
   const dialog=$('catalog-sync-dialog');dialog.dataset.state='loading';dialog.setAttribute('aria-busy','true');catalogFailureHasData=!noCache;
   uiText($('catalog-sync-title'),m('Updating chart data'));
   uiText($('catalog-sync-message'),m(noCache?'Preparing chart data for your first search.':'Your saved chart data is over 12 hours old. Updating it now.'));
-  uiText($('catalog-sync-detail'),'');$('catalog-sync-actions').hidden=true;for(const id of ['catalog-sync-retry','catalog-sync-fallback'])$(id).disabled=false;
+  setCatalogSyncFacts(false);$('catalog-sync-actions').hidden=true;for(const id of ['catalog-sync-retry','catalog-sync-fallback'])$(id).disabled=false;
   updateCatalogSyncProgress({phase:'idle'});openCatalogSyncDialog();
 }
 function showCatalogSyncError(hasData,error){
   const dialog=$('catalog-sync-dialog');dialog.dataset.state='error';dialog.setAttribute('aria-busy','false');catalogFailureHasData=hasData;
-  uiText($('catalog-sync-title'),m('Chart data could not be updated'));
-  uiText($('catalog-sync-message'),m(hasData?'You can retry or continue with the last saved data.':'No saved chart data is available. Retry or quit the app.'));
-  uiText($('catalog-sync-progress'),m('Update paused'));uiText($('catalog-sync-detail'),errorText(error));
+  uiText($('catalog-sync-title'),m('Chart data was not updated'));
+  uiText($('catalog-sync-message'),error?.catalogReason||errorText(error));
+  uiText($('catalog-sync-progress'),'');setCatalogSyncFacts(true,error,hasData);
   $('catalog-sync-actions').hidden=false;uiText($('catalog-sync-fallback'),m(hasData?'Use local data':'Quit app'));for(const id of ['catalog-sync-retry','catalog-sync-fallback'])$(id).disabled=false;openCatalogSyncDialog();
 }
 function showCatalogSyncSuccess(){
   const dialog=$('catalog-sync-dialog');dialog.dataset.state='success';dialog.setAttribute('aria-busy','false');
-  uiText($('catalog-sync-title'),m('Chart data is up to date'));uiText($('catalog-sync-message'),m('The latest chart data is ready.'));uiText($('catalog-sync-progress'),m('Update complete'));uiText($('catalog-sync-detail'),'');$('catalog-sync-actions').hidden=true;
+  uiText($('catalog-sync-title'),m('Chart data is up to date'));uiText($('catalog-sync-message'),m('The latest chart data is ready.'));uiText($('catalog-sync-progress'),m('Update complete'));setCatalogSyncFacts(false);$('catalog-sync-actions').hidden=true;
   catalogDialogCloseTimer=setTimeout(closeCatalogSyncDialog,motionAllowed()?620:320);
 }
 async function exitFromCatalogSync(){
@@ -2452,7 +2487,7 @@ async function automaticCatalogSync(startup=false){
   }catch(error){
     stopCatalogStatusPolling();const published=publishCatalogResult(error.catalogResult);await rebuildPublishedCatalog(published.changed);
     if(!Number.isFinite(catalogAutomaticNextAllowedAt)||catalogAutomaticNextAllowedAt<=Date.now())catalogAutomaticNextAllowedAt=Date.now()+5*60*1000;
-    const available=Array.isArray(catalog);if(startup)showCatalogSyncError(available,error);else if(available)showCatalogToast(catalogToastFailure(error),'error');
+    const available=Array.isArray(catalog);if(startup)showCatalogSyncError(available,error);else if(available)showCatalogToast(catalogToastFailure(error,'automatic'),'error');
     if(available)scheduleAutomaticCatalogSync();return false;
   }finally{catalogAutomaticBusy=false;syncCatalogRefresh();}
 }
@@ -2465,7 +2500,7 @@ async function manualCatalogSync(startup=false){
     scheduleAutomaticCatalogSync();return true;
   }catch(error){
     stopCatalogStatusPolling();const published=publishCatalogResult(error.catalogResult);await rebuildPublishedCatalog(published.changed);
-    if(startup)showCatalogSyncError(Array.isArray(catalog),error);else showCatalogToast(catalogToastFailure(error),'error');return false;
+    if(startup)showCatalogSyncError(Array.isArray(catalog),error);else showCatalogToast(catalogToastFailure(error,'manual'),'error');return false;
   }finally{catalogManualBusy=false;syncCatalogRefresh();}
 }
 async function startCatalogRuntime(){
@@ -2735,7 +2770,7 @@ async function apply(){
     if(catalog===null){
       timer=setTimeout(()=>{timedOut=true;request.abort();},requestTimeout);setStatus(m('Loading charts...'));
       const result=await loadRemote(request.signal);if(controller!==request)return;if(request.signal.aborted)throw new DOMException('Aborted','AbortError');
-      if(!publishCatalogResult(result).available)throw uiError(m('Charts could not be loaded. Try again.'));
+      if(!publishCatalogResult(result).available)throw uiError(m('Chart data could not be loaded'));
       clearTimeout(timer);timer=null;
     }
     if(controller!==request)return;if(request.signal.aborted&&!timedOut)throw new DOMException('Aborted','AbortError');

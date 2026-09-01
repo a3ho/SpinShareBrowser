@@ -66,8 +66,8 @@ function harness({now = 2_000_000_000_000, visible = true, hidden = false, catal
     INSTALL_ORIGIN: 'http://127.0.0.1:3210', INSTALL_KEY: 'a'.repeat(64), responseLimit: 32 * 1024 * 1024,
     CHART_ENDPOINTS: {cache: '/v1/charts', manual: '/v1/charts/manual', automatic: '/v1/charts/automatic', status: '/v1/charts/status'},
     CATALOG_STALE_MS: 12 * 60 * 60 * 1000, CATALOG_STATUS_POLL_MS: 500, requestTimeout: 120000,
-    CHART_ERROR_TEXT: {charts_network_error: 'The chart server could not be reached.'},
-    CHART_TOAST_ERROR_TEXT: {charts_network_error: 'Chart server unavailable.', charts_cache_error: 'Chart data could not be saved locally.'}, INSTALLER_ERROR_TEXT: {},
+    CHART_ERROR_TEXT: {charts_network_error: 'Could not connect to the chart server'},
+    CHART_TOAST_ERROR_TEXT: {charts_network_error: 'Could not connect to the chart server', charts_cache_error: 'Local chart data could not be read or saved'}, INSTALLER_ERROR_TEXT: {},
     catalog, catalogFetchedAt: fetchedAt, catalogNextAllowedAt: 0, catalogAutomaticNextAllowedAt: 0,
     catalogStartupBusy: true, catalogManualBusy: false, catalogAutomaticBusy: false, catalogAutomaticTimer: null, catalogStartupWork: null,
     catalogFailureHasData: false, catalogStatusPoll: null, catalogHelpTimer: null, catalogDialogCloseTimer: null,
@@ -108,8 +108,15 @@ function checkMarkupAndMotion() {
   assert.match(summary, /id="refresh-data"[\s\S]*data-ui-static="Update data"/);
   assert.match(summary, /id="refresh-data-help"[\s\S]*aria-describedby="refresh-data-help-panel"/);
   assert.doesNotMatch(summary, /\btitle=/i, 'Update controls must not create native hover text');
-  assert.match(html, /id="refresh-data-help"[^>]*popovertarget="refresh-data-help-panel"/);
-  assert.match(html, /id="refresh-data-help-panel"[^>]*popover="auto"[^>]*role="tooltip"/);
+  const refreshHelpButton = summary.match(/<button id="refresh-data-help"[^>]*>/)?.[0] || '';
+  assert.doesNotMatch(refreshHelpButton, /\bpopovertarget(?:action)?=/, 'Hover help must not retain native click-to-toggle behavior');
+  for (const id of ['refresh-data-help-panel', 'settings-close-help-panel', 'app-dialog-help-panel']) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*popover="manual"[^>]*role="tooltip"`), `${id} is controlled only by hover and keyboard focus`);
+  }
+  const filterStart = html.indexOf('<details id="filter-panel"'), filterEnd = html.indexOf('</details>', filterStart);
+  const refreshHelpPanel = html.indexOf('id="refresh-data-help-panel"');
+  assert(filterStart >= 0 && filterEnd > filterStart && refreshHelpPanel > filterEnd,
+    'The data help panel must remain renderable when the filter details is collapsed');
   assert.match(html, /data-ui-static="Data update guide">Data update guide</);
   assert.doesNotMatch(html, /Automatic data updates/, 'The help heading must not make the manual button look automatic');
   assert.match(html, /data-ui-static="Automatic sync">Automatic sync<[\s\S]*Saved chart data older than 12 hours syncs automatically/);
@@ -117,8 +124,12 @@ function checkMarkupAndMotion() {
   assert.match(css, /\.catalog-help-rules > div\s*\{[^}]*grid-template-columns:\s*max-content minmax\(0, 1fr\)/s, 'Automatic and manual rules share one aligned layout');
   assert.doesNotMatch(html, /Loading charts timed out\. Retry will follow the catalog refresh interval\./, 'Cache-only retries never inherit the remote cooldown wording');
   assert.match(html, /id="catalog-sync-toast"[^>]*aria-live="polite"[^>]*aria-atomic="true"[\s\S]*id="catalog-sync-toast-message"(?![^>]*role="status")/, 'The toast has one live region owner');
+  for (const id of ['catalog-sync-toast-primary-label', 'catalog-sync-toast-primary-value', 'catalog-sync-toast-secondary-label', 'catalog-sync-toast-secondary-value']) {
+    assert.match(html, new RegExp(`id="${id}"`), `The structured update toast exposes ${id}`);
+  }
   const start = html.indexOf('id="catalog-sync-dialog"'), dialog = html.slice(start, html.indexOf('</dialog>', start));
   assert.match(dialog, /id="catalog-sync-retry"/); assert.match(dialog, /id="catalog-sync-fallback"/);
+  assert.match(dialog, /id="catalog-sync-retry-state"/); assert.match(dialog, /id="catalog-sync-local-state"/);
   assert.doesNotMatch(dialog, /Close|Skip|catalog-sync-close/i, 'Startup focus has no close or skip action');
   assert.match(html, /catalog-sync-retry'\)\.addEventListener\('click',\(\)=>manualCatalogSync\(true\)\)/, 'Startup retry must use the foreground manual channel');
   assert.match(css, /\.catalog-sync-dialog::backdrop[^{]*\{[^}]*backdrop-filter:\s*blur\(5px\)/s);
@@ -127,6 +138,131 @@ function checkMarkupAndMotion() {
   const toastMotion = extract('function hideCatalogToast(', 'function catalogProgressText(');
   const dialogMotion = extract('function openCatalogSyncDialog(', 'function showCatalogSyncLoading(');
   assert.doesNotMatch(toastMotion + dialogMotion, /translate|scale\(/, 'Sync toast and startup card must fade in place without directional motion');
+}
+
+function checkHelpPopoverInteractions() {
+  class HelpNode {
+    constructor(id, rect = {}) {
+      this.id = id; this.hidden = false; this.disabled = false; this.inert = false; this.open = false;
+      this.popoverOpen = false; this.hovered = false; this.focusVisible = false; this.events = new Map();
+      this.attributes = new Map(); this.classList = classes(); this.style = {left: '', top: '', maxHeight: ''};
+      this.rect = {left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, ...rect};
+    }
+    addEventListener(name, callback) {
+      if (!this.events.has(name)) this.events.set(name, []);
+      this.events.get(name).push(callback);
+    }
+    emit(name, details = {}) {
+      if (name === 'pointerenter') this.hovered = true;
+      if (name === 'pointerleave') this.hovered = false;
+      if (name === 'focus' || name === 'focusin') { this.focusVisible = true; helpDocument.activeElement = this; }
+      if (name === 'blur' || name === 'focusout') { this.focusVisible = false; helpDocument.activeElement = details.relatedTarget || null; }
+      const event = {target: this, relatedTarget: null,
+        preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.propagationStopped = true; }, ...details};
+      for (const callback of this.events.get(name) || []) callback(event);
+      return event;
+    }
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    matches(selector) {
+      if (selector === ':popover-open') return this.popoverOpen;
+      if (selector === ':hover') return this.hovered;
+      if (selector === ':focus-visible') return this.focusVisible;
+      return selector === '.help-toggle' && this.classList.contains('help-toggle');
+    }
+    showPopover() { if (!this.popoverOpen) { this.popoverOpen = true; this.emit('toggle', {newState: 'open'}); } }
+    hidePopover() { if (this.popoverOpen) { this.popoverOpen = false; this.emit('toggle', {newState: 'closed'}); } }
+    getBoundingClientRect() { return {...this.rect}; }
+    querySelector(selector) { return selector === '.help-toggle' ? this.helpToggle || null : null; }
+  }
+
+  const nodes = new Map(), timers = new Map(), viewportEvents = new Map(); let nextTimer = 0;
+  const add = (id, rect) => { const node = new HelpNode(id, rect); nodes.set(id, node); return node; };
+  const refreshButton = add('refresh-data-help', {left: 900, right: 928, top: 80, bottom: 108, width: 28, height: 28});
+  const refreshPanel = add('refresh-data-help-panel', {width: 360, height: 180});
+  const filter = add('filter-panel'); filter.open = false;
+  const settingsButton = add('settings-close-help', {left: 520, right: 548, top: 340, bottom: 368, width: 28, height: 28});
+  const settingsPanel = add('settings-close-help-panel', {width: 340, height: 220});
+  const settingsOwner = add('settings-panel', {left: 300, right: 900, top: 180, bottom: 680, width: 600, height: 500});
+  const dialogButton = add('app-dialog-help', {left: 560, right: 588, top: 500, bottom: 528, width: 28, height: 28});
+  const dialogPanel = add('app-dialog-help-panel', {width: 340, height: 220});
+  const dialogOwner = add('app-dialog', {left: 300, right: 900, top: 300, bottom: 680, width: 600, height: 380});
+  for (const [button, panel, owner] of [[settingsButton, settingsPanel, settingsOwner], [dialogButton, dialogPanel, dialogOwner]]) {
+    button.classList.add('help-toggle'); owner.open = true; owner.helpToggle = button;
+  }
+  const helpDocument = {
+    hidden: false, activeElement: null,
+    documentElement: {clientWidth: 1200, clientHeight: 800, dataset: {inputModality: 'keyboard'}},
+    querySelectorAll(selector) { return selector === '.close-help-task' ? [] : []; },
+    addEventListener(name, callback) {
+      if (!viewportEvents.has(name)) viewportEvents.set(name, []);
+      viewportEvents.get(name).push(callback);
+    },
+  };
+  const context = {
+    $: id => nodes.get(id), document: helpDocument, hostVisible: true, appDialogState: null,
+    hasActiveInstallations: () => false, catalogHelpTimer: null,
+    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, {callback, delay}); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    addEventListener(name, callback) {
+      if (!viewportEvents.has(name)) viewportEvents.set(name, []);
+      viewportEvents.get(name).push(callback);
+    },
+  };
+  context.globalThis = context;
+  const api = vm.createContext(context);
+  const starts = ['const helpPopoverTimers', 'function setupHoverHelp(', 'function refreshCloseHelpTasks(']
+    .map(marker => html.indexOf(marker)).filter(index => index >= 0);
+  const helpStart = Math.min(...starts), closeEnd = html.indexOf('async function openSettings(', helpStart);
+  assert(Number.isFinite(helpStart) && closeEnd > helpStart, 'The shared hover-help controller must be extractable');
+  const catalogStart = html.indexOf('function positionCatalogHelp('), catalogEnd = html.indexOf('function pauseCatalogToast(', catalogStart);
+  assert(catalogStart >= 0 && catalogEnd > catalogStart, 'The data-help controller must be extractable');
+  vm.runInContext(html.slice(helpStart, closeEnd) + '\n' + html.slice(catalogStart, catalogEnd), api);
+  api.setupCloseHelp(); api.setupCatalogHelp();
+
+  const runTimers = () => {
+    while (timers.size) {
+      const pending = [...timers.values()]; timers.clear();
+      for (const timer of pending) timer.callback();
+    }
+  };
+  const focus = node => { node.emit('focus'); node.emit('focusin'); };
+  const blur = (node, relatedTarget = null) => { node.emit('blur', {relatedTarget}); node.emit('focusout', {relatedTarget}); };
+  const openByPointer = (button, panel) => {
+    button.emit('pointerenter', {pointerType: 'mouse'});
+    assert.equal(panel.popoverOpen, true, `${button.id} opens on hover`);
+  };
+  const closeByLeaving = (target, button, panel) => {
+    target.emit('pointerleave', {pointerType: 'mouse'}); runTimers();
+    assert.equal(panel.popoverOpen, false, `${button.id} closes after leaving its hover union`);
+  };
+
+  openByPointer(refreshButton, refreshPanel);
+  assert.equal(filter.open, false, 'Collapsed filters do not block data help');
+  assert(parseFloat(refreshPanel.style.top) >= refreshButton.rect.bottom,
+    'Data help prefers the space below its question button');
+  const refreshClick = refreshButton.emit('click');
+  assert.equal(refreshPanel.popoverOpen, true, 'Clicking an open hover tooltip must not toggle it closed');
+  assert.equal(filter.open, false, 'Clicking the question button must not expand or collapse the filter details');
+  assert.equal(refreshClick.propagationStopped, true, 'The question button click must not activate its summary ancestor');
+  refreshButton.emit('pointerleave', {pointerType: 'mouse'}); refreshPanel.emit('pointerenter', {pointerType: 'mouse'}); runTimers();
+  assert.equal(refreshPanel.popoverOpen, true, 'Moving from the question button into its panel keeps it open');
+  closeByLeaving(refreshPanel, refreshButton, refreshPanel);
+  refreshButton.emit('click');
+  assert.equal(refreshPanel.popoverOpen, false, 'Clicking a closed question button must not open it');
+  focus(refreshButton); assert.equal(refreshPanel.popoverOpen, true, 'Keyboard focus opens data help while filters are collapsed');
+  blur(refreshButton); runTimers(); assert.equal(refreshPanel.popoverOpen, false, 'Leaving keyboard focus closes data help');
+
+  for (const [button, panel] of [[settingsButton, settingsPanel], [dialogButton, dialogPanel]]) {
+    openByPointer(button, panel);
+    button.emit('click'); assert.equal(panel.popoverOpen, true, `${button.id} click does not toggle hover help`);
+    closeByLeaving(button, button, panel);
+    focus(button); assert.equal(panel.popoverOpen, true, `${button.id} opens for keyboard focus`);
+    blur(button); runTimers(); assert.equal(panel.popoverOpen, false, `${button.id} closes after keyboard focus leaves`);
+  }
+  openByPointer(dialogButton, dialogPanel);
+  assert(parseFloat(dialogPanel.style.top) + dialogPanel.rect.height <= dialogButton.rect.top,
+    'The close-window explanation prefers the space above its question button');
 }
 
 async function checkEndpointContract() {
@@ -182,11 +318,14 @@ async function checkStartupFailureAndManualRetry() {
   h.enqueue({data: [chart(1)], cached: true, stale: true, fetchedAt: old, changed: false, outcome: 'backoff', automaticRetryAfterSeconds: 61});
   await h.api.startCatalogRuntime();
   assert.equal(h.dom.get('catalog-sync-dialog').dataset.state, 'error'); assert.equal(h.dom.get('catalog-sync-fallback').textContent, 'Use local data');
-  assert.match(h.dom.get('catalog-sync-detail').textContent, /61 seconds/);
+  assert.equal(h.dom.get('catalog-sync-retry-state').textContent, 'Available now',
+    'Automatic backoff must not disable the independent manual retry action');
+  assert.equal(h.dom.get('catalog-sync-local-state').textContent, 'Local chart data');
   assert.equal(h.api.catalogAutomaticNextAllowedAt, h.api.Date.now() + 5 * 60 * 1000, 'Missing automatic retry metadata falls back to the first five-minute backoff');
   h.enqueue({data: [chart(1)], cached: true, stale: true, fetchedAt: old, changed: false, outcome: 'cooldown', retryAfterSeconds: 42});
   assert.equal(await h.api.manualCatalogSync(true), false); assert.equal(new URL(h.requests.at(-1).url).pathname, '/v1/charts/manual');
-  assert.equal(h.dom.get('catalog-sync-dialog').dataset.state, 'error'); assert.match(h.dom.get('catalog-sync-detail').textContent, /42 seconds/);
+  assert.equal(h.dom.get('catalog-sync-dialog').dataset.state, 'error'); assert.equal(h.dom.get('catalog-sync-retry-state').textContent, 'Available in 42 sec');
+  assert.equal(h.dom.get('catalog-sync-local-state').textContent, 'Local chart data');
   assert.equal(h.api.catalogStartupBusy, true, 'Cooldown cannot unlock the startup surface');
   h.enqueue({data: [chart(2)], cached: false, stale: false, fetchedAt: h.api.Date.now(), changed: true, outcome: 'updated'});
   assert.equal(await h.api.manualCatalogSync(true), true); assert.equal(h.dom.get('catalog-sync-dialog').dataset.state, 'success'); assert.equal(h.api.catalogStartupBusy, false);
@@ -231,31 +370,44 @@ function checkProgressModes() {
 
 function checkClassifiedErrorsInBothLanguages() {
   const h = harness(), manual = h.api.catalogPayloadError({outcome: 'failed', errorCode: 'charts_network_error', retryAfterSeconds: 42});
-  assert.match(manual.uiMessage, /^The chart server could not be reached\.\nManual update can be retried in 42 seconds\.$/,
-    'The concrete failure category must precede manual cooldown details');
+  assert.equal(manual.uiMessage, 'Could not connect to the chart server',
+    'The reason remains concise because retry timing has its own structured field');
   const automatic = h.api.catalogPayloadError({outcome: 'backoff', errorCode: 'charts_network_error', automaticRetryAfterSeconds: 61});
-  assert.match(automatic.uiMessage, /^The chart server could not be reached\.\nAutomatic updates will retry in 61 seconds\. Manual retry is still available\.$/,
-    'Automatic backoff must leave foreground retry visibly available');
-  assert.equal(h.api.catalogToastFailure(manual), 'Chart server unavailable.\nContinuing with the last saved chart data.');
+  assert.equal(automatic.uiMessage, 'Could not connect to the chart server',
+    'Automatic retry timing must not be concatenated into the reason');
+  const failedToast = h.api.catalogToastFailure(manual);
+  assert.equal(failedToast.title, 'Could not connect to the chart server');
+  assert.deepEqual([failedToast.primary.label, failedToast.primary.value], ['Manual retry', 'Available in 42 sec']);
+  assert.deepEqual([failedToast.secondary.label, failedToast.secondary.value], ['Currently using', 'Local chart data']);
+
+  const cooldown = h.api.catalogPayloadError({outcome: 'cooldown', retryAfterSeconds: 595});
+  const cooldownToast = h.api.catalogToastFailure(cooldown, 'manual');
+  assert.equal(cooldownToast.title, 'Manual update is not available yet');
+  assert.deepEqual([cooldownToast.primary.label, cooldownToast.primary.value], ['Manual retry', 'Available in 9 min 55 sec']);
+  assert.deepEqual([cooldownToast.secondary.label, cooldownToast.secondary.value], ['Currently using', 'Local chart data']);
+  h.api.showCatalogToast(cooldownToast, 'error');
+  assert.equal(h.dom.get('catalog-sync-toast-message').textContent, 'Manual update is not available yet');
+  assert.deepEqual([h.dom.get('catalog-sync-toast-primary-label').textContent, h.dom.get('catalog-sync-toast-primary-value').textContent], ['Manual retry', 'Available in 9 min 55 sec']);
+  assert.deepEqual([h.dom.get('catalog-sync-toast-secondary-label').textContent, h.dom.get('catalog-sync-toast-secondary-value').textContent], ['Currently using', 'Local chart data']);
   for (const language of ['en', 'zh-CN']) {
     const messages = locales[language];
-    for (const key of ['Chart server unavailable.', 'The chart server timed out.', 'Chart server access was refused.',
-      'Chart server rate limit reached.', 'The chart server returned an error.', 'The chart server rejected the update.',
-      'Chart data transfer timed out.', 'Chart data transfer was interrupted.', 'Chart data exceeded the safe size limit.',
-      'The chart server returned invalid data.', 'Chart data could not be saved locally.', 'Continuing with the last saved chart data.',
-      'Automatic updates will retry in ', ' seconds. Manual retry is still available.']) {
+    for (const key of ['Could not connect to the chart server', 'The chart server did not respond in time',
+      'The chart server denied access', 'The chart server is temporarily limiting updates',
+      'The chart server is temporarily unavailable', 'The chart server rejected this update',
+      'Chart data transfer timed out', 'Chart data transfer was interrupted', 'Chart data exceeded the safe size limit',
+      'The chart server returned invalid data', 'Local chart data could not be read or saved', ' min ', ' min', ' sec',
+      'Manual update is not available yet', 'Automatic sync did not finish', 'Manual retry', 'Automatic retry',
+      'Currently using', 'Available in ', 'Available now', 'Local chart data', 'No local chart data']) {
       assert.equal(typeof messages[key], 'string', `${language} must localize ${key}`); assert(messages[key].length > 0);
     }
   }
-  assert.match(locales['zh-CN']['Chart server unavailable.'], /谱面服务器/);
-  assert.match(locales['zh-CN']['Continuing with the last saved chart data.'], /上次保存/);
-  assert.match(locales['zh-CN'][' seconds. Manual retry is still available.'], /手动重试/);
+  assert.match(locales['zh-CN']['Could not connect to the chart server'], /谱面服务器/);
 }
 
 async function main() {
-  checkMarkupAndMotion(); await checkEndpointContract(); checkChangedAuthority(); await checkStartupFreshAndStale();
+  checkMarkupAndMotion(); checkHelpPopoverInteractions(); await checkEndpointContract(); checkChangedAuthority(); await checkStartupFreshAndStale();
   await checkStartupFailureAndManualRetry(); await checkNoCacheFailure(); await checkManualAndForegroundAutomatic(); checkProgressModes(); checkClassifiedErrorsInBothLanguages();
-  console.log('PASS: cache-only startup, focused automatic sync, foreground manual retry/cooldown, nonblocking updates, visibility ownership, authoritative changed flags, classified bilingual errors, progress modes, help copy and reduced motion.');
+  console.log('PASS: cache-only startup, focused automatic sync, foreground manual retry/cooldown, nonblocking updates, visibility ownership, authoritative changed flags, classified bilingual errors, progress modes, hover help behavior and reduced motion.');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

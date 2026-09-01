@@ -96,8 +96,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <h1 class="sr-only" data-ui-static="Chart browser">Chart browser</h1>
     <div id="chart-panel">
     <details id="filter-panel" class="filter-panel" open>
-      <summary><svg class="icon" aria-hidden="true"><use href="#icon-filter"/></svg><span data-ui-static="Filters">Filters</span><span class="filter-summary-actions"><span class="refresh-data-control"><button id="refresh-data" class="button secondary" type="button" disabled><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg><span data-ui-static="Update data">Update data</span></button><button id="refresh-data-help" class="refresh-data-help-toggle" type="button" aria-label="About data updates" data-ui-attr-aria-label="About data updates" aria-describedby="refresh-data-help-panel" aria-expanded="false" popovertarget="refresh-data-help-panel" popovertargetaction="toggle"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3v1"/></svg></button></span><button id="reset-filters" class="filter-reset" type="button" data-ui-static="Reset filters">Reset filters</button></span></summary>
-      <div id="refresh-data-help-panel" class="catalog-help" popover="auto" role="tooltip"><strong data-ui-static="Data update guide">Data update guide</strong><dl class="catalog-help-rules"><div><dt data-ui-static="Automatic sync">Automatic sync</dt><dd data-ui-static="Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything.">Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything</dd></div><div><dt data-ui-static="Manual update">Manual update</dt><dd data-ui-static="At most one manual update can run every 10 minutes.">At most one manual update can run every 10 minutes</dd></div></dl></div>
+      <summary><svg class="icon" aria-hidden="true"><use href="#icon-filter"/></svg><span data-ui-static="Filters">Filters</span><span class="filter-summary-actions"><span class="refresh-data-control"><button id="refresh-data" class="button secondary" type="button" disabled><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg><span data-ui-static="Update data">Update data</span></button><button id="refresh-data-help" class="help-toggle refresh-data-help-toggle" type="button" aria-label="About data updates" data-ui-attr-aria-label="About data updates" aria-describedby="refresh-data-help-panel"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3v1"/></svg></button></span><button id="reset-filters" class="filter-reset" type="button" data-ui-static="Reset filters">Reset filters</button></span></summary>
       <form id="filters" novalidate>
         <fieldset id="difficulty-fields" class="filter-main-fields">
           <legend class="sr-only" data-ui-static="Difficulty">Difficulty</legend>
@@ -127,6 +126,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <div class="filter-actions"><p id="filter-dirty" class="field-help" role="status"></p><button id="apply-filters" class="button primary" type="submit" data-ui-static="Filter charts">Filter charts</button></div>
       </form>
     </details>
+    <div id="refresh-data-help-panel" class="catalog-help" popover="manual" role="tooltip" tabindex="-1"><strong data-ui-static="Data update guide">Data update guide</strong><dl class="catalog-help-rules"><div><dt data-ui-static="Automatic sync">Automatic sync</dt><dd data-ui-static="Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything.">Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything</dd></div><div><dt data-ui-static="Manual update">Manual update</dt><dd data-ui-static="At most one manual update can run every 10 minutes.">At most one manual update can run every 10 minutes</dd></div></dl></div>
     <p id="status" class="status" role="status" aria-live="polite"></p>
     <div id="result-tools" class="result-tools" hidden inert>
     <div id="result-tools-content" class="result-tools-content">
@@ -212,7 +212,13 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 <aside id="app-activity" class="app-activity" aria-label="Installation activity" data-ui-attr-aria-label="Installation activity" hidden><p id="activity-message" role="status" aria-live="polite"></p><div id="activity-jobs"></div><button id="activity-retry" type="button" class="quiet-button" data-ui-static="Retry" hidden>Retry</button></aside>
 <aside id="catalog-sync-toast" class="catalog-sync-toast" aria-live="polite" aria-atomic="true" hidden>
   <span class="catalog-sync-toast-mark" aria-hidden="true"><svg class="icon catalog-sync-toast-success"><use href="#icon-check"/></svg><svg class="icon catalog-sync-toast-notice"><use href="#icon-notice"/></svg></span>
-  <p id="catalog-sync-toast-message"></p>
+  <div class="catalog-sync-toast-copy">
+    <strong id="catalog-sync-toast-message"></strong>
+    <dl id="catalog-sync-toast-facts" class="catalog-sync-toast-facts" hidden>
+      <div id="catalog-sync-toast-fact-primary" hidden><dt id="catalog-sync-toast-primary-label"></dt><dd id="catalog-sync-toast-primary-value"></dd></div>
+      <div id="catalog-sync-toast-fact-secondary" hidden><dt id="catalog-sync-toast-secondary-label"></dt><dd id="catalog-sync-toast-secondary-value"></dd></div>
+    </dl>
+  </div>
 </aside>
 <dialog id="catalog-sync-dialog" class="catalog-sync-dialog" aria-labelledby="catalog-sync-title" aria-describedby="catalog-sync-message catalog-sync-detail" aria-busy="true">
   <div class="catalog-sync-card">
@@ -223,7 +229,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     </div>
     <div id="catalog-sync-meter" class="catalog-sync-meter is-indeterminate" aria-hidden="true"><span></span></div>
     <p id="catalog-sync-progress" class="catalog-sync-progress" role="status" aria-live="polite"></p>
-    <p id="catalog-sync-detail" class="catalog-sync-detail"></p>
+    <dl id="catalog-sync-detail" class="catalog-sync-detail" hidden>
+      <div><dt data-ui-static="Manual retry">Manual retry</dt><dd id="catalog-sync-retry-state"></dd></div>
+      <div><dt data-ui-static="Current data">Current data</dt><dd id="catalog-sync-local-state"></dd></div>
+    </dl>
     <div id="catalog-sync-actions" class="catalog-sync-actions" hidden>
       <button id="catalog-sync-retry" class="button primary" type="button" data-ui-static="Retry">Retry</button>
       <button id="catalog-sync-fallback" class="button secondary" type="button"></button>
