@@ -142,9 +142,17 @@ function updateTaskProgress(target,job,active,label){
   target.hidden=!active||!Number.isSafeInteger(total)||total<=0||!Number.isSafeInteger(done)||done<0;
   if(!target.hidden){target.max=total;target.value=Math.min(done,total);uiAttr(target,'aria-label',label);}
 }
-function setStatus(message,error=false){uiText($('status'),message);$('status').classList.toggle('error',error);loadingIndicator($('status'),Boolean(message)&&phase==='loading'&&!error);}
+function setStatus(message,error=false){
+  const emptyState=Boolean(message)&&(phase==='loading'||phase==='error'),status=$('status'),empty=$('empty');
+  if(emptyState){
+    uiText(status,'');status.classList.remove('error');loadingIndicator(status,false);
+    uiText(empty,message);empty.classList.toggle('error',error);loadingIndicator(empty,phase==='loading'&&!error);return;
+  }
+  uiText(status,message);status.classList.toggle('error',error);loadingIndicator(status,false);
+}
 const INSTALLER_MESSAGE_REPLACEMENTS=Object.keys(UI_CATALOG.en).filter(key=>key.startsWith("engine.")).map(key=>[UI_CATALOG.en[key],key]).sort((a,b)=>b[0].length-a[0].length);
 const INSTALLER_ERROR_TEXT=Object.freeze({invalid_installations:m("Installation status could not be read."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
+const CHART_ERROR_TEXT=Object.freeze({charts_network_error:m('The chart server could not be reached. Check your network and retry.'),charts_request_timeout:m('The chart server did not respond after the request may have reached it. Retry after the refresh interval.'),charts_access_denied:m('The chart server refused access. No refresh cooldown was used; retry when access is restored.'),charts_rate_limited:m('The chart server limited this request. Retry after the refresh interval.'),charts_server_error:m('The chart server failed after the request may have reached it. Retry after the refresh interval.'),charts_request_rejected:m('The chart server rejected this request. Retry after the refresh interval or check for an app update.'),charts_remote_timeout:m('The full chart transfer timed out. Try again after the refresh interval.'),charts_response_incomplete:m('The chart request or response was interrupted. Try again after the refresh interval.'),charts_response_too_large:m('The full chart response was too large to use safely. Retry after the refresh interval.'),charts_invalid_response:m('The chart server returned invalid data. Try again after the refresh interval.')});
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS)text=text.replaceAll(english,m(key));return text;}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
@@ -392,8 +400,8 @@ function filtersChanged(){
 }
 function syncResultTools(visible,previousFocus){
   const panel=$('result-tools'),busy=phase==='loading';
-  if(!visible&&panel.contains(previousFocus)||previousFocus===$('cancel')&&!busy||previousFocus===$('apply-filters')&&busy){
-    const filter=$('filter-panel'),action=$(busy?'cancel':'apply-filters');
+  if(!visible&&panel.contains(previousFocus)||previousFocus===$('apply-filters')&&busy){
+    const filter=$('filter-panel'),action=$('apply-filters');
     const target=filter.open&&!action.hidden&&!action.disabled?action:filter.querySelector('summary');
     target.focus({preventScroll:true});
   }
@@ -408,16 +416,15 @@ function syncResultTools(visible,previousFocus){
 }
 function syncFilters(){
   const busy=phase==='loading',ready=Boolean(applied)&&phase==='ready',previousFocus=document.activeElement;
-  $('difficulty-fields').disabled=appExiting;$('date-fields').disabled=appExiting;
-  if(appExiting&&$('date-calendar')?.matches?.(':popover-open'))$('date-calendar').hidePopover();
+  $('difficulty-fields').disabled=busy||appExiting;$('date-fields').disabled=busy||appExiting;
+  if((busy||appExiting)&&$('date-calendar')?.matches?.(':popover-open'))$('date-calendar').hidePopover();
   $('apply-filters').disabled=busy||appExiting;
-  loadingIndicator($('apply-filters'),busy);
+  loadingIndicator($('apply-filters'),false);
   syncCatalogRefresh();
-  $('reset-filters').disabled=appExiting;
+  $('reset-filters').disabled=busy||appExiting;
   for(const id of ['local-search','search-submit','search-clear'])$(id).disabled=!ready;
   $('installation-filter').disabled=!ready||appExiting;
-  $('cancel').hidden=!busy;$('cancel').disabled=false;
-  uiText($('filter-dirty'),filtersChanged()?m('Filters changed. Select Filter charts to apply them.'):'');
+  uiText($('filter-dirty'),!busy&&filtersChanged()?m('Filters changed. Select Filter charts to apply them.'):'');
   syncResultTools(ready,previousFocus);
   syncTagControls();
 }
@@ -1907,24 +1914,26 @@ function render(append=false){
   }
   $('rows').setAttribute('aria-busy',phase==='loading'||installationFilterPending?'true':'false');
   for(const [index,row] of shown.entries()){const card=cardViews.get(row[0]).card;if($('rows').children[index]!==card)$('rows').insertBefore(card,$('rows').children[index]||null);queueEntry(card,'chart:'+row[0]);}renderedCount=continuous?end:shown.length;pruneEntries();scheduleChartDescriptions();
-  $('empty').hidden=ready&&filtered.length!==0;
-  uiText($('empty'),phase==='loading'?m("Loading charts..."):phase==='error'?m("Search failed. Try again."):ready?installationFilterPending?m('Checking installation status...'):textSearchWork?m('Searching uploader accounts...'):textSearchProblem||m("No matching charts. Try other filters."):m("Choose difficulty and dates, then select Filter charts."));
+  const emptyState=$('empty-state'),empty=$('empty');emptyState.hidden=ready&&filtered.length!==0;
+  uiText(empty,phase==='loading'?m("Loading charts..."):phase==='error'?m("Search failed. Try again."):ready?installationFilterPending?m('Checking installation status...'):textSearchWork?m('Searching uploader accounts...'):textSearchProblem||m("No matching charts. Try other filters."):m("Choose difficulty and dates, then select Filter charts."));
+  empty.classList.toggle('error',phase==='error');loadingIndicator(empty,phase==='loading');
+  $('query-retry').hidden=phase!=='error';$('query-retry').disabled=appExiting;
   uiText($('count'),ready?installationFilterPending?m('Checking installation status...'):number(filtered.length)+m(" charts"):phase==='loading'?m("Searching..."):phase==='error'?m("Search failed"):m("Ready to search"));
   const scope=applied?[m("Rating: ")+applied.min+'–'+applied.max,applied.diffs.map(i=>labels[i]).join(' / ')]:[];
   if(applied?.dateFrom||applied?.dateTo)scope.push(m("Upload date: ")+(applied.dateFrom||'…')+' – '+(applied.dateTo||'…'));
   if(appliedText)scope.push(m("Text: ")+appliedText);uiText($('scope'),scope.join(m(" | ")));
   $('scope').hidden=!ready||$('filter-panel').open;
-  const pageText=ready?(filtered.length?continuous?m("Showing ")+number(end)+m(" items"):m("Page ")+page+' / '+totalPages+m(" | Showing ")+number(start+1)+'–'+number(end)+m(" items"):m("No matching results")):phase==='loading'?m("Loading results..."):phase==='error'?m("Search failed"):m("Ready to search");
+  const pageText=ready?(filtered.length?continuous?m("Showing ")+number(end)+m(" items"):m("Page ")+page+' / '+totalPages+m(" | Showing ")+number(start+1)+'–'+number(end)+m(" items"):m("No matching results")):phase==='loading'?m("Loading results..."):phase==='error'?m("Search failed"):m("Ready to search"),showPageNavigation=ready&&filtered.length>0&&!continuous&&totalPages>1,showContinuousControl=ready&&filtered.length>0&&continuous;
   for(const suffix of ['','-bottom']){
     uiText($('page-label'+suffix),pageText);
-    $('pager'+suffix).hidden=!ready||!filtered.length;
+    const pager=$('pager'+suffix),displayOnly=!suffix&&showContinuousControl;
+    pager.hidden=suffix?!showPageNavigation:!(showPageNavigation||showContinuousControl);pager.classList.toggle('is-display-only',displayOnly);
     $('page-controls'+suffix).hidden=continuous;$('page-jump'+suffix).hidden=continuous;
     renderPageLinks(suffix,ready);$('prev'+suffix).disabled=!ready||page===1;$('next'+suffix).disabled=!ready||page===totalPages;
     $('page-number'+suffix).value=String(page);$('page-number'+suffix).max=String(totalPages);
     $('page-number'+suffix).disabled=!ready||continuous;$('jump'+suffix).disabled=!ready||continuous;
     $('page-size'+suffix).value=continuous?'all':String(size);$('page-size'+suffix).disabled=phase!=='ready';
   }
-  $('results-note').hidden=!ready||!filtered.length;
   syncFilters();syncSearchControls();syncInstallationFilter();
   for(const id of ['sort','sort-direction'])$(id).disabled=phase!=='ready';
   syncReviewVisibility();
@@ -1961,9 +1970,9 @@ async function loadRemote(signal){
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   if(Number.isFinite(result?.nextAllowedAt)){catalogNextAllowedAt=result.nextAllowedAt;syncCatalogRefresh();}
   if(!response.ok){
-    if(result?.code==='charts_cooldown'||result?.code==='charts_unavailable')throw uiError(m('No saved charts are available yet. Please try again later.'));
+    if(result?.code==='charts_cooldown')throw uiError(m('The previous catalog request used server resources. Retry after the refresh interval.'));
     if(result?.code==='charts_cache_error')throw uiError(m('The chart cache could not be read or saved safely. Check app data permissions and free space.'));
-    throw uiError(INSTALLER_ERROR_TEXT[result?.code]||m('Charts could not be loaded. Try again.'));
+    throw uiError(CHART_ERROR_TEXT[result?.code]||INSTALLER_ERROR_TEXT[result?.code]||m('Charts could not be loaded. Try again.'));
   }
   if(!Array.isArray(result?.data)||!Number.isFinite(result.nextAllowedAt))throw uiError(m('Charts could not be loaded. Try again.'));
   return result;
@@ -2237,20 +2246,20 @@ async function apply(){
     syncSearchControls();setStatus(notice);await rebuild();
   }catch(error){
     if(controller!==request)return;request.abort();
-    const message=error.name==='AbortError'?(timedOut?m('Loading charts timed out. Try refreshing data again.'):m('Search cancelled.')):error instanceof TypeError?m('Connection failed. Check your network and try again.'):errorText(error);
+    const message=error.name==='AbortError'?(timedOut?m('Loading charts timed out. Retry will follow the catalog refresh interval.'):m('Search cancelled.')):error instanceof TypeError?m('Connection failed. Check your network and try again.'):errorText(error);
     currentRows=[];filtered=[];applied=null;phase='error';render();setStatus(message,true);
   }finally{clearTimeout(timer);if(controller===request){controller=null;syncFilters();}}
 }
 $('filters').addEventListener('submit',event=>{event.preventDefault();return apply();});
 $('apply-filters').addEventListener('click',event=>{event.preventDefault();return apply();});
 $('refresh-data').addEventListener('click',()=>apply());
+$('query-retry').addEventListener('click',()=>apply());
 $('chart-search-form').addEventListener('submit',event=>{event.preventDefault();textSearchProblem='';if(phase==='ready')return rebuild();});
 $('search-clear').addEventListener('click',()=>{stopTextSearch(true);$('local-search').value='';syncSearchControls();$('local-search').focus();if(phase==='ready')return rebuild();});
 for(const field of Object.keys(searchFields))$('search-scope-'+field).addEventListener('click',()=>changeSearchScope(field));
 $('search-retry').addEventListener('click',()=>{textSearchProblem='';if(phase==='ready')return rebuild();});
 $('installation-filter').addEventListener('change',()=>{if(phase==='ready'&&!appExiting)rebuild(false);});
 $('installation-filter-retry').addEventListener('click',()=>refreshInstallationChecks(true));
-$('cancel').addEventListener('click',cancelQuery);
 $('reset-filters').addEventListener('click',event=>{event.preventDefault();event.stopPropagation();resetFilters();});
 $('date-preset').addEventListener('change',applyDatePreset);
 for(const id of ['date-from','date-to']){

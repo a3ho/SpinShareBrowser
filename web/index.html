@@ -113,7 +113,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
             <p id="date-range-help" class="field-help" data-ui-static="Leave either date empty for an open-ended range.">Leave either date empty for an open-ended range.</p>
           </div>
         </fieldset>
-        <div class="filter-actions"><p id="filter-dirty" class="field-help" role="status"></p><button id="cancel" class="button secondary" type="button" data-ui-static="Cancel query" hidden>Cancel query</button><button id="apply-filters" class="button primary" type="submit" data-ui-static="Filter charts">Filter charts</button></div>
+        <div class="filter-actions"><p id="filter-dirty" class="field-help" role="status"></p><button id="apply-filters" class="button primary" type="submit" data-ui-static="Filter charts">Filter charts</button></div>
       </form>
     </details>
     <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -160,7 +160,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       <button id="tag-add-sticky" class="tag-strip-action" type="button" aria-haspopup="dialog" aria-controls="tag-picker" aria-label="Add tag" data-ui-attr-aria-label="Add tag"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
       <button id="tag-clear" class="tag-strip-action" type="button" data-ui-static="Clear tags">Clear tags</button>
     </section>
-    <nav id="pager" class="pager" aria-label="Chart pagination" data-ui-attr-aria-label="Chart pagination">
+    <nav id="pager" class="pager" aria-label="Chart pagination" data-ui-attr-aria-label="Chart pagination" hidden>
       <div class="pager-info"><span class="page-label" id="page-label"></span><label><span class="sr-only" data-ui-static="Results per page">Results per page</span><select id="page-size"><option value="10" data-ui-static="10 per page">10 per page</option><option value="20" selected data-ui-static="20 per page">20 per page</option><option value="30" data-ui-static="30 per page">30 per page</option><option value="all" data-ui-static="Unlimited">Unlimited</option></select></label></div>
       <div id="page-controls" class="pager-controls">
         <button id="prev" type="button" aria-label="Previous" data-ui-attr-aria-label="Previous"><svg class="icon" aria-hidden="true"><use href="#icon-left"/></svg><span data-ui-static="Previous">Previous</span></button>
@@ -169,12 +169,15 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       </div>
       <div id="page-jump" class="page-jump"><label for="page-number" data-ui-static="Jump to page">Jump to page</label><input id="page-number" type="number" min="1" step="1" inputmode="numeric" value="1"><button id="jump" type="button" data-ui-static="Go">Go</button></div>
     </nav>
-    <section aria-label="Chart query results" data-ui-attr-aria-label="Chart query results">
+    <section class="result-stage" aria-label="Chart query results" data-ui-attr-aria-label="Chart query results">
       <div id="rows" class="chart-grid" role="list" aria-label="Chart list" data-ui-attr-aria-label="Chart list"></div>
-      <p class="empty" id="empty" hidden><span data-ui-static="Waiting for a query.">Waiting for a query.</span></p>
+      <div id="empty-state" class="empty-state" hidden>
+        <p class="empty" id="empty" role="status" aria-live="polite" aria-atomic="true"><span data-ui-static="Waiting for a query.">Waiting for a query.</span></p>
+        <button id="query-retry" class="button secondary empty-retry" type="button" aria-describedby="empty" data-ui-static="Retry" hidden>Retry</button>
+      </div>
       <button id="load-more" class="load-more" type="button" data-ui-static="Load more" hidden>Load more</button>
     </section>
-    <nav id="pager-bottom" class="pager pager-bottom" aria-label="Bottom chart pagination" data-ui-attr-aria-label="Bottom chart pagination">
+    <nav id="pager-bottom" class="pager pager-bottom" aria-label="Bottom chart pagination" data-ui-attr-aria-label="Bottom chart pagination" hidden>
       <div class="pager-info"><span class="page-label" id="page-label-bottom"></span><label><span class="sr-only" data-ui-static="Results per page">Results per page</span><select id="page-size-bottom"><option value="10" data-ui-static="10 per page">10 per page</option><option value="20" selected data-ui-static="20 per page">20 per page</option><option value="30" data-ui-static="30 per page">30 per page</option><option value="all" data-ui-static="Unlimited">Unlimited</option></select></label></div>
       <div id="page-controls-bottom" class="pager-controls">
         <button id="prev-bottom" type="button" aria-label="Previous" data-ui-attr-aria-label="Previous"><svg class="icon" aria-hidden="true"><use href="#icon-left"/></svg><span data-ui-static="Previous">Previous</span></button>
@@ -183,7 +186,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       </div>
       <div id="page-jump-bottom" class="page-jump"><label for="page-number-bottom" data-ui-static="Jump to page">Jump to page</label><input id="page-number-bottom" type="number" min="1" step="1" inputmode="numeric" value="1"><button id="jump-bottom" type="button" data-ui-static="Go">Go</button></div>
     </nav>
-    <p id="results-note" class="results-note" data-ui-static="Installs all difficulties and replaces matching files.">Installs all difficulties and replaces matching files.</p>
     </div>
     <footer class="footer">
       <nav class="footer-links" aria-label="Quick navigation" data-ui-attr-aria-label="Quick navigation">

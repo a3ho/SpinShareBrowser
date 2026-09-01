@@ -19,13 +19,19 @@ let now = 1700000000000, nextTimer = 0;
 function createNodes() {
   const nodes = new Map();
   return id => {
-    if (!nodes.has(id)) nodes.set(id, {
-      disabled: false, hidden: false, value: '', textContent: '', attributes: new Map(), events: new Map(),
-      setAttribute(name, value) { this.attributes.set(name, value); },
-      removeAttribute(name) { this.attributes.delete(name); },
-      addEventListener(name, callback) { this.events.set(name, callback); },
-      focus() {}, classList: {toggle() {}},
-    });
+    if (!nodes.has(id)) {
+      const classes = new Set();
+      nodes.set(id, {
+        disabled: false, hidden: false, value: '', textContent: '', attributes: new Map(), events: new Map(),
+        setAttribute(name, value) { this.attributes.set(name, value); },
+        removeAttribute(name) { this.attributes.delete(name); },
+        addEventListener(name, callback) { this.events.set(name, callback); },
+        focus() {}, classList: {
+          toggle(name, force) { const active = force === undefined ? !classes.has(name) : Boolean(force); if (active) classes.add(name); else classes.delete(name); return active; },
+          add: name => classes.add(name), remove: name => classes.delete(name), contains: name => classes.has(name),
+        },
+      });
+    }
     return nodes.get(id);
   };
 }
@@ -72,6 +78,26 @@ function checkCachedSearchAvailable() {
 function checkNoCountdown() {
   assert.equal(node('refresh-data').attributes.has('title'), false, 'Refresh controls must not create native hover tooltips');
   assert.equal(timers.size, 0, 'A catalog deadline must not schedule a UI countdown');
+}
+
+function checkQueryStatusOwnership() {
+  const queryNode = createNodes(), view = vm.createContext({__SPINSHARE_UI_CATALOG__: catalog, $: queryNode, phase: 'loading'});
+  vm.runInContext([
+    extract('const UI_CATALOG=', 'function setUILanguage('),
+    extract('function loadingIndicator(', 'function updateTaskProgress('),
+    extract('function setStatus(', 'const INSTALLER_MESSAGE_REPLACEMENTS='),
+    "uiLanguage='en';",
+  ].join('\n'), view);
+  view.setStatus(view.m('Loading charts...'));
+  assert.equal(queryNode('status').textContent, '', 'Loading must not duplicate the result-stage status above the results');
+  assert.equal(queryNode('empty').textContent, 'Loading charts...');
+  assert.equal(queryNode('empty').classList.contains('is-loading'), true, 'The result stage owns the sole loading animation');
+  view.phase = 'error'; view.setStatus('Detailed failure', true);
+  assert.equal(queryNode('status').textContent, ''); assert.equal(queryNode('empty').textContent, 'Detailed failure');
+  assert.equal(queryNode('empty').classList.contains('is-loading'), false); assert.equal(queryNode('empty').classList.contains('error'), true);
+  view.phase = 'ready'; view.setStatus('Saved copy notice');
+  assert.equal(queryNode('status').textContent, 'Saved copy notice', 'A completed-query notice remains available outside the loading stage');
+  assert.equal(queryNode('status').classList.contains('is-loading'), false);
 }
 
 function deferred() {
@@ -245,6 +271,8 @@ async function checkApplyFlows() {
       const work = h.trigger('filters', 'submit');
       assert.equal(h.requests.length, 1, 'A new page must ask the local service even when its deadline is in the future');
       assert.equal(h.app.phase, 'loading'); assert.equal(h.node('apply-filters').disabled, true);
+      assert.equal(h.node('difficulty-fields').disabled, true); assert.equal(h.node('date-fields').disabled, true);
+      assert.equal(h.node('reset-filters').disabled, true); assert.equal(h.node('apply-filters').classList.contains('is-loading'), false);
       h.respond({data: saved, cached: true, fetchedAt: h.now() - 20000, nextAllowedAt: h.now() + 580000});
       assert.equal((await work).defaultPrevented, true);
       assert.equal(h.app.catalog.length, 3, 'Keep the full catalog, including charts excluded by the initial difficulty');
@@ -313,14 +341,14 @@ async function checkApplyFlows() {
     await h.trigger('refresh-data', 'click'); assert.equal(h.requests.length, 2); assert.deepEqual(h.status(), {text: '', error: false});
   });
   await check('without any saved catalog, service failure and timeout stay errors', async () => {
-    for (const failure of ['unavailable', 'timeout']) {
+    for (const failure of ['network', 'timeout']) {
       const h = applyHarness(), work = h.apply();
-      if (failure === 'unavailable') h.respond({code: 'charts_unavailable', nextAllowedAt: h.now() + 600000}, undefined, 503);
+      if (failure === 'network') h.respond({code: 'charts_network_error', nextAllowedAt: h.now(), retryAfterSeconds: 0}, undefined, 502);
       else h.advance(h.timeout);
       await work;
       assert.equal(h.app.catalog, null); assert.equal(h.app.catalogFetchedAt, null); assert.equal(h.app.applied, null);
       assert.equal(h.app.phase, 'error'); assert.deepEqual(h.ids(), []); assert.equal(h.status().error, true);
-      assert.match(h.status().text, failure === 'timeout' ? /timed out/ : /No saved charts/);
+      assert.match(h.status().text, failure === 'timeout' ? /timed out/ : /could not be reached/);
       assert.equal(h.app.controller, null); assert.equal(h.timers.size, 0);
     }
   });
@@ -365,6 +393,10 @@ async function main() {
   assert.equal(initial.cached, true);
   assert.equal(initial.data[0].id, 17);
   checkNoCountdown();
+  checkQueryStatusOwnership();
+  assert.doesNotMatch(html, /id="cancel"/, 'The query UI must not expose a repeatedly triggerable cancel action');
+  assert.match(html, /id="query-retry"[\s\S]*data-ui-static="Retry"/, 'A failed first load needs one explicit retry action in the result stage');
+  assert.match(html, /\$\('query-retry'\)\.addEventListener\('click',\(\)=>apply\(\)\)/, 'Retry must re-enter the guarded catalog flow');
   api.syncFilters();
   assert.equal(node('refresh-data').disabled, true, 'Refresh list requires an applied result set');
   assert.equal(node('apply-filters').disabled, false, 'The first filter operation must still be available');
@@ -377,14 +409,14 @@ async function main() {
   checkNoCountdown();
 
   responses.push({status: 429, body: {code: 'charts_cooldown', nextAllowedAt: now + 95000}});
-  await assert.rejects(api.loadRemote(controller.signal), /No saved charts are available yet/);
+  await assert.rejects(api.loadRemote(controller.signal), /previous catalog request used server resources/);
   assert.equal(api.catalogNextAllowedAt, now + 95000);
   checkNoCountdown();
   checkCachedSearchAvailable();
 
-  responses.push({status: 503, body: {code: 'charts_unavailable', nextAllowedAt: now + 600000}});
-  await assert.rejects(api.loadRemote(controller.signal), /No saved charts are available yet/);
-  assert.equal(api.catalogNextAllowedAt, now + 600000);
+  responses.push({status: 502, body: {code: 'charts_network_error', nextAllowedAt: now, retryAfterSeconds: 0}});
+  await assert.rejects(api.loadRemote(controller.signal), /could not be reached/);
+  assert.equal(api.catalogNextAllowedAt, now);
   checkNoCountdown();
   checkCachedSearchAvailable();
 

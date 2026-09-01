@@ -92,7 +92,7 @@ function harness(songs, installed = new Set()) {
     extract('function syncFilters(', 'function cancelQuery('),
     extract('function cancelQuery(', 'function validDate('),
     extract('function resetFilters(', 'function element('),
-    extract("$('installation-filter').addEventListener(", "$('cancel').addEventListener("),
+    extract("$('installation-filter').addEventListener(", "$('reset-filters').addEventListener("),
     "uiLanguage='en';",
   ].join('\n'), api);
   api.createChartCard = row => {
@@ -315,6 +315,24 @@ async function sortingOnlyLoadsRenderedCounts() {
   assert(queuedCount > 0, 'Ordinary per-page review counting must remain connected');
 }
 
+async function paginationOnlyAppearsWhenUseful() {
+  const single = harness(Array.from({length: 8}, (_, i) => song(i + 1)));
+  await single.api.rebuild(false); await idle(single);
+  assert.equal(single.node('pager').hidden, true, 'A single result page must not show the top pager');
+  assert.equal(single.node('pager-bottom').hidden, true, 'A single result page must not show the bottom pager');
+
+  const multiple = harness(Array.from({length: 25}, (_, i) => song(i + 1)));
+  await multiple.api.rebuild(false); await idle(multiple);
+  assert.equal(multiple.node('pager').hidden, false, 'Multiple pages show the top pager');
+  assert.equal(multiple.node('pager-bottom').hidden, false, 'Multiple pages show the bottom pager');
+  multiple.node('page-size').value = 'all'; multiple.api.render();
+  assert.equal(multiple.node('pager').hidden, false, 'Unlimited mode keeps one display-size control so the user can leave it');
+  assert.equal(multiple.node('pager').classList.contains('is-display-only'), true);
+  assert.equal(multiple.node('pager-bottom').hidden, true, 'Unlimited mode does not render a redundant bottom pager');
+  assert.equal(multiple.node('page-controls').hidden, true);
+  assert.equal(multiple.node('page-jump').hidden, true);
+}
+
 async function main() {
   assert.match(markup, /<select id="installation-filter"[^>]*disabled>/);
   assert.match(markup, /<option value="all" data-ui-static="All installation states">All<\/option>/);
@@ -324,10 +342,11 @@ async function main() {
   assert(sortMarkup, 'The result sort control remains available');
   assert.deepEqual(Array.from(sortMarkup[1].matchAll(/<option value="([^"]+)"/g), match => match[1]), ['date', 'views', 'downloads', 'level', 'title']);
   assert.doesNotMatch(markup, /id="(?:ranking-panel|ranking-status|cancel-ranking)"/);
+  assert.doesNotMatch(markup, /id="results-note"/, 'The repeated installation explanation is not part of the result layout');
   await fullCandidateFilter(); await combinedFilters(); await unknownIsNotUninstalled();
   await directoryAndMetadataRace(); await changingCandidatesDuringCheck(); await backgroundChecksPreserveCards(); await installationCompletionRace();
   await activityCompletionAndStaleSettings();
-  await sortOptionsAndFallbacks(); await sortingOnlyLoadsRenderedCounts();
-  console.log('PASS: 10 scenarios covering installation filters, full-candidate presence checks, unknown/retry states, combined criteria, directory/install races, stable paging, five sort modes, legacy fallback and rendered-page review counting.');
+  await sortOptionsAndFallbacks(); await sortingOnlyLoadsRenderedCounts(); await paginationOnlyAppearsWhenUseful();
+  console.log('PASS: 11 scenarios covering installation filters, full-candidate presence checks, unknown/retry states, combined criteria, directory/install races, useful pagination, five sort modes, legacy fallback and rendered-page review counting.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -55,6 +55,14 @@ class APIError(PortableError):
         self.details = details
 
 
+class ChartFetchError(PortableError):
+    """A classified remote-catalog failure safe to expose through the local API."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def web_resource_path(name):
     """Find project resources in source runs and bundled resources when frozen."""
     root = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
@@ -458,29 +466,51 @@ class ConfigStore:
         return validate_directory(config["customDirectory"] or self.default_directory)
 
 
-def _fetch_chart_catalog():
+def _fetch_chart_catalog(on_remote_attempt=None, on_cheap_rejection=None):
     """The search endpoint supplies tags/notes without visiting counted song details."""
     body = _json_bytes({"searchQuery": "", "diffEasy": True, "diffNormal": True,
                        "diffHard": True, "diffExpert": True, "diffXD": True,
                        "diffRatingFrom": 0, "diffRatingTo": 999, "showExplicit": True})
     connection = http.client.HTTPSConnection("spinsha.re", timeout=30)
-    deadline = time.monotonic() + 90
+    remote_attempt = False
+    full_response = False
     try:
         # http.client deliberately does not follow redirects or retry requests.
+        # Resolve DNS and complete TCP/TLS first. Failures here are confirmed
+        # connection failures and may be retried without charging cooldown.
+        connection.connect()
+        if on_remote_attempt is not None:
+            on_remote_attempt()
+        remote_attempt = True
         connection.request("POST", "/api/searchCharts", body=body, headers={
             "Content-Type": "application/json", "Accept": "application/json",
             "Cache-Control": "no-store", "User-Agent": "SpinShareBrowser/" + VERSION})
         response = connection.getresponse()
         if response.status != 200:
-            raise PortableError("The chart search endpoint is unavailable.")
+            if response.status in {401, 403}:
+                if on_cheap_rejection is not None:
+                    on_cheap_rejection()
+                remote_attempt = False
+                raise ChartFetchError("charts_access_denied", "The chart server refused access.")
+            if response.status == 429:
+                raise ChartFetchError("charts_rate_limited", "The chart server limited the request.")
+            if response.status in {408, 504}:
+                raise ChartFetchError("charts_request_timeout", "The chart request timed out while waiting for a full response.")
+            if response.status >= 500:
+                raise ChartFetchError("charts_server_error", "The chart server is temporarily unavailable.")
+            raise ChartFetchError("charts_request_rejected", "The chart server rejected the request.")
+        full_response = True
+        deadline = time.monotonic() + 90
         length = response.getheader("Content-Length")
-        if length is not None and (not re.fullmatch(r"[0-9]+", length) or int(length) > MAX_CHART_BYTES):
-            raise PortableError("The chart catalog exceeds the size limit.")
+        if length is not None and not re.fullmatch(r"[0-9]+", length):
+            raise ChartFetchError("charts_invalid_response", "The full chart response has an invalid length.")
+        if length is not None and int(length) > MAX_CHART_BYTES:
+            raise ChartFetchError("charts_response_too_large", "The full chart response exceeds the size limit.")
         raw = bytearray()
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError("The chart catalog request timed out.")
+                raise ChartFetchError("charts_remote_timeout", "The full chart transfer timed out.")
             if connection.sock is not None:
                 connection.sock.settimeout(min(30, remaining))
             chunk = response.read1(min(65536, MAX_CHART_BYTES + 1 - len(raw)))
@@ -488,24 +518,43 @@ def _fetch_chart_catalog():
                 break
             raw.extend(chunk)
             if len(raw) > MAX_CHART_BYTES:
-                raise PortableError("The chart catalog exceeds the size limit.")
+                raise ChartFetchError("charts_response_too_large", "The full chart response exceeds the size limit.")
         if length is not None and len(raw) != int(length):
-            raise PortableError("The chart catalog response was incomplete.")
-        result = _parse_json(raw)
+            raise ChartFetchError("charts_response_incomplete", "The full chart response was incomplete.")
+        try:
+            result = _parse_json(raw)
+        except (ValueError, UnicodeError, PortableError) as exc:
+            raise ChartFetchError("charts_invalid_response", "The chart server returned invalid JSON.") from exc
         if (not isinstance(result, dict) or result.get("status") != 200 or
                 not isinstance(result.get("data"), list) or any(not isinstance(row, dict) for row in result["data"])):
-            raise PortableError("The chart catalog format is invalid.")
-        if len(_json_bytes(result["data"])) > MAX_CHART_BYTES:
-            raise PortableError("The chart catalog exceeds the size limit.")
+            raise ChartFetchError("charts_invalid_response", "The chart server returned an invalid catalog.")
+        try:
+            encoded_size = len(_json_bytes(result["data"]))
+        except (ValueError, UnicodeError) as exc:
+            raise ChartFetchError("charts_invalid_response", "The chart server returned an invalid catalog.") from exc
+        if encoded_size > MAX_CHART_BYTES:
+            raise ChartFetchError("charts_response_too_large", "The full chart response exceeds the size limit.")
         return result["data"]
+    except ChartFetchError:
+        raise
+    except TimeoutError as exc:
+        code = "charts_remote_timeout" if full_response else "charts_request_timeout" if remote_attempt else "charts_network_error"
+        message = ("The full chart transfer timed out." if full_response else
+                   "The chart request timed out while waiting for a full response." if remote_attempt else
+                   "The chart server connection timed out.")
+        raise ChartFetchError(code, message) from exc
+    except (OSError, http.client.HTTPException) as exc:
+        code = "charts_response_incomplete" if remote_attempt else "charts_network_error"
+        message = "The chart request or response was interrupted." if remote_attempt else "The chart server could not be reached."
+        raise ChartFetchError(code, message) from exc
     finally:
         connection.close()
 
 
 def validate_chart_cache(value):
     fields = {"schemaVersion", "lastAttemptAt", "fetchedAt", "refreshError", "data"}
-    if (not isinstance(value, dict) or set(value) != fields or type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1 or
-            type(value["lastAttemptAt"]) is not int or not 0 <= value["lastAttemptAt"] < 2 ** 53 - CHART_REFRESH_INTERVAL_MS or
+    if (not isinstance(value, dict) or set(value) != fields or type(value["schemaVersion"]) is not int or value["schemaVersion"] not in {1, 2} or
+            value["lastAttemptAt"] is not None and (type(value["lastAttemptAt"]) is not int or not 0 <= value["lastAttemptAt"] < 2 ** 53 - CHART_REFRESH_INTERVAL_MS) or
             value["refreshError"] is not None and (not isinstance(value["refreshError"], str) or len(value["refreshError"]) > 512) or
             (value["data"] is None) != (value["fetchedAt"] is None) or
             value["data"] is not None and (not isinstance(value["data"], list) or any(not isinstance(row, dict) for row in value["data"]) or
@@ -529,7 +578,14 @@ class ChartCatalogCache:
         if os.path.lexists(self.path):
             self.state = validate_chart_cache(_parse_json(_read_bytes(self.path, limit=MAX_CHART_CACHE_BYTES)))
         else:
-            self.state = {"schemaVersion": 1, "lastAttemptAt": None, "fetchedAt": None, "refreshError": None, "data": None}
+            self.state = {"schemaVersion": 2, "lastAttemptAt": None, "fetchedAt": None, "refreshError": None, "data": None}
+        # Schema 1 cannot distinguish a cheap connection failure from a request
+        # that reached the server. Preserve its timestamp conservatively so an
+        # upgrade or restart cannot shorten an unfinished cooldown.
+        if self.state["schemaVersion"] == 1:
+            self.state = dict(self.state, schemaVersion=2)
+            with contextlib.suppress(OSError, ValueError, PortableError):
+                self._save(self.state)
         attempt = self.state["lastAttemptAt"]
         remaining = 0 if attempt is None else max(0, attempt + CHART_REFRESH_INTERVAL_MS - time.time_ns() // 1000000)
         self.monotonic_until = time.monotonic_ns() + remaining * 1000000
@@ -565,37 +621,118 @@ class ChartCatalogCache:
                 if self.state["data"] is None:
                     raise APIError(409, "charts_cooldown", "The chart refresh is cooling down.", **metadata)
                 return {"data": self.state["data"], **metadata}
-            reservation = dict(self.state, lastAttemptAt=time.time_ns() // 1000000,
-                               refreshError="A chart refresh did not finish. Try again after the refresh cooldown.")
-            monotonic_until = time.monotonic_ns() + CHART_REFRESH_INTERVAL_MS * 1000000
+            previous = self.state
             try:
-                # Persist the reservation first: failed requests and process exits
-                # must not let a reopened window bypass the ten-minute interval.
-                self._save(reservation)
-            except (OSError, ValueError, PortableError) as exc:
-                message = "The refresh cooldown could not be saved. No remote request was sent."
-                metadata = dict(self._metadata(cached=self.state["data"] is not None), refreshError=message)
-                if isinstance(exc, OSError) and self.state["data"] is not None:
-                    return {"data": self.state["data"], **metadata}
+                # Prove that the current state can still be replaced safely
+                # before asking the server to build a full catalog response.
+                # This writes identical data and therefore does not start or
+                # extend the refresh cooldown.
+                self._save(previous)
+            except OSError as exc:
+                message = "The chart cache could not be written. No remote request was sent."
+                metadata = dict(self._metadata(cached=previous["data"] is not None), refreshError=message)
+                if previous["data"] is not None:
+                    return {"data": previous["data"], **metadata}
                 raise APIError(500, "charts_cache_error", message, **metadata) from exc
-            self.state = reservation
-            self.monotonic_until = monotonic_until
+            except (ValueError, PortableError) as exc:
+                # Unsafe paths and invalid cache serialization must never be
+                # treated as an ordinary transient disk failure or fallback.
+                message = "The chart cache is unsafe. No remote request was sent."
+                raise APIError(500, "charts_cache_error", message,
+                               **dict(self._metadata(cached=False), refreshError=message)) from exc
+            reservation = None
+
+            def begin_remote_attempt():
+                nonlocal reservation
+                if reservation is not None:
+                    return
+                started_at = time.time_ns() // 1000000
+                candidate = dict(previous, schemaVersion=2, lastAttemptAt=started_at,
+                                 refreshError="A remote chart request did not finish. Try again after the refresh cooldown.")
+                try:
+                    # Persist before sending any HTTP bytes. Connection setup
+                    # failures never reach this callback; explicit cheap
+                    # rejections roll the reservation back below.
+                    self._save(candidate)
+                except OSError as exc:
+                    message = "The refresh cooldown could not be saved. No remote request was sent."
+                    raise APIError(500, "charts_cache_error", message,
+                                   **dict(self._metadata(cached=previous["data"] is not None), refreshError=message)) from exc
+                except (ValueError, PortableError) as exc:
+                    message = "The chart cache became unsafe. No remote request was sent."
+                    raise APIError(500, "charts_cache_error", message,
+                                   **dict(self._metadata(cached=False), refreshError=message)) from exc
+                reservation = candidate
+                self.state = candidate
+                self.monotonic_until = time.monotonic_ns() + CHART_REFRESH_INTERVAL_MS * 1000000
+
+            def release_cheap_rejection():
+                nonlocal reservation
+                if reservation is None:
+                    return
+                try:
+                    # A definite 401/403 response is small and proves that no
+                    # catalog was generated. Restore the exact prior state so
+                    # it remains immediately retryable across app restarts.
+                    self._save(previous)
+                except OSError as exc:
+                    message = "The cheap-response cooldown could not be cleared safely."
+                    self.state = dict(reservation, refreshError=message)
+                    raise APIError(500, "charts_cache_error", message,
+                                   **self._metadata(cached=previous["data"] is not None)) from exc
+                except (ValueError, PortableError) as exc:
+                    message = "The chart cache became unsafe while clearing a cheap response."
+                    self.state = dict(reservation, refreshError=message)
+                    raise APIError(500, "charts_cache_error", message,
+                                   **self._metadata(cached=False)) from exc
+                reservation = None
+                self.state = previous
+                self.monotonic_until = time.monotonic_ns()
+
             try:
-                rows = _fetch_chart_catalog()
+                rows = _fetch_chart_catalog(begin_remote_attempt, release_cheap_rejection)
+                # Test doubles and alternate fetchers may return a complete
+                # catalog directly; a completed full fetch still owns cooldown.
+                begin_remote_attempt()
+            except APIError as exc:
+                if previous["data"] is None or not isinstance(exc.__cause__, OSError):
+                    raise
+                return {"data": previous["data"],
+                        **dict(self._metadata(cached=True), refreshError=str(exc))}
+            except ChartFetchError as exc:
+                if reservation is None:
+                    # Confirmed DNS/connect/TLS failures and explicit 401/403
+                    # responses used negligible resources, so retain no new
+                    # cooldown. Every uncertain post-connect failure keeps it.
+                    self.state = dict(previous, refreshError=str(exc))
+                    with contextlib.suppress(OSError, ValueError, PortableError):
+                        self._save(self.state)
+                else:
+                    self.state = dict(reservation, refreshError=str(exc))
+                    with contextlib.suppress(OSError, ValueError, PortableError):
+                        self._save(self.state)
+                metadata = self._metadata(cached=self.state["data"] is not None)
+                if self.state["data"] is None:
+                    status = 504 if exc.code in {"charts_request_timeout", "charts_remote_timeout"} else 502
+                    raise APIError(status, exc.code, str(exc), **metadata) from exc
+                return {"data": self.state["data"], **metadata}
             except (OSError, ValueError, PortableError, http.client.HTTPException) as exc:
-                self.state = dict(reservation, refreshError="Charts could not be loaded. Try again after the refresh cooldown.")
+                code = "charts_response_incomplete" if reservation is not None else "charts_network_error"
+                message = "The chart request or response was interrupted." if reservation is not None else "The chart server could not be reached."
+                self.state = dict(reservation or previous, refreshError=message)
                 with contextlib.suppress(OSError, ValueError, PortableError):
                     self._save(self.state)
                 metadata = self._metadata(cached=self.state["data"] is not None)
                 if self.state["data"] is None:
-                    raise APIError(502, "charts_unavailable", self.state["refreshError"], **metadata) from exc
+                    raise APIError(502, code, message, **metadata) from exc
                 return {"data": self.state["data"], **metadata}
-            updated = dict(reservation, data=rows, fetchedAt=time.time_ns() // 1000000, refreshError=None)
+            completed_at = time.time_ns() // 1000000
+            updated = dict(reservation, data=rows, fetchedAt=completed_at, refreshError=None)
             try:
                 self._save(updated)
             except (OSError, ValueError, PortableError) as exc:
                 # Do not publish a catalog that a restarted process cannot read.
-                self.state = dict(reservation, refreshError="Charts loaded, but the local cache could not be saved.")
+                self.state = dict(reservation, refreshError="Charts were received, but the local cache could not be saved.")
                 metadata = self._metadata(cached=self.state["data"] is not None)
                 if not isinstance(exc, OSError) or self.state["data"] is None:
                     raise APIError(500, "charts_cache_error", self.state["refreshError"], **metadata) from exc
