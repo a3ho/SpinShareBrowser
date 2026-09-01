@@ -721,7 +721,7 @@ test('Left and Right seek five seconds globally while preserving native control 
   for (const position of ['card', 'player']) {
     const focused = playerHarness(); focused.setup(); const row = focused.row(31, position === 'card' ? 'spinshare_31ca' : 'spinshare_31b'); focused.makeCover(row);
     const view = [...focused.coverViews.values()][0], control = position === 'card' ? view.play : focused.node('preview-player-toggle');
-    focused.start(row); focused.audio.duration = 120; focused.audio.readyState = 4; focused.audio.emit('loadedmetadata'); focused.audio.emit('playing'); focused.audio.currentTime = 40.37;
+    view.play.emit('click'); focused.audio.duration = 120; focused.audio.readyState = 4; focused.audio.emit('loadedmetadata'); focused.audio.emit('playing'); focused.audio.currentTime = 40.37;
     const forward = pressKey(focused, control, {key: 'ArrowRight', code: 'ArrowRight'});
     assert.equal(forward.defaultPrevented, true, `${position}: the current song control joins the global seek path`);
     assert.equal(focused.audio.currentTime, 45.37, `${position}: a focused playback control seeks forward exactly five seconds`);
