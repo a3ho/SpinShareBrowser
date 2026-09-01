@@ -43,9 +43,33 @@ These tests use temporary directories and local fixtures without querying or dow
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
-node tests/test_tag_filters.cjs
-node tests/test_catalog_ui.cjs
-node tests/test_date_picker.cjs
-node tests/test_review_drawers.cjs
-node tests/test_installation_filters.cjs
+Get-ChildItem .\tests -Filter "test_*.cjs" | Sort-Object Name | ForEach-Object {
+    node $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "JavaScript test failed: $($_.Name)" }
+}
 ```
+
+## Final release verification
+
+Build once more after the final source and documentation changes. Verify that the installer matches its generated SHA-256 sidecar and that the source archive contains the release documentation and primary source files:
+
+```powershell
+$installer = "dist\SpinShareBrowser-2.0.0-windows-x64-setup.exe"
+$expected = ((Get-Content "$installer.sha256" -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
+$actual = (Get-FileHash $installer -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw "Installer SHA-256 mismatch" }
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = (Resolve-Path "dist\SpinShareBrowser-2.0.0-source.zip").Path
+$zip = [IO.Compression.ZipFile]::OpenRead($archive)
+try {
+    $entries = $zip.Entries.FullName
+    $required = "CHANGELOG.md", "README.md", "PRODUCT.md", "DESIGN.md", "src/spinshare_portable.py", "web/app.js"
+    $missing = $required | Where-Object { $_ -notin $entries }
+    if ($missing) { throw "Source archive is missing: $($missing -join ', ')" }
+} finally {
+    $zip.Dispose()
+}
+```
+
+Publish the installer, its `.sha256` sidecar, and the source archive from the same completed build.

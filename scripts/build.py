@@ -20,7 +20,7 @@ VERSION = "2.0.0"
 SOURCE_DATE_EPOCH = "1788048000"
 WEB_FILES = ("web/index.html", "web/interface.css", "web/chart-card.js", "web/app.js", "web/locales.json")
 SOURCE_FILES = (
-    ".gitattributes", ".gitignore", "LICENSE", "README.md", "README.zh-CN.md",
+    ".gitattributes", ".gitignore", "LICENSE", "README.md", "README.zh-CN.md", "CHANGELOG.md",
     "PRODUCT.md", "DESIGN.md",
     "requirements-build.txt", "src/installer.py", "src/spinshare_portable.py",
     "src/desktop.py", "src/maintenance.py",

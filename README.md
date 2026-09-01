@@ -6,6 +6,20 @@ A third-party Windows app for browsing and installing [SpinShare](https://spinsh
 
 ![Browsing charts in SpinShare Browser](docs/images/overview-en.png)
 
+## Current release: 2.0.0
+
+**Released September 1, 2026**
+
+- A redesigned, responsive chart browser with clearer typography, denser cards, refined motion, and cohesive loading, empty, and footer states.
+- Local-first filtering, search, tags, sorting, and installation-status views backed by a durable catalog with 12-hour automatic synchronization.
+- A single full-song player with cover controls, a draggable timeline, and Space and arrow-key shortcuts.
+- Anchored floating descriptions and review panels that preserve page layout, contain scrolling, and keep review counts available.
+- Safer installation with a first-use folder check, bounded concurrency, staged validation, and overwrite upgrades that preserve settings and installed charts.
+
+[Read the complete 2.0.0 changelog](CHANGELOG.md)
+
+> SpinShare Browser maintains and distributes only the latest stable release. Historical installers are unavailable; update to the latest release for continued support.
+
 ## Features
 
 - Filter by difficulty and upload date.
@@ -25,6 +39,8 @@ A third-party Windows app for browsing and installing [SpinShare](https://spinsh
 2. Run the installer and follow Setup. It installs for your Windows account, adds a Start Menu entry, and offers a desktop shortcut.
 
 Requires **Windows 10 version 1903 or later, or Windows 11 (x64)**, and **.NET Framework 4.8 or later**. Python and the app libraries are bundled.
+
+The installer is not code-signed, so Windows may show an unknown-publisher or SmartScreen warning. Download it only from this repository's latest Release and verify it with the provided `.sha256` file.
 
 Setup reuses an existing **Microsoft Edge WebView2 Runtime 123.0.2420.47 or later**. If the runtime is missing or older, the bundled Microsoft bootstrapper downloads and installs it. A failed download can be retried in Setup; for offline installation, install Microsoft's [Evergreen Standalone Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) first. Browsing SpinShare requires internet access. WebView2 includes Microsoft Defender SmartScreen; see [Microsoft's privacy statement](https://aka.ms/privacy).
 
@@ -62,15 +78,11 @@ Click a card's comment-count button to open its full reviews in a floating panel
 
 **Expand all reviews** is off by default. Turning it on displays full reviews inside each card and keeps them open when the pointer leaves; turning it off restores floating panels. Position, background and layering distinguish the two presentations, without mode labels. Review content remains fully accessible without truncation. Review timestamps omit timezone suffixes such as “· Europe/Berlin”; date conversion is unchanged.
 
-<!-- Superseded review behavior: temporary inline drawers used height animations that moved following cards, showed temporary/pinned mode labels, and loaded counts only when opened. The background counts and floating panels above replace those rules; the global expanded view remains inline. -->
-
 The full catalog and separate foreground/background refresh state are saved in `charts-cache.json`, normally under `%LOCALAPPDATA%\SpinShareBrowser`, independently of the program and chart installation folders. A normal quit keeps them. With no local catalog, or when the last successful update is more than **12 hours** old, the app synchronizes automatically. Startup shows a centered focus panel with the real transfer stage and bytes received; while the app remains open, the same work runs as one low-priority background task. Filtering itself remains local.
 
 Automatic synchronization does not consume the foreground manual-update interval. Automatic failures use their own persisted 5-minute, 15-minute, 1-hour, then 6-hour backoff, while an explicit user retry bypasses that automatic backoff. Manual **Update data** requests still reserve a persistent **10-minute** cooldown before a request that may use server resources. A confirmed 401/403 access rejection rolls it back; rate limits, server failures, waits, interruptions, timeouts, oversized or invalid responses, and failed final saves retain it across restarts.
 
 If startup synchronization fails with an old catalog, choose **Retry** or **Use local data**; with no catalog, retry or exit. Errors distinguish network, access, rate-limit, server, transfer, response, and local-storage failures. In the tray, a real update or failure uses a custom no-focus notice at the lower right and fades away; an unchanged catalog stays quiet. A new catalog invalidates derived caches while preserving search choices. Catalog synchronization uses the search API, not the view-counting song detail endpoint; manually opening a website link follows the site's counting rules.
-
-<!-- Superseded catalog behavior: filtering or Refresh list previously decided whether to contact the server. Filtering is now strictly local; 12-hour automatic synchronization and foreground Update data are managed separately. The 60-second manual review cooldown is unchanged. -->
 
 The install queue holds up to **128 active or waiting tasks**, with up to **2 chart downloads** at a time. Completed downloads are installed one at a time, allowing downloads to overlap installation while keeping file replacement and rollback serialized. Prefetching is bounded rather than downloading the entire waiting queue. ZIP integrity is checked while staging files, and every file must pass before existing files are replaced, avoiding duplicate decompression. A full queue asks you to wait for a task to finish, not to change the install folder.
 
@@ -92,4 +104,4 @@ Original code is licensed under [MIT](LICENSE). Third-party components and artwo
 
 [Build from source](docs/build.md)
 
-<sub>Developed by Liu Yishou</sub>\n
+<sub>Developed by Liu Yishou</sub>

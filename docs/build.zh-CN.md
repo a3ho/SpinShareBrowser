@@ -43,9 +43,33 @@ py -3.12 -m venv .venv
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
-node tests/test_tag_filters.cjs
-node tests/test_catalog_ui.cjs
-node tests/test_date_picker.cjs
-node tests/test_review_drawers.cjs
-node tests/test_installation_filters.cjs
+Get-ChildItem .\tests -Filter "test_*.cjs" | Sort-Object Name | ForEach-Object {
+    node $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "JavaScript test failed: $($_.Name)" }
+}
 ```
+
+## 最终发布校验
+
+源码和文档全部定稿后再执行一次构建。校验安装包与自动生成的 SHA-256 文件一致，并确认源码包包含发布文档和主要源码：
+
+```powershell
+$installer = "dist\SpinShareBrowser-2.0.0-windows-x64-setup.exe"
+$expected = ((Get-Content "$installer.sha256" -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
+$actual = (Get-FileHash $installer -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw "Installer SHA-256 mismatch" }
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = (Resolve-Path "dist\SpinShareBrowser-2.0.0-source.zip").Path
+$zip = [IO.Compression.ZipFile]::OpenRead($archive)
+try {
+    $entries = $zip.Entries.FullName
+    $required = "CHANGELOG.md", "README.md", "PRODUCT.md", "DESIGN.md", "src/spinshare_portable.py", "web/app.js"
+    $missing = $required | Where-Object { $_ -notin $entries }
+    if ($missing) { throw "Source archive is missing: $($missing -join ', ')" }
+} finally {
+    $zip.Dispose()
+}
+```
+
+安装包、`.sha256` 校验文件和源码包必须来自同一次最终构建，再一并发布。
