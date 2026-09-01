@@ -53,6 +53,8 @@
 !/tests/test_windows_installer.py
 !/tests/test_install_pipeline.py
 !/tests/test_download_transport.py
+!/tests/test_install_directory_confirmation.py
+!/tests/test_install_directory_confirmation.cjs
 
 !/licenses/
 !/licenses/runtime-notices.txt

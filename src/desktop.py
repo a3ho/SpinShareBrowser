@@ -26,25 +26,27 @@ TOAST_EXIT_SECONDS = 0.36
 _NOTICE_TEXT = {
     "en": {
         "Still running in the tray.": "Still running in the tray",
-        "Use the tray icon to reopen it.": "Use the tray icon to reopen it.",
+        "Use the tray icon to reopen it.": "Use the tray icon to reopen it",
         "Chart data updated.": "Chart data updated",
         "Chart data could not be updated.": "Chart data could not be updated",
-        "The latest chart catalog is ready.": "The latest chart catalog is ready.",
-        "Open SpinShare Browser for details and retry.": "Open SpinShare Browser for details and retry.",
+        "The latest chart catalog is ready.": "The latest chart catalog is ready",
+        "Open SpinShare Browser for details and retry.": "Open SpinShare Browser for details and retry",
     },
     "zh-CN": {
         "Still running in the tray.": "已在系统托盘中运行",
-        "Use the tray icon to reopen it.": "双击托盘图标即可重新打开。",
+        "Use the tray icon to reopen it.": "双击托盘图标即可重新打开",
         "Chart data updated.": "谱面数据已更新",
         "Chart data could not be updated.": "谱面数据更新失败",
-        "The latest chart catalog is ready.": "最新谱面目录已在后台准备完成。",
-        "Open SpinShare Browser for details and retry.": "打开 SpinShare Browser 查看详情并重试。",
+        "The latest chart catalog is ready.": "最新谱面目录已在后台准备完成",
+        "Open SpinShare Browser for details and retry.": "打开 SpinShare Browser 查看详情并重试",
     },
 }
 
 
 def _clean_notice_text(value, limit=220):
     text = " ".join(str(value or "").split())
+    if text.endswith("。") or text.endswith(".") and not text.endswith("..."):
+        text = text[:-1]
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 

@@ -12,6 +12,7 @@ const appSource = fs.readFileSync(path.join(web, 'app.js'), 'utf8');
 const cardSource = fs.readFileSync(path.join(web, 'chart-card.js'), 'utf8');
 const interfaceSource = fs.readFileSync(path.join(web, 'interface.css'), 'utf8');
 const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
+const portableSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'spinshare_portable.py'), 'utf8');
 
 function extract(source, start, end) {
   const from = source.indexOf(start), to = source.indexOf(end, from);
@@ -169,8 +170,8 @@ class AudioElement extends Element {
   }
 }
 
-function playerHarness() {
-  const nodes = new Map(), frames = new Map(), timers = new Map(), motions = [], windowEvents = new Element('window');
+function playerHarness(options = {}) {
+  const nodes = new Map(), frames = new Map(), timers = new Map(), motions = [], requests = [], windowEvents = new Element('window');
   let nextFrame = 0, nextTimer = 0, clock = 0;
   const node = id => {
     if (!nodes.has(id)) nodes.set(id, id === 'preview-audio' ? new AudioElement() : new Element());
@@ -182,11 +183,13 @@ function playerHarness() {
   placeholder.className = 'global-player-placeholder'; body.className = 'global-player-body';
   player.append(placeholder, body); player.hidden = true;
   node('preview-player-image').hidden = true;
+  node('player-shortcut-hint').hidden = true;
   node('preview-player-progress').value = '0';
   const coverViews = new Map();
   const context = vm.createContext({
     __coverViews: coverViews,
     $: node, document, URL, Number, Promise,
+    APP_CONFIG: Object.freeze({playerShortcutHintShown: options.hintShown !== false}),
     cacheGeneration: 'test',
     appExiting: false,
     MOTION_MS: Object.freeze({feedback: 150, standard: 180, panel: 220, expressive: 280}),
@@ -203,18 +206,21 @@ function playerHarness() {
     uiAttr: (target, name, value) => target.setAttribute(name, value),
     coverURL: value => typeof value === 'string' && /^https:\/\/spinshare\.b-cdn\.net\/uploads\/(cover|thumbnail)\/[a-z0-9_-]+\.jpg$/i.test(value) ? value : '',
     playMotion: (target, frames, options) => { motions.push({target, frames, options}); return null; },
+    installerRequest(method, requestPath, body) {
+      requests.push({method, path: requestPath, body}); return Promise.resolve({shown: true});
+    },
     requestAnimationFrame(callback) { const id = ++nextFrame; frames.set(id, callback); return id; },
     cancelAnimationFrame(id) { frames.delete(id); },
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, {callback, due: clock + delay}); return id; },
     clearTimeout(id) { timers.delete(id); },
     addEventListener: (...args) => windowEvents.addEventListener(...args),
-    fetch() { assert.fail('Audio preview must not use fetch or a counted chart endpoint'); },
+    fetch() { assert.fail('Audio playback must not use fetch or a counted chart endpoint'); },
   });
   vm.runInContext([
-    extract(appSource, 'const PREVIEW_LIMIT_SECONDS=', 'const READING_MOTION='),
+    extract(appSource, 'const PREVIEW_LOAD_TIMEOUT_MS=', 'const READING_MOTION='),
     'const coverViews=__coverViews;',
-    extract(appSource, 'function makeCover(row){', '// One explicit, song-level preview.'),
-    extract(appSource, '// One explicit, song-level preview.', 'const chartDescriptionViews='),
+    extract(appSource, 'function makeCover(row){', '// One explicit, song-level stream.'),
+    extract(appSource, '// One explicit, song-level stream.', 'const chartDescriptionViews='),
   ].join('\n'), context);
 
   const row = (id, reference = `spinshare_${id.toString(16)}`, fields = {}) => [
@@ -226,13 +232,14 @@ function playerHarness() {
     format:previewFormat, source:previewExpectedSource, generation:previewGeneration,
     attempt:previewPlayAttempt, ready:previewReady, wantsPlay:previewWantsPlay,
     frame:previewFrame, watchdog:previewSourceTimer, shortcutPending:previewShortcutPending,
-    shortcutTimer:previewShortcutTimer
+    shortcutTimer:previewShortcutTimer, hasPlayed:previewHasPlayed,
+    hintShown:previewShortcutHintShown, hintTimer:previewHintTimer
   })`, context);
   const run = (expression, values = {}) => {
     Object.assign(context, values); return vm.runInContext(expression, context);
   };
   const api = {
-    context, document, windowEvents, nodes, node, player, audio: node('preview-audio'), coverViews, motions, frames, timers, row, state,
+    context, document, windowEvents, nodes, node, player, audio: node('preview-audio'), coverViews, motions, requests, frames, timers, row, state,
     source: (reference, format) => run('previewSource(__reference,__format)', {__reference: reference, __format: format}),
     reference: item => run('chartPreviewReference(__row)', {__row: item}),
     makeCover: item => run('makeCover(__row)', {__row: item}),
@@ -260,17 +267,23 @@ function playerHarness() {
 
 function spaceTarget(kind) {
   const inputType = kind.startsWith('input:') ? kind.slice(6) : '';
-  const controlKinds = new Set(['textarea', 'select', 'button', 'summary', 'editable', 'editable-empty', 'editable-plaintext', 'role-button', 'checkbox', 'radio', 'switch', 'textbox', 'combobox', 'menuitem', 'tab']);
+  const controlKinds = new Set([
+    'textarea', 'select', 'button', 'summary', 'editable', 'editable-empty', 'editable-plaintext',
+    'role-button', 'checkbox', 'radio', 'switch', 'textbox', 'combobox', 'slider', 'menuitem',
+    'listbox', 'option', 'menu', 'spinbutton', 'tree', 'treeitem', 'grid', 'gridcell', 'tab', 'calendar',
+  ]);
   return {
     closest(selector) {
-      if (selector === 'input') return inputType ? {type: inputType} : null;
-      if (selector === '.reading-content') return kind === 'reading' ? this : null;
+      if (inputType && selector.split(',').includes('input')) return {type: inputType};
+      if (kind === 'reading' && selector.includes('.reading-content')) return this;
       if (controlKinds.has(kind)) {
         if (kind === 'editable') return selector.includes('[contenteditable="true"]') ? this : null;
         if (kind === 'editable-empty') return selector.includes('[contenteditable=""]') ? this : null;
         if (kind === 'editable-plaintext') return selector.includes('[contenteditable="plaintext-only"]') ? this : null;
-        if (kind === 'role-button') return selector.includes('[role="button"]') ? this : null;
-        return selector.includes(kind === 'checkbox' || kind === 'radio' ? `[role="${kind}"]` : kind) ? this : null;
+        if (kind === 'calendar') return selector.includes('.calendar-popover') ? this : null;
+        const role = kind === 'role-button' ? 'button' : kind;
+        if (!['textarea', 'select', 'button', 'summary'].includes(kind)) return selector.includes(`[role="${role}"]`) ? this : null;
+        return selector.includes(kind) ? this : null;
       }
       return null;
     },
@@ -289,13 +302,13 @@ async function flush() {
   await Promise.resolve(); await new Promise(resolve => setImmediate(resolve));
 }
 
-test('one inert media element and strict CDN references prevent counted or ambiguous requests', () => {
+test('one inert media element and strict CDN references play full songs without counted requests', () => {
   const audioTags = html.match(/<audio\b[^>]*>/gi) || [];
   assert.equal(audioTags.length, 1, 'The page must own exactly one Audio element');
   assert.match(audioTags[0], /\bid="preview-audio"/);
   assert.match(audioTags[0], /\bpreload="none"/);
-  assert.doesNotMatch(audioTags[0], /\bsrc=/, 'Opening the app must not preload a preview');
-  const production = extract(appSource, '// One explicit, song-level preview.', 'const chartDescriptionViews=');
+  assert.doesNotMatch(audioTags[0], /\bsrc=/, 'Opening the app must not preload a song');
+  const production = extract(appSource, '// One explicit, song-level stream.', 'const chartDescriptionViews=');
   assert.doesNotMatch(production, /\bnew\s+Audio\b|createElement\(['"]audio['"]\)|\bfetch\s*\(/);
 
   const h = playerHarness(), valid = 'spinshare_6a5acd00054e4';
@@ -313,7 +326,34 @@ test('one inert media element and strict CDN references prevent counted or ambig
   assert.equal(h.player.hidden, false);
 });
 
-test('a missing cover keeps a valid preview playable while an unavailable preview stays inert', () => {
+test('the first accepted song selection shows and persists one keyboard shortcut hint', () => {
+  assert.match(html, /id="player-shortcut-hint"[^>]*role="status"/);
+  assert.match(html, /data-ui-static="Space"/);
+  assert.match(html, /<kbd>\u2190 \/ \u2192<\/kbd>/);
+  assert.match(portableSource, /["']playerShortcutHintShown["']:\s*False/);
+  assert.match(portableSource, /if self\.path == ["']\/v1\/player-shortcuts-seen["']:/);
+  assert.match(portableSource, /mark_player_shortcut_hint_shown\(\)/);
+
+  const first = playerHarness({hintShown: false}), hint = first.node('player-shortcut-hint');
+  assert.equal(hint.hidden, true);
+  first.start(first.row(101, 'spinshare_101'));
+  assert.equal(hint.hidden, false);
+  assert.equal(hint.inert, false);
+  assert.equal(first.requests.length, 1);
+  assert.equal(first.requests[0].method, 'POST'); assert.equal(first.requests[0].path, '/v1/player-shortcuts-seen');
+  assert.equal(Object.keys(first.requests[0].body).length, 0);
+  first.advance(6499); assert.equal(hint.hidden, false);
+  first.advance(1); assert.equal(hint.hidden, true); assert.equal(hint.inert, true);
+  first.start(first.row(102, 'spinshare_102'));
+  assert.equal(first.requests.length, 1, 'The same installation must never repeat the first-play hint');
+
+  const returning = playerHarness();
+  returning.start(returning.row(103, 'spinshare_103'));
+  assert.equal(returning.node('player-shortcut-hint').hidden, true);
+  assert.equal(returning.requests.length, 0, 'Persisted config suppresses the hint in later app sessions');
+});
+
+test('a missing cover keeps valid song audio playable while unavailable audio stays inert', () => {
   const playable = playerHarness(), row = playable.row(21, 'spinshare_21');
   const box = playable.makeCover(row), view = [...playable.coverViews.values()].at(-1);
   assert.strictEqual(view.box, box);
@@ -321,8 +361,8 @@ test('a missing cover keeps a valid preview playable while an unavailable previe
   assert.equal(view.placeholder.hidden, false);
   assert.equal(view.missing.hidden, false);
   assert.equal(view.media.hasAttribute('title'), false, 'Missing artwork must not create a native hover tooltip');
-  assert.equal(view.play.disabled, false, 'Missing artwork must not disable a valid audio preview');
-  assert.equal(view.play.getAttribute('aria-label'), 'Play preview: Chart 21');
+  assert.equal(view.play.disabled, false, 'Missing artwork must not disable valid song audio');
+  assert.equal(view.play.getAttribute('aria-label'), 'Play song: Chart 21');
   assert.equal(view.play.hasAttribute('title'), false, 'The cover control must not create a native hover tooltip');
   assert.equal(view.play.getAttribute('aria-pressed'), 'false');
   assert.equal(view.play.getAttribute('aria-busy'), 'false');
@@ -336,9 +376,9 @@ test('a missing cover keeps a valid preview playable while an unavailable previe
   assert.strictEqual(unavailableView.box, unavailableBox);
   assert.equal(unavailableView.missing.hidden, false);
   assert.equal(unavailableView.play.disabled, true);
-  assert.equal(unavailableView.play.getAttribute('aria-label'), 'Preview unavailable: Chart 22');
+  assert.equal(unavailableView.play.getAttribute('aria-label'), 'Song unavailable: Chart 22');
   assert.equal(unavailable.start(invalid), false);
-  assert.deepEqual(unavailable.audio.sourceHistory, [], 'Unavailable previews must never select an audio source');
+  assert.deepEqual(unavailable.audio.sourceHistory, [], 'Unavailable songs must never select an audio source');
   assert.equal(unavailable.player.hidden, true);
 });
 
@@ -365,7 +405,7 @@ test('top and card controls expose matching pressed and busy states throughout p
   h.toggle(); expectState(false, false);
   h.toggle(); expectState(true, true);
   h.audio.emit('playing'); expectState(true, false);
-  h.audio.currentTime = 25; h.audio.emit('timeupdate'); expectState(false, false);
+  h.audio.currentTime = 100; h.audio.emit('ended'); expectState(false, false);
 
   h.toggle(); expectState(true, true);
   h.audio.emit('error');
@@ -374,23 +414,25 @@ test('top and card controls expose matching pressed and busy states throughout p
   assert.equal(h.state().state, 'error'); expectState(false, false);
 });
 
-test('metadata, seeking and completion enforce the 25-second preview boundary', () => {
+test('metadata, seeking and completion use the complete native song duration', () => {
   const h = playerHarness(), first = h.row(1, 'spinshare_a1');
   h.setup(); h.start(first);
   h.audio.duration = 91.4; h.audio.readyState = 4; h.audio.emit('loadedmetadata');
-  assert.equal(h.node('preview-player-progress').max, '25');
-  assert.equal(h.node('preview-player-duration').textContent, '0:25');
+  assert.equal(h.node('preview-player-progress').max, '91.4');
+  assert.equal(h.node('preview-player-duration').textContent, '1:31');
+  h.audio.emit('playing');
   h.audio.currentTime = 8.75; h.audio.emit('timeupdate');
   assert.equal(h.node('preview-player-current').textContent, '0:08');
   assert.equal(h.node('preview-player-progress').value, '8.75');
+  h.audio.currentTime = 45; h.audio.emit('timeupdate');
+  assert.equal(h.state().state, 'playing', 'Playback must continue beyond the former 25-second limit');
 
   const progress = h.node('preview-player-progress'); progress.value = '999'; progress.emit('input');
-  assert.equal(h.audio.currentTime, 25, 'Drag seeking must clamp to the preview, not the full track');
-  h.audio.emit('timeupdate');
+  assert.equal(h.audio.currentTime, 91.4, 'Drag seeking must clamp to the complete song duration');
   assert.equal(h.state().state, 'ended'); assert.equal(h.state().wantsPlay, false);
-  assert.equal(h.audio.currentTime, 25); assert.equal(progress.value, '25');
+  assert.equal(h.audio.currentTime, 91.4); assert.equal(progress.value, '91.4');
   const plays = h.audio.playCalls; h.toggle();
-  assert.equal(h.audio.currentTime, 0, 'Replay after the boundary starts from zero');
+  assert.equal(h.audio.currentTime, 0, 'Replay after the native endpoint starts from zero');
   assert.equal(h.audio.playCalls, plays + 1);
 
   const short = h.row(2, 'spinshare_a2'); h.start(short);
@@ -439,14 +481,18 @@ test('a current NotSupportedError falls back once and never returns from a faile
   assert.equal(h.audio.sourceHistory.length, 2, 'A failed fallback must not cycle formats');
 });
 
-test('an OGG failure at the preview boundary finishes without extending playback through MP3', () => {
+test('an OGG failure after 25 seconds still falls back and preserves full-song progress', () => {
   const h = playerHarness(); h.start(h.row(25, 'spinshare_25'));
-  h.audio.currentTime = 25; h.audio.emit('error');
-  assert.equal(h.state().state, 'ended'); assert.equal(h.state().wantsPlay, false);
-  assert.equal(h.state().format, 'ogg');
+  h.audio.duration = 240; h.audio.readyState = 4; h.audio.emit('loadedmetadata');
+  h.audio.currentTime = 75; h.audio.emit('error');
+  assert.equal(h.state().state, 'loading'); assert.equal(h.state().wantsPlay, true);
+  assert.equal(h.state().format, 'mp3');
   assert.deepEqual(h.audio.sourceHistory, [
     'https://spinshare.b-cdn.net/uploads/audio/spinshare_25_0.ogg',
+    'https://spinshare.b-cdn.net/uploads/audio/spinshare_25_0.mp3',
   ]);
+  h.audio.duration = 240; h.audio.readyState = 4; h.audio.emit('loadedmetadata');
+  assert.equal(h.audio.currentTime, 75);
 });
 
 test('a 15-second loading watchdog advances OGG to MP3 to error without looping', () => {
@@ -494,20 +540,20 @@ test('a stale play Promise on the same source cannot reject a newer play attempt
 test('completion is idempotent when timeupdate and ended arrive repeatedly', () => {
   const h = playerHarness(); h.start(h.row(5, 'spinshare_f1a15'));
   h.audio.duration = 100; h.audio.readyState = 4; h.audio.emit('loadedmetadata'); h.audio.emit('playing');
-  h.audio.currentTime = 27; h.audio.emit('timeupdate');
-  assert.equal(h.state().state, 'ended'); assert.equal(h.audio.currentTime, 25);
+  h.audio.currentTime = 100; h.audio.emit('ended');
+  assert.equal(h.state().state, 'ended'); assert.equal(h.audio.currentTime, 100);
   const seeks = h.audio.seekHistory.length, pauses = h.audio.pauseCalls;
   h.audio.emit('timeupdate'); h.audio.emit('ended'); h.audio.emit('timeupdate');
-  assert.equal(h.state().state, 'ended'); assert.equal(h.audio.currentTime, 25);
+  assert.equal(h.state().state, 'ended'); assert.equal(h.audio.currentTime, 100);
   assert.equal(h.audio.seekHistory.length, seeks, 'Late completion events must not seek again');
   assert.equal(h.audio.pauseCalls, pauses, 'Late completion events must not pause again');
 });
 
-test('dragging to the boundary ends immediately and dragging back resumes from that position', () => {
+test('dragging to the native endpoint ends immediately and dragging back resumes from that position', () => {
   const h = playerHarness(); h.setup(); h.start(h.row(8, 'spinshare_8e8'));
   h.audio.duration = 100; h.audio.readyState = 4; h.audio.emit('loadedmetadata'); h.audio.emit('playing');
-  const progress = h.node('preview-player-progress'); progress.value = '25'; progress.emit('input');
-  assert.equal(h.state().state, 'ended'); assert.equal(h.state().wantsPlay, false); assert.equal(h.audio.currentTime, 25);
+  const progress = h.node('preview-player-progress'); progress.value = '100'; progress.emit('input');
+  assert.equal(h.state().state, 'ended'); assert.equal(h.state().wantsPlay, false); assert.equal(h.audio.currentTime, 100);
   progress.value = '10'; progress.emit('input');
   assert.equal(h.state().state, 'paused'); assert.equal(h.state().wantsPlay, false); assert.equal(h.audio.currentTime, 10);
   const plays = h.audio.playCalls; h.toggle();
@@ -516,7 +562,7 @@ test('dragging to the boundary ends immediately and dragging back resumes from t
   assert.equal(h.audio.playCalls, plays + 1);
 });
 
-test('stalled while already playing preserves the state and boundary frame', () => {
+test('stalled while already playing preserves state and continues beyond 25 seconds', () => {
   const h = playerHarness(); h.start(h.row(10, 'spinshare_a10'));
   h.audio.duration = 100; h.audio.readyState = 4; h.audio.emit('loadedmetadata'); h.audio.emit('playing');
   const frame = h.state().frame;
@@ -525,7 +571,9 @@ test('stalled while already playing preserves the state and boundary frame', () 
   assert.equal(h.state().state, 'playing'); assert.equal(h.state().frame, frame);
   assert.equal(h.frames.has(frame), true); assert.equal(h.timers.size, 0, 'A playing stall must not arm the loading watchdog');
   h.audio.currentTime = 25; h.runFrames();
-  assert.equal(h.state().state, 'ended', 'The retained frame still enforces the preview boundary');
+  assert.equal(h.state().state, 'playing', 'The retained frame must not enforce an artificial playback boundary');
+  h.audio.currentTime = 100; h.audio.emit('ended');
+  assert.equal(h.state().state, 'ended');
 });
 
 test('late play and media callbacks cannot overwrite a newer song, and replacement cards resync without stopping it', async () => {
@@ -546,7 +594,7 @@ test('late play and media callbacks cannot overwrite a newer song, and replaceme
   h.coverViews.set('replacement', {row: second, box, play}); h.syncButtons();
   assert.equal(play.classList.contains('is-current'), true);
   assert.equal(play.classList.contains('is-playing'), true);
-  assert.match(play.getAttribute('aria-label'), /^Pause preview:/);
+  assert.match(play.getAttribute('aria-label'), /^Pause song:/);
   assert.equal(h.audio.currentTime, 6.5); assert.equal(h.state().state, 'playing');
 
   h.reconcile([{id: 2, fileReference: 'spinshare_b', updateHash: second[8].updateHash}]);
@@ -585,6 +633,47 @@ test('Space toggles globally except where the focused control has its own Space 
   assert.equal(repeated.defaultPrevented, true); assert.equal(modified.state().state, 'playing');
 });
 
+test('Left and Right seek five seconds globally while preserving native control behavior', () => {
+  const empty = playerHarness(); empty.setup();
+  const noTrack = empty.document.emit('keydown', keyEvent(spaceTarget('page'), {key: 'ArrowRight', code: 'ArrowRight'}));
+  assert.equal(noTrack.defaultPrevented, false); assert.deepEqual(empty.audio.seekHistory, []);
+
+  const h = playerHarness(); h.setup(); h.start(h.row(28, 'spinshare_28'));
+  h.audio.duration = 120; h.audio.readyState = 4; h.audio.emit('loadedmetadata'); h.audio.emit('playing');
+  h.audio.currentTime = 40;
+  const back = h.document.emit('keydown', keyEvent(spaceTarget('page'), {key: 'ArrowLeft', code: 'ArrowLeft'}));
+  assert.equal(back.defaultPrevented, true); assert.equal(h.audio.currentTime, 35);
+  const forward = h.document.emit('keydown', keyEvent(spaceTarget('page'), {key: 'ArrowRight', code: 'ArrowRight'}));
+  assert.equal(forward.defaultPrevented, true); assert.equal(h.audio.currentTime, 40);
+  h.audio.currentTime = 2;
+  h.document.emit('keydown', keyEvent(spaceTarget('page'), {key: 'ArrowLeft', code: 'ArrowLeft'}));
+  assert.equal(h.audio.currentTime, 0, 'Rewind clamps to the song start');
+  h.audio.currentTime = 118;
+  h.document.emit('keydown', keyEvent(spaceTarget('page'), {key: 'ArrowRight', code: 'ArrowRight'}));
+  assert.equal(h.audio.currentTime, 120); assert.equal(h.state().state, 'ended');
+
+  const reserved = [
+    'input:range', 'input:search', 'textarea', 'select', 'button', 'summary', 'editable',
+    'slider', 'menu', 'menuitem', 'listbox', 'option', 'spinbutton', 'tree', 'treeitem',
+    'grid', 'gridcell', 'tab', 'reading', 'calendar',
+  ];
+  for (const kind of reserved) {
+    const control = playerHarness(); control.setup(); control.start(control.row(29, 'spinshare_29'));
+    control.audio.duration = 120; control.audio.readyState = 4; control.audio.emit('loadedmetadata'); control.audio.currentTime = 40;
+    const event = control.document.emit('keydown', keyEvent(spaceTarget(kind), {key: 'ArrowRight', code: 'ArrowRight'}));
+    assert.equal(event.defaultPrevented, false, kind);
+    assert.equal(control.audio.currentTime, 40, kind);
+  }
+
+  const modified = playerHarness(); modified.setup(); modified.start(modified.row(30, 'spinshare_30'));
+  modified.audio.duration = 120; modified.audio.readyState = 4; modified.audio.emit('loadedmetadata'); modified.audio.currentTime = 40;
+  for (const details of [{defaultPrevented: true}, {isComposing: true}, {ctrlKey: true}, {altKey: true}, {metaKey: true}, {shiftKey: true}]) {
+    const before = modified.audio.currentTime;
+    modified.document.emit('keydown', keyEvent(spaceTarget('page'), {key: 'ArrowRight', code: 'ArrowRight', ...details}));
+    assert.equal(modified.audio.currentTime, before);
+  }
+});
+
 test('Space feedback uses the top cover only after a real pause or playing event, then retires itself', async () => {
   assert.match(interfaceSource, /\.global-player-cover\.is-shortcut-feedback \.preview-glyphs\s*\{\s*opacity:\s*1/);
   const h = playerHarness(), toggle = h.node('preview-player-toggle'), progress = h.node('preview-player-progress');
@@ -603,7 +692,7 @@ test('Space feedback uses the top cover only after a real pause or playing event
   h.document.activeElement = null;
   h.document.emit('keydown', keyEvent(spaceTarget('page')));
   assert.equal(h.state().state, 'loading');
-  assert.equal(h.state().shortcutPending, h.state().generation);
+  assert(h.state().shortcutPending > 0);
   assert.equal(toggle.classList.contains('is-shortcut-feedback'), false, 'A play request is not presented as playback yet');
   h.audio.emit('playing');
   assert.equal(h.state().shortcutPending, 0);
@@ -615,10 +704,19 @@ test('Space feedback uses the top cover only after a real pause or playing event
   const rejected = deferred(), denied = new Error('Autoplay policy'); denied.name = 'NotAllowedError';
   h.audio.playResults.push(rejected.promise);
   h.document.emit('keydown', keyEvent(spaceTarget('page')));
-  assert.equal(h.state().shortcutPending, h.state().generation);
+  assert(h.state().shortcutPending > 0);
   rejected.reject(denied); await flush();
   assert.equal(h.state().shortcutPending, 0);
   assert.equal(toggle.classList.contains('is-shortcut-feedback'), false, 'Rejected playback never flashes a false play state');
+
+  const early = playerHarness(); early.setup(); early.start(early.row(32, 'spinshare_32'));
+  early.audio.duration = 180; early.audio.readyState = 4; early.audio.emit('loadedmetadata'); early.audio.emit('playing');
+  early.audio.currentTime = .35; early.audio.emit('timeupdate'); early.audio.emit('waiting');
+  early.audio.paused = true; // Some WebViews report this transiently while the played stream is buffering.
+  const earlyPause = early.document.emit('keydown', keyEvent(spaceTarget('page')));
+  assert.equal(earlyPause.defaultPrevented, true); assert.equal(early.state().state, 'paused');
+  assert.equal(early.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true,
+    'A real stream paused during its first second must show feedback even from loading state');
 
   const loading = playerHarness(); loading.setup(); loading.start(loading.row(31, 'spinshare_31'));
   loading.document.emit('keydown', keyEvent(spaceTarget('page')));
@@ -640,7 +738,7 @@ test('visibility pauses without discarding the song, while page exit disposes me
 });
 
 test('chart titles are text and one separate external link owns official navigation', () => {
-  const coverBlock = extract(appSource, 'function makeCover(row){', '// One explicit, song-level preview.');
+  const coverBlock = extract(appSource, 'function makeCover(row){', '// One explicit, song-level stream.');
   assert.match(coverBlock, /element\('button',undefined,'cover-play preview-toggle'\)/);
   assert.match(coverBlock, /toggleChartPreview\(view\.row\)/);
   assert.doesNotMatch(coverBlock, /spinsha\.re\/song|element\('a'/, 'The cover must not navigate externally');

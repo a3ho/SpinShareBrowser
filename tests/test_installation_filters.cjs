@@ -162,13 +162,13 @@ async function combinedFilters() {
 async function unknownIsNotUninstalled() {
   const h = harness([song(1), song(2), song(3, {dlc: true}), song(4, {updateHash: ''})]);
   h.service(() => { throw new Error('Fixture check failure'); }); h.mode('uninstalled'); await idle(h);
-  assert.deepEqual(h.ids(), []); assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 4 charts excluded.');
+  assert.deepEqual(h.ids(), []); assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 4 charts excluded');
   assert.equal(h.node('installation-filter-retry').hidden, false);
   const calls = h.calls.length; await h.api.rebuild(false); h.api.render(); await idle(h);
   assert.equal(h.calls.length, calls, 'Failed checks are not automatically retried on every render');
   h.service((method, route, body) => h.reply(body, new Set([1])));
   h.node('installation-filter-retry').emit('click'); await idle(h);
-  assert.deepEqual(h.ids(), [2]); assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 2 charts excluded.');
+  assert.deepEqual(h.ids(), [2]); assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 2 charts excluded');
   assert.equal(h.node('installation-filter-retry').hidden, true, 'Unsupported metadata is not endlessly retried');
   assert.deepEqual(h.calls.at(-1).body.charts.map(chart => chart.songId).join(','), '1,2');
   h.mode('all'); await idle(h); assert.equal(h.ids().length, 4, 'All remains available for charts whose presence cannot be verified');
@@ -264,7 +264,7 @@ async function activityCompletionAndStaleSettings() {
   h.mode('installed'); await idle(h); assert.deepEqual(h.ids(), [1]);
   h.api.settingsStale = true; h.api.updateAllInstallationViews(); await idle(h);
   assert.deepEqual(h.ids(), []); assert.equal(h.node('installation-filter-retry').hidden, true);
-  assert.equal(h.node('installation-filter-message').textContent, 'Open Settings to confirm the changed install directory.');
+  assert.equal(h.node('installation-filter-message').textContent, 'Open Settings to confirm the changed install directory');
   const before = h.calls.length; h.api.refreshInstallationChecks(); assert.equal(h.calls.length, before);
   h.api.applySettings({revision: 'a'.repeat(32), targetDirectory: 'fixture-directory-a', defaultDirectory: 'fixture-directory-a', closeBehavior: 'ask', exiting: false});
   await idle(h); assert.deepEqual(h.ids(), [1], 'Confirming even the same directory revision revalidates stale status');

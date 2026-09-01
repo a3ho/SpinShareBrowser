@@ -198,31 +198,33 @@ class ChartCacheTests(unittest.TestCase):
         self.assertFalse(restarted.get()["cached"])
         self.assertEqual(self.fetch.call_count, 2)
 
-    def test_schema_one_migration_preserves_recent_attempts_conservatively(self):
+    def test_legacy_migration_preserves_recent_attempts_conservatively(self):
+        attempted_at = self.wall_ms - 123000
         cases = (("with-data", ROWS, self.wall_ms - 1200000),
                  ("without-data", None, None))
-        for name, data, fetched_at in cases:
-            with self.subTest(name=name):
-                state = self.root / ("legacy-" + name)
-                state.mkdir()
-                path = state / portable.CHART_CACHE_NAME
-                path.write_text(json.dumps({"schemaVersion": 1, "lastAttemptAt": self.wall_ms,
-                    "fetchedAt": fetched_at, "refreshError": "legacy request failed", "data": data},
-                    ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-                cache = portable.ChartCatalogCache(state)
-                if data is None:
-                    details = self.assert_api_error(cache, 409, "charts_cooldown")
-                    self.assertEqual(details["retryAfterSeconds"], 600)
-                else:
-                    result = cache.get()
-                    self.assertTrue(result["cached"])
-                    self.assertEqual(result["retryAfterSeconds"], 600)
-                    self.assertEqual(result["data"], ROWS)
-                migrated = json.loads(path.read_bytes())
-                self.assertEqual(migrated["schemaVersion"], 3)
-                self.assertEqual(migrated["lastAttemptAt"], self.wall_ms)
-                self.assertEqual(migrated["automaticFailureCount"], 0)
-                self.assertIsNone(migrated["automaticNextAllowedAt"])
+        for schema_version in (1, 2):
+            for name, data, fetched_at in cases:
+                with self.subTest(schema_version=schema_version, name=name):
+                    state = self.root / f"legacy-{schema_version}-{name}"
+                    state.mkdir()
+                    path = state / portable.CHART_CACHE_NAME
+                    path.write_text(json.dumps({"schemaVersion": schema_version, "lastAttemptAt": attempted_at,
+                        "fetchedAt": fetched_at, "refreshError": "legacy request failed", "data": data},
+                        ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                    cache = portable.ChartCatalogCache(state)
+                    if data is None:
+                        details = self.assert_api_error(cache, 409, "charts_cooldown")
+                        self.assertEqual(details["retryAfterSeconds"], 477)
+                    else:
+                        result = cache.get()
+                        self.assertTrue(result["cached"])
+                        self.assertEqual(result["retryAfterSeconds"], 477)
+                        self.assertEqual(result["data"], ROWS)
+                    migrated = json.loads(path.read_bytes())
+                    self.assertEqual(migrated["schemaVersion"], 3)
+                    self.assertEqual(migrated["lastAttemptAt"], attempted_at)
+                    self.assertEqual(migrated["automaticFailureCount"], 0)
+                    self.assertIsNone(migrated["automaticNextAllowedAt"])
         self.fetch.assert_not_called()
 
     def test_automatic_update_uses_fetched_time_and_never_starts_manual_cooldown(self):

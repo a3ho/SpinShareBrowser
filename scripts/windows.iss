@@ -77,46 +77,44 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "zh_CN"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Messages]
-en.ConfirmUninstall={#AppName} and its settings, caches, and other local app data will be deleted. Charts you have downloaded or installed will be kept.
-zh_CN.ConfirmUninstall=将删除 {#AppName} 程序及其设置、缓存等本地工具数据。您已下载或安装的谱面将保留。
+en.ConfirmUninstall={#AppName} and its settings, caches, and other local app data will be deleted. Charts you have downloaded or installed will be kept
+zh_CN.ConfirmUninstall=将删除 {#AppName} 程序及其设置、缓存等本地工具数据。您已下载或安装的谱面将保留
 
 [CustomMessages]
-en.MaintenanceBusy={#AppName} is busy or is still closing. Finish any downloads, close the app from its tray menu, and try again.
-zh_CN.MaintenanceBusy={#AppName} 正忙或正在退出。请等待下载完成，从托盘菜单退出工具，然后重试。
-en.MaintenanceUnsafe=The app folders contain an unexpected path or file. Resolve the reported folder issue before continuing.
-zh_CN.MaintenanceUnsafe=工具目录中存在异常路径或文件。请处理提示中的目录问题后重试。
-en.MaintenanceIO=Some app files are in use or cannot be accessed. Close programs using these files and check folder permissions, then try again.
-zh_CN.MaintenanceIO=部分工具文件被占用或无法访问。请关闭占用文件的程序，检查目录权限后重试。
-en.MaintenanceFailed=The app could not finish preparing its files. Try again, or cancel and run Setup again.
-zh_CN.MaintenanceFailed=工具文件准备失败。请重试，或取消后重新运行安装程序。
-en.MaintenanceStartFailed=The app maintenance process could not start.
-zh_CN.MaintenanceStartFailed=工具维护进程启动失败。
-en.MaintenancePolicyBlocked=Windows application control blocked {#AppName} from starting. Share this error code with the developer.
-zh_CN.MaintenancePolicyBlocked=Windows 应用控制阻止了 {#AppName} 启动。请向开发者提供此错误代码。
+en.MaintenanceBusy={#AppName} is busy or is still closing. Finish any downloads, close the app from its tray menu, and try again
+zh_CN.MaintenanceBusy={#AppName} 正忙或正在退出。请等待下载完成，从托盘菜单退出工具，然后重试
+en.MaintenanceUnsafe=The app folders contain an unexpected path or file. Resolve the reported folder issue before continuing
+zh_CN.MaintenanceUnsafe=工具目录中存在异常路径或文件。请处理提示中的目录问题后重试
+en.MaintenanceIO=Some app files are in use or cannot be accessed. Close programs using these files and check folder permissions, then try again
+zh_CN.MaintenanceIO=部分工具文件被占用或无法访问。请关闭占用文件的程序，检查目录权限后重试
+en.MaintenanceFailed=The app could not finish preparing its files. Try again, or cancel and run Setup again
+zh_CN.MaintenanceFailed=工具文件准备失败。请重试，或取消后重新运行安装程序
+en.MaintenanceStartFailed=The app maintenance process could not start
+zh_CN.MaintenanceStartFailed=工具维护进程启动失败
+en.MaintenancePolicyBlocked=Windows application control blocked {#AppName} from starting. Share this error code with the developer
+zh_CN.MaintenancePolicyBlocked=Windows 应用控制阻止了 {#AppName} 启动。请向开发者提供此错误代码
 en.WindowsErrorCode=Windows error code: %1
 zh_CN.WindowsErrorCode=Windows 错误代码：%1
-en.MaintenanceGateBusy=Another setup, uninstall, or app startup is in progress. Wait for it to finish and try again.
-zh_CN.MaintenanceGateBusy=其他安装、卸载或工具启动操作正在进行。请等待完成后重试。
-en.MaintenanceGateFailed=Setup could not lock the app folders for maintenance.
-zh_CN.MaintenanceGateFailed=安装程序无法锁定工具目录以进行维护。
-en.PayloadFailed=Setup could not extract its application files. Run Setup again.
-zh_CN.PayloadFailed=安装程序无法解压工具文件。请重新运行安装程序。
-en.DotNetRequired=Microsoft .NET Framework 4.8 or later is required. Install Windows updates or enable .NET Framework, then run Setup again.
-zh_CN.DotNetRequired=需要 Microsoft .NET Framework 4.8 或更高版本。请安装 Windows 更新或启用 .NET Framework，然后重新运行安装程序。
-en.WebView2Required=Microsoft Edge WebView2 Runtime 123.0.2420.47 or later is required. Setup could not install or update it. Check your internet connection and try again, or use Microsoft's Evergreen Standalone Installer.
-zh_CN.WebView2Required=需要 Microsoft Edge WebView2 Runtime 123.0.2420.47 或更高版本。安装或更新失败，请检查网络连接后重试，或使用微软 Evergreen 独立安装包。
-en.PreparingFiles=Preparing app files...
-zh_CN.PreparingFiles=正在准备工具文件...
-en.InstallingWebView2=Installing or updating Microsoft Edge WebView2 Runtime...
-zh_CN.InstallingWebView2=正在安装或更新 Microsoft Edge WebView2 Runtime...
+en.MaintenanceGateBusy=Another setup, uninstall, or app startup is in progress. Wait for it to finish and try again
+zh_CN.MaintenanceGateBusy=其他安装、卸载或工具启动操作正在进行。请等待完成后重试
+en.MaintenanceGateFailed=Setup could not lock the app folders for maintenance
+zh_CN.MaintenanceGateFailed=安装程序无法锁定工具目录以进行维护
+en.PayloadFailed=Setup could not extract its application files. Run Setup again
+zh_CN.PayloadFailed=安装程序无法解压工具文件。请重新运行安装程序
+en.DotNetRequired=Microsoft .NET Framework 4.8 or later is required. Install Windows updates or enable .NET Framework, then run Setup again
+zh_CN.DotNetRequired=需要 Microsoft .NET Framework 4.8 或更高版本。请安装 Windows 更新或启用 .NET Framework，然后重新运行安装程序
+en.WebView2Required=Microsoft Edge WebView2 Runtime 123.0.2420.47 or later is required. Setup could not install or update it. Check your internet connection and try again, or use Microsoft's Evergreen Standalone Installer
+zh_CN.WebView2Required=需要 Microsoft Edge WebView2 Runtime 123.0.2420.47 或更高版本。安装或更新失败，请检查网络连接后重试，或使用微软 Evergreen 独立安装包
+en.PreparingFiles=Preparing app files…
+zh_CN.PreparingFiles=正在准备工具文件…
+en.InstallingWebView2=Installing or updating Microsoft Edge WebView2 Runtime…
+zh_CN.InstallingWebView2=正在安装或更新 Microsoft Edge WebView2 Runtime…
 en.UpdateWelcomeTitle=Update {#AppName}
 zh_CN.UpdateWelcomeTitle=覆盖/更新 {#AppName}
-en.UpdateWelcomeBody={#AppName} %1 is already installed. Setup will update or overwrite its app files with version %2. Your settings and charts in the game's Custom directory will not be changed.
-zh_CN.UpdateWelcomeBody=已安装 {#AppName} %1。安装程序将使用 %2 版覆盖/更新工具文件；您的设置以及游戏 Custom 目录中的谱面不会受到影响。
-en.UpdateReady=Setup is ready to update or overwrite {#AppName}. Your settings and charts in the game's Custom directory will be kept.
-zh_CN.UpdateReady=安装程序已准备覆盖/更新 {#AppName}。您的设置以及游戏 Custom 目录中的谱面将完整保留。
-en.NewerVersionInstalled=A newer version of {#AppName} (%1) is already installed. This %2 installer cannot downgrade it.
-zh_CN.NewerVersionInstalled=已安装更高版本的 {#AppName}（%1），此 %2 安装程序不会执行降级覆盖。
+en.UpdateWelcomeBody=An existing installation was found. Setup will update or overwrite {#AppName} app files with version %1. Locally installed charts remain unchanged
+zh_CN.UpdateWelcomeBody=检测到已安装的 {#AppName}。安装程序将使用 %1 版覆盖/更新程序文件；本地已安装谱面不受影响
+en.NewerVersionInstalled=A newer version of {#AppName} (%1) is already installed. This %2 installer cannot downgrade it
+zh_CN.NewerVersionInstalled=已安装更高版本的 {#AppName}（%1），此 %2 安装程序不会执行降级覆盖
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
@@ -137,6 +135,7 @@ const
   WaitTimeout = $102;
   LcMapLowercase = $100;
   WebView2Key = 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1';
 
 type
   TProgramHandles = array of THandle;
@@ -468,11 +467,45 @@ begin
   Result := WebView2InRegistry(HKLM32) or WebView2InRegistry(HKCU);
 end;
 
+function DetectExistingInstallInRoot(const Root: HKEY; var Version: String): Boolean;
+var
+  FoundVersion: String;
+  FoundPacked, HighestPacked: Int64;
+begin
+  Result := RegKeyExists(Root, UninstallKey);
+  if Result and RegQueryStringValue(Root, UninstallKey, 'DisplayVersion', FoundVersion) and
+    StrToVersion(FoundVersion, FoundPacked) then
+  begin
+    if Version = '' then
+      Version := FoundVersion
+    else
+    begin
+      if not StrToVersion(Version, HighestPacked) then
+        Version := FoundVersion
+      else if ComparePackedVersion(FoundPacked, HighestPacked) > 0 then
+        Version := FoundVersion;
+    end;
+  end;
+end;
+
 function DetectExistingInstall(var Version: String): Boolean;
 begin
-  Result := RegQueryStringValue(HKCU,
-    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1',
-    'DisplayVersion', Version);
+  Version := '';
+  Result := False;
+  { Read both registry views so installs created by older 32-bit and current
+    64-bit setup builds are detected even when DisplayVersion is absent. }
+  if DetectExistingInstallInRoot(HKCU64, Version) then
+    Result := True;
+  if DetectExistingInstallInRoot(HKCU32, Version) then
+    Result := True;
+  if DetectExistingInstallInRoot(HKLM64, Version) then
+    Result := True;
+  if DetectExistingInstallInRoot(HKLM32, Version) then
+    Result := True;
+  { A damaged uninstall entry must not turn an overwrite into a fresh-install
+    presentation when the program is still in the standard install folder. }
+  if FileExists(ExpandConstant('{#InstallDir}\SpinShareBrowser.exe')) then
+    Result := True;
 end;
 
 function ExistingVersionIsNewer: Boolean;
@@ -600,8 +633,19 @@ begin
   if ExistingInstall then
   begin
     WizardForm.WelcomeLabel1.Caption := CustomMessage('UpdateWelcomeTitle');
-    WizardForm.WelcomeLabel2.Caption := FmtMessage(CustomMessage('UpdateWelcomeBody'), [ExistingVersion, '{#AppVersion}']);
-    WizardForm.ReadyLabel.Caption := CustomMessage('UpdateReady');
+    WizardForm.WelcomeLabel2.Caption := FmtMessage(CustomMessage('UpdateWelcomeBody'), ['{#AppVersion}']);
+  end;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if ExistingInstall then
+  begin
+    if CurPageID = wpWelcome then
+    begin
+      WizardForm.WelcomeLabel1.Caption := CustomMessage('UpdateWelcomeTitle');
+      WizardForm.WelcomeLabel2.Caption := FmtMessage(CustomMessage('UpdateWelcomeBody'), ['{#AppVersion}']);
+    end;
   end;
 end;
 

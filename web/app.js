@@ -57,7 +57,8 @@ uiLanguage=APP_CONFIG.language;
 const INSTALL_KEY=APP_CONFIG.key,INSTALL_ORIGIN=APP_CONFIG.origin;
 let INSTALL_DIRECTORY=APP_CONFIG.targetDirectory,DEFAULT_INSTALL_DIRECTORY=APP_CONFIG.defaultDirectory,settingsRevision=APP_CONFIG.settingsRevision;
 const installationStates=new Map(),installationViews=new Map();
-let settingsBusy='',settingsLoaded=false,settingsStale=false,closeBehavior=APP_CONFIG.closeBehavior;
+let settingsBusy='',settingsLoaded=false,settingsStale=false,closeBehavior=APP_CONFIG.closeBehavior,installDirectoryConfirmed=APP_CONFIG.installDirectoryConfirmed;
+let installDirectoryConfirmation=null,installDirectoryConfirmBusy=false;
 let appDialogState=null,appDialogBusy=false,appDialogFocus=null;
 let appExiting=false,exitFailed=false,activityJobs=[],activityTimer=null,activityPending=false,activityProblem='';
 const activityViews=new Map();let activityVisible=false,activityMotion=null;
@@ -85,7 +86,7 @@ let catalogFailureHasData=false;
 let catalogStatusPoll=null,catalogHelpTimer=null,catalogDialogCloseTimer=null,catalogToastTimer=null,catalogToastMotion=null,catalogToastStartedAt=0,catalogToastRemaining=0,catalogPendingToast=null;
 const motionPreference=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion: reduce)'):null;
 const MOTION_MS=Object.freeze({feedback:150,standard:180,panel:220,expressive:280});
-const PREVIEW_LIMIT_SECONDS=25,PREVIEW_LOAD_TIMEOUT_MS=15000,PREVIEW_SHORTCUT_FEEDBACK_MS=900,PREVIEW_REFERENCE=/^spinshare_[a-f0-9]{1,64}$/i;
+const PREVIEW_LOAD_TIMEOUT_MS=15000,PREVIEW_SHORTCUT_FEEDBACK_MS=900,PREVIEW_SEEK_SECONDS=5,PREVIEW_HINT_MS=6500,PREVIEW_REFERENCE=/^spinshare_[a-f0-9]{1,64}$/i;
 const READING_MOTION=Object.freeze({
   enter:Object.freeze({duration:MOTION_MS.panel,easing:'cubic-bezier(.16,1,.3,1)'}),
   exit:Object.freeze({duration:MOTION_MS.feedback,easing:'cubic-bezier(.4,0,1,1)'})
@@ -112,7 +113,7 @@ function playMotion(node,keyframes,options={}){
 function syncMotion(){
   document.documentElement.classList.toggle('motion-paused',!motionAllowed());
   if(!motionAllowed())for(const animation of [...activeMotions]){try{animation.finish();}catch{animation.cancel();}}
-  if(!hostVisible||document.hidden){dismissCloseHelp($('settings-panel'));dismissCloseHelp($('app-dialog'));if(typeof setCatalogHelp==='function')setCatalogHelp(false);if(typeof pauseCatalogToast==='function')pauseCatalogToast();dismissChartDescription(false,false);}
+  if(!hostVisible||document.hidden){dismissCloseHelp($('settings-panel'));dismissCloseHelp($('app-dialog'));if(typeof setCatalogHelp==='function')setCatalogHelp(false);if(typeof pauseCatalogToast==='function')pauseCatalogToast();if(typeof dismissPreviewShortcutHint==='function')dismissPreviewShortcutHint(false);dismissChartDescription(false,false);}
   else{if(typeof resumeCatalogToast==='function')resumeCatalogToast();if(typeof flushCatalogToast==='function')flushCatalogToast();if(typeof maybeRunAutomaticCatalogSync==='function')maybeRunAutomaticCatalogSync();}
 }
 function rememberEntry(key){
@@ -166,10 +167,10 @@ function setStatus(message,error=false){
   uiText(status,message);status.classList.toggle('error',error);loadingIndicator(status,false);
 }
 const INSTALLER_MESSAGE_REPLACEMENTS=Object.keys(UI_CATALOG.en).filter(key=>key.startsWith("engine.")).map(key=>[UI_CATALOG.en[key],key]).sort((a,b)=>b[0].length-a[0].length);
-const INSTALLER_ERROR_TEXT=Object.freeze({invalid_installations:m("Installation status could not be read."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
+const INSTALLER_ERROR_TEXT=Object.freeze({invalid_installations:m("Installation status could not be read."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_confirmation_required:m("Confirm the chart installation directory before downloading."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
 const CHART_ERROR_TEXT=Object.freeze({charts_network_error:m('The chart server could not be reached. Check your network and retry.'),charts_request_timeout:m('The chart server did not respond after the request may have reached it. Retry after the refresh interval.'),charts_access_denied:m('The chart server refused access. No refresh cooldown was used; retry when access is restored.'),charts_rate_limited:m('The chart server limited this request. Retry after the refresh interval.'),charts_server_error:m('The chart server failed after the request may have reached it. Retry after the refresh interval.'),charts_request_rejected:m('The chart server rejected this request. Retry after the refresh interval or check for an app update.'),charts_remote_timeout:m('The full chart transfer timed out. Try again after the refresh interval.'),charts_response_incomplete:m('The chart request or response was interrupted. Try again after the refresh interval.'),charts_response_too_large:m('The full chart response was too large to use safely. Retry after the refresh interval.'),charts_invalid_response:m('The chart server returned invalid data. Try again after the refresh interval.')});
 const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Chart server unavailable.'),charts_request_timeout:m('The chart server timed out.'),charts_access_denied:m('Chart server access was refused.'),charts_rate_limited:m('Chart server rate limit reached.'),charts_server_error:m('The chart server returned an error.'),charts_request_rejected:m('The chart server rejected the update.'),charts_remote_timeout:m('Chart data transfer timed out.'),charts_response_incomplete:m('Chart data transfer was interrupted.'),charts_response_too_large:m('Chart data exceeded the safe size limit.'),charts_invalid_response:m('The chart server returned invalid data.'),charts_cache_error:m('Chart data could not be saved locally.'),charts_cooldown:m('Chart data update is still cooling down.')});
-function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS)text=text.replaceAll(english,m(key));return text;}
+function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
   let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.0.0'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
@@ -177,8 +178,10 @@ function validateRuntimeConfig(config){
   if(valid)valid=typeof config.settingsRevision==='string'&&/^[a-f0-9]{32}$/.test(config.settingsRevision);
   if(valid)valid=['zh-CN','en'].includes(config.language);
   if(valid)valid=config.closeBehavior===undefined||['ask','exit','tray'].includes(config.closeBehavior);
+  if(valid)valid=typeof config.playerShortcutHintShown==='boolean';
+  if(valid)valid=typeof config.installDirectoryConfirmed==='boolean';
   if(!valid){uiText($('status'),m("Unable to open the app. Reopen SpinShareBrowser.exe."));$('status').classList.add('error');throw uiError('Invalid SpinShare Browser runtime configuration');}
-  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask'});
+  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed});
 }
 function settingsMessage(message,error=false){uiText($('settings-message'),message);$('settings-message').classList.toggle('is-error',error);loadingIndicator($('settings-message'),Boolean(message)&&Boolean(settingsBusy)&&!error);}
 function hasActiveInstallations(){return activityJobs.length>0||[...installationStates.values()].some(state=>state.running||state.requesting);}
@@ -196,17 +199,19 @@ function refreshSettingsControls(){
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){
   const settings=payload?.settings;
-  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||settings.version!=='2.0.0')throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.0.0')throw uiError(m("Settings could not be loaded. Reopen Settings."));
   if(settings.targetDirectory!==(settings.customDirectory===null?settings.defaultDirectory:settings.customDirectory))throw uiError(m("Open Settings and choose the install folder again."));
   if(settings.closeBehavior!==undefined&&!['ask','exit','tray'].includes(settings.closeBehavior))throw uiError(m("Settings could not be loaded. Reopen Settings."));
-  return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',exiting:settings.exiting===true};
+  return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',installDirectoryConfirmed:settings.installDirectoryConfirmed,exiting:settings.exiting===true};
 }
 function applySettings(settings){
   const changed=settingsStale||settingsRevision!==settings.revision||INSTALL_DIRECTORY!==settings.targetDirectory;
   if(changed){installedCharts.clear();presenceQueue.clear();presenceGeneration++;for(const [id,state] of installationStates)if(!state.running&&!state.requesting)installationStates.delete(id);}
   INSTALL_DIRECTORY=settings.targetDirectory;DEFAULT_INSTALL_DIRECTORY=settings.defaultDirectory;settingsRevision=settings.revision;settingsLoaded=true;settingsStale=false;
+  if(typeof settings.installDirectoryConfirmed==='boolean')installDirectoryConfirmed=settings.installDirectoryConfirmed;
   uiText($('install-directory'),INSTALL_DIRECTORY);
   uiText($('settings-directory'),INSTALL_DIRECTORY);
+  if(typeof refreshInstallDirectoryConfirmation==='function')refreshInstallDirectoryConfirmation();
   closeBehavior=settings.closeBehavior;appExiting=appExiting||settings.exiting;syncCloseOptions();renderActivity();
   updateAllInstallationViews();syncFilters();queueInstallationChecks([...installationViews.values()].map(view=>view.row));
   if(changed)refreshInstallationResults();
@@ -307,6 +312,67 @@ async function selectDirectory(useDefault=false){
   catch(error){settingsMessage(errorText(error),true);}
   finally{settingsBusy='';updateAllInstallationViews();}
 }
+const installDirectoryConfirmControls=['install-directory-close','install-directory-change','install-directory-confirm'];
+function installDirectoryConfirmMessage(message='',error=false){
+  const target=$('install-directory-error');uiText(target,message);target.classList.toggle('is-error',error);loadingIndicator(target,Boolean(message)&&installDirectoryConfirmBusy&&!error);
+}
+function refreshInstallDirectoryConfirmation(){
+  const dialog=$('install-directory-dialog');if(!dialog)return;
+  uiText($('install-directory-confirm-path'),INSTALL_DIRECTORY);
+  if(installDirectoryConfirmation)installDirectoryConfirmation.revision=settingsRevision;
+}
+function setInstallDirectoryConfirmBusy(busy){
+  installDirectoryConfirmBusy=busy;
+  for(const id of installDirectoryConfirmControls)$(id).disabled=busy||appExiting;
+  $('install-directory-dialog').setAttribute('aria-busy',String(busy));
+  loadingIndicator($('install-directory-actions'),busy);
+}
+function closeInstallDirectoryConfirmation(){
+  if(installDirectoryConfirmBusy||!installDirectoryConfirmation)return;
+  const context=installDirectoryConfirmation,dialog=$('install-directory-dialog');
+  closeDialogPanel(dialog,()=>{if(installDirectoryConfirmation===context)installDirectoryConfirmation=null;if(context.focus?.isConnected)context.focus.focus({preventScroll:true});});
+}
+function requestInstallation(row,focus=document.activeElement){
+  if(installDirectoryConfirmed)return startInstallation(row);
+  if(row[8].dlc||appExiting||settingsBusy||settingsStale)return;
+  if(installDirectoryConfirmation){openDialogPanel($('install-directory-dialog'));return;}
+  installDirectoryConfirmation={row,focus,revision:settingsRevision};
+  refreshInstallDirectoryConfirmation();installDirectoryConfirmMessage('');setInstallDirectoryConfirmBusy(false);
+  openDialogPanel($('install-directory-dialog'));$('install-directory-confirm').focus({preventScroll:true});
+}
+async function reloadInstallDirectoryConfirmation(message){
+  try{applySettings(readSettings(await installerRequest('GET','/v1/settings')));installDirectoryConfirmMessage(message,true);}
+  catch(error){installDirectoryConfirmMessage(errorText(error),true);}
+}
+async function changeInstallDirectoryFromConfirmation(){
+  if(!installDirectoryConfirmation||installDirectoryConfirmBusy||appExiting)return;
+  setInstallDirectoryConfirmBusy(true);settingsBusy='saving';updateAllInstallationViews();installDirectoryConfirmMessage(m("Choose an install folder in the Windows dialog."));
+  try{
+    const result=await installerRequest('POST','/v1/directory/select',{expectedRevision:settingsRevision});
+    if(typeof result?.cancelled!=='boolean')throw uiError(m("Folder selection failed. Try again."));
+    applySettings(readSettings(result));
+    installDirectoryConfirmMessage(result.cancelled?m("Folder selection cancelled."):m("Directory changed. Confirm the new folder to continue."));
+  }catch(error){
+    if(error.code==='settings_changed')await reloadInstallDirectoryConfirmation(m("The install directory changed while this window was open. Review the current folder and confirm again."));
+    else installDirectoryConfirmMessage(errorText(error),true);
+  }finally{settingsBusy='';setInstallDirectoryConfirmBusy(false);updateAllInstallationViews();}
+}
+async function confirmInstallDirectoryAndContinue(){
+  if(!installDirectoryConfirmation||installDirectoryConfirmBusy||appExiting)return;
+  const context=installDirectoryConfirmation,revision=settingsRevision,directory=INSTALL_DIRECTORY;
+  setInstallDirectoryConfirmBusy(true);settingsBusy='saving';updateAllInstallationViews();installDirectoryConfirmMessage(m("Confirming directory..."));
+  try{
+    const result=await installerRequest('POST','/v1/install-directory-confirmation',{expectedRevision:revision});
+    if(result?.confirmed!==true||result.settingsRevision!==revision||result.targetDirectory!==directory)throw uiError(m("Could not confirm installation. Check its status before trying again."));
+    installDirectoryConfirmed=true;settingsBusy='';setInstallDirectoryConfirmBusy(false);installDirectoryConfirmMessage('');
+    closeDialogPanel($('install-directory-dialog'),()=>{if(installDirectoryConfirmation===context)installDirectoryConfirmation=null;startInstallation(context.row);});
+  }catch(error){
+    if(error.code==='settings_changed')await reloadInstallDirectoryConfirmation(m("The install directory changed while this window was open. Review the current folder and confirm again."));
+    else installDirectoryConfirmMessage(errorText(error),true);
+  }finally{
+    if(installDirectoryConfirmation===context){settingsBusy='';setInstallDirectoryConfirmBusy(false);updateAllInstallationViews();}
+  }
+}
 async function exitTool(){
   if(settingsBusy||appExiting&&!exitFailed)return false;
   settingsBusy='shutdown';refreshSettingsControls();settingsMessage('');
@@ -397,6 +463,11 @@ function setupRuntime(){
   $('settings-open').addEventListener('click',openSettings);$('settings-close').addEventListener('click',closeSettings);
   $('settings-panel').addEventListener('cancel',event=>{event.preventDefault();if(!dismissCloseHelp($('settings-panel')))closeSettings();});
   $('settings-select').addEventListener('click',()=>selectDirectory());
+  refreshInstallDirectoryConfirmation();
+  $('install-directory-close').addEventListener('click',closeInstallDirectoryConfirmation);
+  $('install-directory-change').addEventListener('click',changeInstallDirectoryFromConfirmation);
+  $('install-directory-confirm').addEventListener('click',confirmInstallDirectoryAndContinue);
+  $('install-directory-dialog').addEventListener('cancel',event=>{event.preventDefault();closeInstallDirectoryConfirmation();});
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
@@ -1076,8 +1147,8 @@ function makeCover(row){
   return view.box;
 }
 
-// One explicit, song-level preview. It never calls chart detail or download APIs.
-let previewTrack=null,previewState='idle',previewFormat='ogg',previewExpectedSource='',previewGeneration=0,previewPlayAttempt=0,previewReady=false,previewWantsPlay=false,previewFrame=0,previewSourceTimer=null,previewSourceCleanup=null,previewCoverToken=0,previewArtworkSlot=0,previewArtworkMotions=[],previewLastAnnouncement='',previewRenderedSecond=-1,previewRenderedLimit=-1,previewShortcutPending=0,previewShortcutTimer=null;
+// One explicit, song-level stream. It never calls chart detail, view or download APIs.
+let previewTrack=null,previewState='idle',previewFormat='ogg',previewExpectedSource='',previewGeneration=0,previewPlayAttempt=0,previewReady=false,previewWantsPlay=false,previewHasPlayed=false,previewFrame=0,previewSourceTimer=null,previewSourceCleanup=null,previewCoverToken=0,previewArtworkSlot=0,previewArtworkMotions=[],previewLastAnnouncement='',previewRenderedSecond=-1,previewRenderedLimit=-1,previewShortcutPending=0,previewShortcutTimer=null,previewShortcutHintShown=APP_CONFIG.playerShortcutHintShown,previewHintTimer=null,previewHintMotion=null;
 function chartPreviewReference(row){
   const value=String(row?.[8]?.previewReference||row?.[8]?.fileReference||'');return PREVIEW_REFERENCE.test(value)?value:'';
 }
@@ -1085,14 +1156,14 @@ function previewSource(reference,format='ogg'){
   return PREVIEW_REFERENCE.test(reference)&&['ogg','mp3'].includes(format)?`https://spinshare.b-cdn.net/uploads/audio/${reference}_0.${format}`:'';
 }
 function samePreviewTrack(row){return Boolean(previewTrack&&row&&previewTrack.id===row[0]&&previewTrack.reference===chartPreviewReference(row));}
-function previewLimit(){const duration=$('preview-audio').duration;return Number.isFinite(duration)&&duration>0?Math.min(PREVIEW_LIMIT_SECONDS,duration):PREVIEW_LIMIT_SECONDS;}
+function previewLimit(){const duration=$('preview-audio').duration;return Number.isFinite(duration)&&duration>0?duration:0;}
 function previewTime(value){
   const seconds=Math.max(0,Number.isFinite(value)?Math.floor(value):0);return Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
 }
 function updatePreviewProgress(value=$('preview-audio').currentTime,force=false){
   if(!previewTrack)return;
-  const control=$('preview-player-progress'),limit=previewLimit(),position=Math.max(0,Math.min(Number.isFinite(value)?value:0,limit)),ratio=limit>0?position/limit:0;
-  if(control.max!==String(limit))control.max=String(limit);control.value=String(position);control.style.setProperty('--preview-progress',(ratio*100).toFixed(3)+'%');
+  const control=$('preview-player-progress'),limit=previewLimit(),raw=Number.isFinite(value)?value:0,position=Math.max(0,limit>0?Math.min(raw,limit):raw),ratio=limit>0?position/limit:0;
+  if(control.max!==String(limit||1))control.max=String(limit||1);control.value=String(position);control.style.setProperty('--preview-progress',(ratio*100).toFixed(3)+'%');
   const second=Math.floor(position),limitSecond=Math.floor(limit);if(force||second!==previewRenderedSecond||limitSecond!==previewRenderedLimit){previewRenderedSecond=second;previewRenderedLimit=limitSecond;control.setAttribute('aria-valuetext',previewTime(position)+' / '+previewTime(limit));$('preview-player-current').textContent=previewTime(position);$('preview-player-duration').textContent=previewTime(limit);}
 }
 function stopPreviewFrame(){if(previewFrame&&typeof cancelAnimationFrame==='function')cancelAnimationFrame(previewFrame);previewFrame=0;}
@@ -1100,13 +1171,13 @@ function clearPreviewWatchdog(){if(previewSourceTimer!==null)clearTimeout(previe
 function armPreviewWatchdog(token,source){clearPreviewWatchdog();previewSourceTimer=setTimeout(()=>{previewSourceTimer=null;if(token===previewGeneration&&source===previewExpectedSource&&previewWantsPlay&&previewState==='loading')handlePreviewSourceFailure(token,source);},PREVIEW_LOAD_TIMEOUT_MS);}
 function finishPreview(){
   if(!previewTrack||previewState==='ended')return;
-  const audio=$('preview-audio'),limit=previewLimit();clearPreviewShortcutFeedback();previewWantsPlay=false;previewState='ended';previewPlayAttempt++;clearPreviewWatchdog();stopPreviewFrame();
-  if(Math.abs(audio.currentTime-limit)>.015)try{audio.currentTime=limit;}catch{}audio.pause();updatePreviewProgress(limit,true);syncPreviewInterface();announcePreview('Preview finished: ');
+  const audio=$('preview-audio'),limit=previewLimit(),position=limit||Math.max(0,Number(audio.currentTime)||0);clearPreviewShortcutFeedback();previewWantsPlay=false;previewState='ended';previewPlayAttempt++;clearPreviewWatchdog();stopPreviewFrame();
+  audio.pause();updatePreviewProgress(position,true);syncPreviewInterface();announcePreview('Song finished: ');
 }
 function previewTick(){
   previewFrame=0;if(!previewTrack||previewState!=='playing'||document.hidden)return;
-  const audio=$('preview-audio');if(audio.currentTime>=previewLimit()-.015){finishPreview();return;}
-  updatePreviewProgress();if(typeof requestAnimationFrame==='function')previewFrame=requestAnimationFrame(previewTick);
+  const audio=$('preview-audio');
+  if(audio.currentTime>0)previewHasPlayed=true;updatePreviewProgress();if(typeof requestAnimationFrame==='function')previewFrame=requestAnimationFrame(previewTick);
 }
 function startPreviewFrame(){stopPreviewFrame();if(previewState==='playing'&&!document.hidden&&typeof requestAnimationFrame==='function')previewFrame=requestAnimationFrame(previewTick);}
 function announcePreview(key){
@@ -1118,17 +1189,33 @@ function clearPreviewShortcutFeedback(clearPending=true){
 function showPreviewShortcutFeedback(){
   clearPreviewShortcutFeedback(false);const toggle=$('preview-player-toggle');if(!previewTrack||!toggle)return;toggle.classList.add('is-shortcut-feedback');previewShortcutTimer=setTimeout(()=>{previewShortcutTimer=null;toggle.classList.remove('is-shortcut-feedback');},PREVIEW_SHORTCUT_FEEDBACK_MS);
 }
+function dismissPreviewShortcutHint(animate=true){
+  if(previewHintTimer!==null)clearTimeout(previewHintTimer);previewHintTimer=null;
+  const hint=$('player-shortcut-hint');if(!hint||hint.hidden)return;
+  previewHintMotion?.cancel?.();previewHintMotion=null;
+  const finish=()=>{hint.hidden=true;hint.inert=true;previewHintMotion=null;};
+  if(!animate){finish();return;}
+  previewHintMotion=playMotion(hint,[{opacity:1,transform:'translate(-50%,0) scale(1)'},{opacity:0,transform:'translate(-50%,-3px) scale(.985)'}],{duration:MOTION_MS.panel,easing:'cubic-bezier(.4,0,1,1)'});
+  if(previewHintMotion)previewHintMotion.finished.then(finish,()=>{});else finish();
+}
+function showPreviewShortcutHint(){
+  if(previewShortcutHintShown)return;previewShortcutHintShown=true;
+  const hint=$('player-shortcut-hint');if(!hint)return;hint.inert=false;hint.hidden=false;
+  previewHintMotion?.cancel?.();previewHintMotion=playMotion(hint,[{opacity:0,transform:'translate(-50%,-3px) scale(.985)'},{opacity:1,transform:'translate(-50%,0) scale(1)'}],{duration:MOTION_MS.panel,easing:'cubic-bezier(.16,1,.3,1)',fill:'backwards'});
+  previewHintTimer=setTimeout(()=>dismissPreviewShortcutHint(),PREVIEW_HINT_MS);
+  if(typeof installerRequest==='function')installerRequest('POST','/v1/player-shortcuts-seen',{}).catch(()=>{});
+}
 function previewControlLabel(){
-  if(!previewTrack)return m('Play preview');
-  if(previewState==='error')return m('Retry preview: ')+previewTrack.title;
-  if(previewWantsPlay&&['loading','playing'].includes(previewState))return m('Pause preview: ')+previewTrack.title;
-  return m('Play preview: ')+previewTrack.title;
+  if(!previewTrack)return m('Play song');
+  if(previewState==='error')return m('Retry song: ')+previewTrack.title;
+  if(previewWantsPlay&&['loading','playing'].includes(previewState))return m('Pause song: ')+previewTrack.title;
+  return m('Play song: ')+previewTrack.title;
 }
 function syncPreviewButton(view){
   if(!view?.play)return;
   const available=Boolean(chartPreviewReference(view.row)),current=available&&samePreviewTrack(view.row),active=current&&previewWantsPlay&&['loading','playing'].includes(previewState),loading=current&&previewState==='loading'&&previewWantsPlay,error=current&&previewState==='error';
   view.box.classList.toggle('is-preview-current',current);view.play.classList.toggle('is-current',current);view.play.classList.toggle('is-playing',active);view.play.classList.toggle('is-loading',loading);view.play.classList.toggle('is-error',error);view.play.disabled=!available||appExiting;view.play.setAttribute('aria-pressed',String(active));view.play.setAttribute('aria-busy',String(loading));
-  const label=!available?m('Preview unavailable: ')+view.row[1]:error?m('Retry preview: ')+view.row[1]:active?m('Pause preview: ')+view.row[1]:m('Play preview: ')+view.row[1];uiAttr(view.play,'aria-label',label);
+  const label=!available?m('Song unavailable: ')+view.row[1]:error?m('Retry song: ')+view.row[1]:active?m('Pause song: ')+view.row[1]:m('Play song: ')+view.row[1];uiAttr(view.play,'aria-label',label);
 }
 function syncPreviewButtons(){for(const view of coverViews.values())syncPreviewButton(view);}
 function syncPreviewInterface(){
@@ -1158,24 +1245,27 @@ function setPreviewArtwork(track){
 }
 function clearPreviewSourceEvents(){previewSourceCleanup?.();previewSourceCleanup=null;}
 function failPreview(){
-  if(!previewTrack)return;clearPreviewShortcutFeedback();previewWantsPlay=false;previewReady=false;previewPlayAttempt++;clearPreviewWatchdog();stopPreviewFrame();$('preview-audio').pause();previewState='error';syncPreviewInterface();announcePreview('Preview unavailable: ');
+  if(!previewTrack)return;clearPreviewShortcutFeedback();previewWantsPlay=false;previewReady=false;previewPlayAttempt++;clearPreviewWatchdog();stopPreviewFrame();$('preview-audio').pause();previewState='error';syncPreviewInterface();announcePreview('Song unavailable: ');
 }
-function attemptPreviewPlay(token,source){
+function attemptPreviewPlay(token,source,shortcut=false){
   const audio=$('preview-audio'),attempt=++previewPlayAttempt;let work;
-  const rejected=error=>{if(attempt!==previewPlayAttempt||token!==previewGeneration||source!==previewExpectedSource||error?.name==='AbortError')return;if(error?.name==='NotSupportedError'){handlePreviewSourceFailure(token,source);return;}if(previewShortcutPending===token)previewShortcutPending=0;previewWantsPlay=false;previewState='paused';clearPreviewWatchdog();stopPreviewFrame();audio.pause();syncPreviewInterface();announcePreview('Preview paused: ');};
+  if(shortcut)previewShortcutPending=attempt;
+  const current=()=>attempt===previewPlayAttempt&&token===previewGeneration&&source===previewExpectedSource;
+  const rejected=error=>{if(!current()||error?.name==='AbortError')return;if(error?.name==='NotSupportedError'){handlePreviewSourceFailure(token,source);return;}if(previewShortcutPending===attempt)previewShortcutPending=0;previewWantsPlay=false;previewState='paused';clearPreviewWatchdog();stopPreviewFrame();audio.pause();syncPreviewInterface();announcePreview('Song paused: ');};
+  const accepted=()=>{if(!current()||!previewWantsPlay||previewShortcutPending!==attempt)return;previewShortcutPending=0;showPreviewShortcutFeedback();};
   try{work=audio.play();}catch(error){rejected(error);return;}
-  Promise.resolve(work).catch(rejected);
+  Promise.resolve(work).then(accepted,rejected);
 }
 function bindPreviewSource(token,source,resumeAt=0){
   const audio=$('preview-audio'),listeners=[],current=()=>token===previewGeneration&&source===previewExpectedSource&&Boolean(previewTrack);
   const on=(name,handler)=>{const wrapped=event=>{if(current())handler(event);};audio.addEventListener(name,wrapped);listeners.push([name,wrapped]);};
-  on('loadedmetadata',()=>{previewReady=true;if(resumeAt>0)try{audio.currentTime=Math.min(resumeAt,previewLimit());}catch{}updatePreviewProgress(audio.currentTime,true);syncPreviewInterface();if(resumeAt>0&&previewWantsPlay)attemptPreviewPlay(token,source);});
+  on('loadedmetadata',()=>{previewReady=true;const limit=previewLimit();if(resumeAt>0)try{audio.currentTime=limit>0?Math.min(resumeAt,limit):resumeAt;}catch{}updatePreviewProgress(audio.currentTime,true);syncPreviewInterface();if(resumeAt>0&&previewWantsPlay)attemptPreviewPlay(token,source);});
   on('durationchange',()=>updatePreviewProgress(audio.currentTime,true));
-  on('timeupdate',()=>{if(audio.currentTime>=previewLimit()-.015)finishPreview();else updatePreviewProgress();});
-  on('playing',()=>{if(!previewWantsPlay){audio.pause();return;}clearPreviewWatchdog();previewState='playing';syncPreviewInterface();startPreviewFrame();announcePreview('Now playing: ');if(previewShortcutPending===token){previewShortcutPending=0;showPreviewShortcutFeedback();}});
+  on('timeupdate',()=>{if(audio.currentTime>0)previewHasPlayed=true;updatePreviewProgress();});
+  on('playing',()=>{if(!previewWantsPlay){audio.pause();return;}previewHasPlayed=true;clearPreviewWatchdog();previewState='playing';syncPreviewInterface();startPreviewFrame();announcePreview('Now playing: ');if(previewShortcutPending){previewShortcutPending=0;showPreviewShortcutFeedback();}});
   on('waiting',()=>{if(previewWantsPlay){previewState='loading';stopPreviewFrame();armPreviewWatchdog(token,source);syncPreviewInterface();}});
   on('stalled',()=>{if(previewWantsPlay&&previewState==='loading')armPreviewWatchdog(token,source);});
-  on('pause',()=>{stopPreviewFrame();if(!previewWantsPlay&&!['ended','error'].includes(previewState)){clearPreviewWatchdog();previewState='paused';syncPreviewInterface();announcePreview('Preview paused: ');}});
+  on('pause',()=>{stopPreviewFrame();if(!previewWantsPlay&&!['ended','error'].includes(previewState)){clearPreviewWatchdog();previewState='paused';syncPreviewInterface();announcePreview('Song paused: ');}});
   on('ended',finishPreview);on('error',event=>handlePreviewSourceFailure(token,source,event));
   previewSourceCleanup=()=>{for(const [name,handler] of listeners)audio.removeEventListener(name,handler);};
 }
@@ -1186,28 +1276,30 @@ function setPreviewSource(format,token,resumeAt=0){
 function handlePreviewSourceFailure(token,source){
   if(token!==previewGeneration||source!==previewExpectedSource)return;
   clearPreviewWatchdog();
-  if(previewFormat==='ogg'){const position=Math.max(0,Math.min(Number($('preview-audio').currentTime)||0,PREVIEW_LIMIT_SECONDS));if(position>=PREVIEW_LIMIT_SECONDS-.015){finishPreview();return;}setPreviewSource('mp3',token,position);return;}failPreview();
+  if(previewFormat==='ogg'){const position=Math.max(0,Number($('preview-audio').currentTime)||0);setPreviewSource('mp3',token,position);return;}failPreview();
 }
 function startChartPreview(row,force=false){
   const reference=chartPreviewReference(row);if(!reference||appExiting)return false;
   if(!force&&samePreviewTrack(row)){toggleCurrentPreview();return true;}
-  const player=$('preview-player'),first=player.hidden;clearPreviewShortcutFeedback();previewGeneration++;previewLastAnnouncement='';previewRenderedSecond=-1;previewRenderedLimit=-1;previewWantsPlay=true;previewReady=false;previewState='loading';previewTrack={id:row[0],reference,updateHash:String(row[8]?.updateHash||''),title:row[1],artist:row[3],cover:row[8]?.cover||'',thumbnail:row[8]?.thumbnail||'',row};
-  stopPreviewFrame();setPreviewArtwork(previewTrack);syncPreviewInterface();animatePreviewSelection(first);announcePreview('Loading preview: ');setPreviewSource('ogg',previewGeneration);return true;
+  const player=$('preview-player'),first=player.hidden;clearPreviewShortcutFeedback();previewGeneration++;previewLastAnnouncement='';previewRenderedSecond=-1;previewRenderedLimit=-1;previewWantsPlay=true;previewReady=false;previewHasPlayed=false;previewState='loading';previewTrack={id:row[0],reference,updateHash:String(row[8]?.updateHash||''),title:row[1],artist:row[3],cover:row[8]?.cover||'',thumbnail:row[8]?.thumbnail||'',row};
+  stopPreviewFrame();setPreviewArtwork(previewTrack);syncPreviewInterface();animatePreviewSelection(first);announcePreview('Loading song: ');setPreviewSource('ogg',previewGeneration);showPreviewShortcutHint();return true;
 }
 function toggleCurrentPreview(origin='control'){
   if(!previewTrack||appExiting)return false;
   if(origin!=='shortcut')clearPreviewShortcutFeedback();
   if(previewState==='error')return startChartPreview(previewTrack.row,true);
-  const audio=$('preview-audio');if(previewWantsPlay&&['loading','playing'].includes(previewState)){previewWantsPlay=false;previewPlayAttempt++;clearPreviewWatchdog();audio.pause();previewState='paused';syncPreviewInterface();announcePreview('Preview paused: ');return true;}
-  if(previewState==='ended'||audio.currentTime>=previewLimit()-.015){try{audio.currentTime=0;}catch{}updatePreviewProgress(0);}
-  previewWantsPlay=true;previewState='loading';armPreviewWatchdog(previewGeneration,previewExpectedSource);syncPreviewInterface();attemptPreviewPlay(previewGeneration,previewExpectedSource);return true;
+  const audio=$('preview-audio');if(previewWantsPlay&&['loading','playing'].includes(previewState)){
+    const audible=previewHasPlayed||Number(audio.currentTime)>.01;previewWantsPlay=false;previewPlayAttempt++;previewShortcutPending=0;clearPreviewWatchdog();audio.pause();previewState='paused';syncPreviewInterface();announcePreview('Song paused: ');if(origin==='shortcut'&&audible)showPreviewShortcutFeedback();return true;
+  }
+  const limit=previewLimit();if(previewState==='ended'||limit>0&&audio.currentTime>=limit-.015){try{audio.currentTime=0;}catch{}updatePreviewProgress(0);}
+  previewWantsPlay=true;previewState='loading';armPreviewWatchdog(previewGeneration,previewExpectedSource);syncPreviewInterface();attemptPreviewPlay(previewGeneration,previewExpectedSource,origin==='shortcut');return true;
 }
 function toggleChartPreview(row){return samePreviewTrack(row)?toggleCurrentPreview():startChartPreview(row);}
 function pausePreview(){
-  if(!previewTrack||!previewWantsPlay)return;clearPreviewShortcutFeedback();previewWantsPlay=false;previewPlayAttempt++;clearPreviewWatchdog();$('preview-audio').pause();previewState='paused';stopPreviewFrame();syncPreviewInterface();announcePreview('Preview paused: ');
+  if(!previewTrack||!previewWantsPlay)return;clearPreviewShortcutFeedback();previewWantsPlay=false;previewPlayAttempt++;clearPreviewWatchdog();$('preview-audio').pause();previewState='paused';stopPreviewFrame();syncPreviewInterface();announcePreview('Song paused: ');
 }
 function disposePreview(){
-  previewGeneration++;previewPlayAttempt++;previewWantsPlay=false;previewReady=false;previewState='idle';previewExpectedSource='';previewLastAnnouncement='';previewRenderedSecond=-1;previewRenderedLimit=-1;previewTrack=null;previewCoverToken++;clearPreviewShortcutFeedback();clearPreviewWatchdog();stopPreviewFrame();clearPreviewSourceEvents();cancelPreviewArtworkMotions();
+  previewGeneration++;previewPlayAttempt++;previewWantsPlay=false;previewReady=false;previewHasPlayed=false;previewState='idle';previewExpectedSource='';previewLastAnnouncement='';previewRenderedSecond=-1;previewRenderedLimit=-1;previewTrack=null;previewCoverToken++;clearPreviewShortcutFeedback();dismissPreviewShortcutHint(false);clearPreviewWatchdog();stopPreviewFrame();clearPreviewSourceEvents();cancelPreviewArtworkMotions();
   const audio=$('preview-audio');if(audio){audio.pause();audio.removeAttribute('src');audio.load();}for(const image of [$('preview-player-image'),$('preview-player-image-next')])if(image){image.onload=null;image.onerror=null;image.classList.remove('is-visible');image.hidden=true;image.removeAttribute('src');}previewArtworkSlot=0;$('preview-player')?.setAttribute('hidden','');syncPreviewButtons();
 }
 function reconcilePreviewCatalog(data){
@@ -1215,31 +1307,114 @@ function reconcilePreviewCatalog(data){
 }
 function previewSpaceReserved(event){
   if(event.defaultPrevented||event.isComposing||event.ctrlKey||event.altKey||event.metaKey)return true;const target=event.target;
-  if(!target?.closest)return false;if(target.closest('textarea,select,button,summary,[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="textbox"],[role="combobox"],[role="menuitem"],[role="tab"]'))return true;
+  if(!target?.closest)return false;if(target.closest('a[href],textarea,select,button,summary,[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="textbox"],[role="combobox"],[role="menuitem"],[role="tab"]'))return true;
   const input=target.closest('input');if(input&&String(input.type||'').toLowerCase()!=='range')return true;return Boolean(target.closest('.reading-content'));
 }
 function handlePreviewSpace(event){
   if((event.key!==' '&&event.code!=='Space')||!previewTrack||previewSpaceReserved(event))return;event.preventDefault();if(event.repeat)return;
-  const wasPlaying=previewState==='playing'&&previewWantsPlay;if(!toggleCurrentPreview('shortcut'))return;
+  if(!toggleCurrentPreview('shortcut'))return;
   if(document.activeElement===$('preview-player-progress'))document.activeElement.blur?.();
-  if(wasPlaying&&previewState==='paused'){previewShortcutPending=0;showPreviewShortcutFeedback();}
-  else if(previewWantsPlay&&['loading','playing'].includes(previewState)){previewShortcutPending=previewGeneration;if(previewState==='playing'){previewShortcutPending=0;showPreviewShortcutFeedback();}}
-  else previewShortcutPending=0;
+}
+function previewSeekReserved(event){
+  if(event.defaultPrevented||event.isComposing||event.ctrlKey||event.altKey||event.metaKey||event.shiftKey)return true;const target=event.target;
+  if(!target?.closest)return false;
+  const selection=globalThis.getSelection?.();if(selection&&!selection.isCollapsed)return true;
+  return Boolean(target.closest('a[href],input,textarea,select,button,summary,[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="textbox"],[role="combobox"],[role="slider"],[role="menu"],[role="menuitem"],[role="listbox"],[role="option"],[role="spinbutton"],[role="tree"],[role="treeitem"],[role="grid"],[role="gridcell"],[role="tab"],.reading-content,.calendar-popover'));
+}
+function seekPreviewBy(seconds){
+  if(!previewTrack||!previewReady||previewState==='error'||appExiting)return false;
+  const audio=$('preview-audio'),limit=previewLimit();if(!(limit>0))return false;
+  const next=Math.max(0,Math.min((Number(audio.currentTime)||0)+seconds,limit));
+  try{audio.currentTime=next;}catch{return false;}
+  if(next>=limit-.015)finishPreview();
+  else{if(previewState==='ended'){previewState='paused';previewWantsPlay=false;}updatePreviewProgress(next,true);syncPreviewInterface();}
+  return true;
+}
+function handlePreviewSeekKey(event){
+  if(!['ArrowLeft','ArrowRight'].includes(event.key)||previewSeekReserved(event))return;
+  if(!seekPreviewBy(event.key==='ArrowLeft'?-PREVIEW_SEEK_SECONDS:PREVIEW_SEEK_SECONDS))return;
+  event.preventDefault();
 }
 function setupAudioPreview(){
   const audio=$('preview-audio'),progress=$('preview-player-progress');$('preview-player-toggle').addEventListener('click',toggleCurrentPreview);
-  progress.addEventListener('input',()=>{if(!previewTrack||!previewReady)return;const limit=previewLimit(),value=Math.max(0,Math.min(Number(progress.value)||0,limit));try{audio.currentTime=value;}catch{}if(value>=limit-.015){if(previewState==='ended')updatePreviewProgress(limit,true);else finishPreview();return;}if(previewState==='ended'){previewState='paused';previewWantsPlay=false;}updatePreviewProgress(value,true);syncPreviewInterface();});
-  document.addEventListener('keydown',handlePreviewSpace);document.addEventListener('visibilitychange',()=>{if(document.hidden)pausePreview();});globalThis.addEventListener?.('pagehide',disposePreview);syncPreviewInterface();
+  progress.addEventListener('input',()=>{if(!previewTrack||!previewReady)return;const limit=previewLimit();if(!(limit>0))return;const value=Math.max(0,Math.min(Number(progress.value)||0,limit));try{audio.currentTime=value;}catch{}if(value>=limit-.015){if(previewState==='ended')updatePreviewProgress(limit,true);else finishPreview();return;}if(previewState==='ended'){previewState='paused';previewWantsPlay=false;}updatePreviewProgress(value,true);syncPreviewInterface();});
+  document.addEventListener('keydown',handlePreviewSpace);document.addEventListener('keydown',handlePreviewSeekKey);document.addEventListener('visibilitychange',()=>{if(document.hidden)pausePreview();});globalThis.addEventListener?.('pagehide',disposePreview);syncPreviewInterface();
 }
 const chartDescriptionViews=new Map();
-let chartDescriptionPanel=null,chartDescriptionOwner=null,chartDescriptionObserver=null,chartDescriptionFrame=0,chartDescriptionLeaveTimer=null;
+let chartDescriptionOwner=null,chartDescriptionObserver=null,chartDescriptionFrame=0,chartDescriptionControlsReady=false;
+function cancelChartDescriptionMotion(view){
+  const motion=view?.motion;if(motion)try{motion.cancel();}catch{}if(view)view.motion=null;
+  if(view?.preview){view.preview.style.height='';view.preview.style.willChange='';}
+}
+function releaseChartDescriptionGeometry(view){
+  if(!view)return;const {preview,notes,card}=view;
+  preview?.classList.remove('is-floating','is-collapsing');
+  card?.classList.remove('is-description-expanded');notes?.classList.remove('is-description-expanded');
+  if(preview){
+    preview.style.height='';preview.style.willChange='';
+    for(const name of ['--description-float-top','--description-float-left','--description-float-width','--description-expanded-height'])preview.style.removeProperty(name);
+  }
+  if(notes){notes.style.height='';notes.style.minHeight='';}
+}
+function chartDescriptionGeometry(view){
+  const {preview,content,notes}=view,previewRect=preview.getBoundingClientRect(),notesRect=notes?.getBoundingClientRect?.()||previewRect;
+  const notesStyle=notes?getComputedStyle(notes):null,borderTop=Number.parseFloat(notesStyle?.borderTopWidth)||0,borderLeft=Number.parseFloat(notesStyle?.borderLeftWidth)||0;
+  const from=previewRect.height||preview.clientHeight||view.cut+3;
+  const viewportHeight=document.documentElement.clientHeight||globalThis.innerHeight||800;
+  const available=Math.max(from,viewportHeight-Math.max(16,previewRect.top)-28);
+  const target=Math.max(from,Math.min(content.scrollHeight,520,available));
+  const width=previewRect.width||preview.clientWidth||Math.max(0,notesRect.width-(previewRect.left-notesRect.left));
+  return {from,target,top:previewRect.top-notesRect.top-borderTop,left:previewRect.left-notesRect.left-borderLeft,width,notesHeight:notesRect.height||notes?.clientHeight||from};
+}
+function prepareChartDescriptionGeometry(view,geometry){
+  const {preview,notes,card}=view;
+  preview.style.setProperty('--description-float-top',geometry.top+'px');
+  preview.style.setProperty('--description-float-left',geometry.left+'px');
+  preview.style.setProperty('--description-float-width',geometry.width+'px');
+  preview.style.setProperty('--description-expanded-height',geometry.target+'px');
+  if(notes){notes.style.height=geometry.notesHeight+'px';notes.style.minHeight=geometry.notesHeight+'px';notes.classList.add('is-description-expanded');}
+  card?.classList.add('is-description-expanded');preview.classList.add('is-floating');
+}
+function syncChartDescriptionAccessibility(view,expanded){
+  const {preview,content}=view;content.inert=!expanded;preview.tabIndex=view.overflow?0:-1;
+  preview.setAttribute('role',expanded?'region':'button');
+  if(expanded){preview.removeAttribute('aria-expanded');preview.removeAttribute('aria-controls');}
+  else{preview.setAttribute('aria-expanded','false');preview.setAttribute('aria-controls',content.id);}
+  uiAttr(preview,'aria-label',m(expanded?'Collapse the note for ':'Read the full note for ')+view.row[1]);
+  uiAttr(preview,'aria-description',m(expanded?'Click or press Enter to collapse the note.':'Click or press Enter to read the full note.'));
+}
+function setChartDescriptionExpanded(view,expanded,animate=true){
+  if(!view?.preview.isConnected||expanded&&!view.overflow)return false;
+  const {preview,content}=view,wasFloating=preview.classList.contains('is-floating');
+  const currentHeight=preview.getBoundingClientRect().height||preview.clientHeight||view.cut+3;
+  const geometry=expanded&&!wasFloating?chartDescriptionGeometry(view):{from:currentHeight,target:Number.parseFloat(preview.style.getPropertyValue('--description-expanded-height'))||content.scrollHeight};
+  cancelChartDescriptionMotion(view);view.expanded=expanded;
+  if(expanded){
+    if(!wasFloating)prepareChartDescriptionGeometry(view,geometry);
+    preview.classList.remove('is-collapsing');preview.classList.add('is-expanded');
+  }else{
+    preview.classList.remove('is-expanded');preview.classList.add('is-collapsing');
+  }
+  syncChartDescriptionAccessibility(view,expanded);
+  if(expanded)chartDescriptionOwner=view;else if(chartDescriptionOwner===view)chartDescriptionOwner=null;
+  const from=currentHeight,to=expanded?(Number.parseFloat(preview.style.getPropertyValue('--description-expanded-height'))||geometry.target):view.cut+3;
+  const settle=()=>{preview.style.height='';preview.style.willChange='';if(!view.expanded){releaseChartDescriptionGeometry(view);scheduleChartDescriptions();}};
+  if(!animate||!motionAllowed()||!from||!to||Math.abs(from-to)<1){settle();return true;}
+  preview.style.willChange='height';
+  const motion=playMotion(preview,[{height:from+'px'},{height:to+'px'}],{duration:expanded?MOTION_MS.panel:MOTION_MS.standard,easing:expanded?'cubic-bezier(.16,1,.3,1)':'cubic-bezier(.4,0,1,1)',fill:'both'});view.motion=motion;
+  playMotion(content,expanded?[{opacity:.5,transform:'translateY(-2px)'},{opacity:1,transform:'translateY(0)'}]:[{opacity:1,transform:'translateY(0)'},{opacity:.58,transform:'translateY(-2px)'}],{duration:expanded?MOTION_MS.panel:MOTION_MS.feedback,easing:expanded?'cubic-bezier(.16,1,.3,1)':'cubic-bezier(.4,0,1,1)'});
+  const finish=()=>{if(view.motion!==motion)return;view.motion=null;settle();};
+  if(motion)motion.finished.then(finish,()=>{});else finish();
+  return true;
+}
 function refreshChartDescriptions(){
   const measured=[];
   for(const [preview,view] of chartDescriptionViews){
     if(!preview.isConnected){
-      if(chartDescriptionOwner===view)dismissChartDescription(false,false);
+      cancelChartDescriptionMotion(view);releaseChartDescriptionGeometry(view);if(chartDescriptionOwner===view)chartDescriptionOwner=null;
       chartDescriptionObserver?.unobserve(preview);chartDescriptionViews.delete(preview);continue;
     }
+    if(view.expanded||preview.classList.contains('is-floating'))continue;
     const content=view.content,line=parseFloat(getComputedStyle(content).lineHeight)||22.1,budget=line*5;
     const overflow=preview.clientWidth>0&&content.scrollHeight>budget+1;
     let cut=line*4.5;
@@ -1253,105 +1428,71 @@ function refreshChartDescriptions(){
     measured.push({view,overflow,cut});
   }
   for(const {view,overflow,cut} of measured){
-    const {preview,content}=view;view.overflow=overflow;
+    const {preview,content}=view;view.overflow=overflow;view.cut=cut;
     preview.classList.toggle('has-overflow',overflow);content.inert=overflow;preview.tabIndex=overflow?0:-1;
     preview.setAttribute('role',overflow?'button':'region');
     uiAttr(preview,'aria-label',overflow?m('Read the full note for ')+view.row[1]:m('Chart description'));
     if(overflow){
       preview.style.setProperty('--description-preview-height',cut+'px');
-      preview.setAttribute('aria-haspopup','dialog');preview.setAttribute('aria-controls','chart-description-popover');
-      preview.setAttribute('aria-expanded',String(chartDescriptionOwner===view));
+      preview.setAttribute('aria-expanded','false');preview.setAttribute('aria-controls',content.id);
       uiAttr(preview,'aria-description',m('Click or press Enter to read the full note.'));
     }else{
       preview.style.removeProperty('--description-preview-height');
-      for(const name of ['aria-haspopup','aria-controls','aria-expanded'])preview.removeAttribute(name);
+      preview.removeAttribute('aria-expanded');preview.removeAttribute('aria-controls');
       uiAttr(preview,'aria-description','');
-      if(chartDescriptionOwner===view)dismissChartDescription(chartDescriptionPanel.target.contains(document.activeElement),false);
+      if(view.expanded)setChartDescriptionExpanded(view,false,false);
+      content.inert=false;
     }
   }
-  if(chartDescriptionOwner)positionReadingPopover(chartDescriptionPanel);
 }
 function scheduleChartDescriptions(){
   if(chartDescriptionFrame)return;
   chartDescriptionFrame=requestAnimationFrame(()=>{chartDescriptionFrame=0;refreshChartDescriptions();});
 }
 function dismissChartDescription(restoreFocus=false,animate=true){
-  clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=null;
-  const owner=chartDescriptionOwner,panel=chartDescriptionPanel;chartDescriptionOwner=null;
-  if(owner){owner.preview.classList.remove('is-open');if(owner.overflow)owner.preview.setAttribute('aria-expanded','false');}
-  if(panel){
-    const from=cancelReadingMotion(panel);panel.readingVisible=false;panel.target.inert=true;
-    if(panel.target.matches(':popover-open'))animateReadingPopover(panel,false,animate,from);else panel.target.hidden=true;
-  }
+  const owner=chartDescriptionOwner;if(owner)setChartDescriptionExpanded(owner,false,animate);
   if(restoreFocus&&owner?.preview.isConnected)owner.preview.focus({preventScroll:true});
   return Boolean(owner);
-}
-function leaveChartDescription(view=chartDescriptionOwner){
-  if(!view||chartDescriptionOwner!==view||view.input==='keyboard')return;
-  clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=setTimeout(()=>{
-    chartDescriptionLeaveTimer=null;
-    if(chartDescriptionOwner===view)dismissChartDescription();
-  },160);
-}
-function ensureChartDescriptionPopover(){
-  if(chartDescriptionPanel)return chartDescriptionPanel;
-  const target=element('section',undefined,'chart-description-popover reading-popover'),body=element('div',undefined,'reading-body');
-  const list=element('div',undefined,'description-full reading-content');
-  target.id='chart-description-popover';target.hidden=true;target.inert=true;target.tabIndex=-1;
-  target.setAttribute('popover','manual');target.setAttribute('role','dialog');
-  list.tabIndex=0;uiAttr(list,'aria-label',m('Chart description'));
-  body.append(list);target.append(body);document.body.append(target);
-  const panel={target,body,list,readingWidth:640,readingVisible:false,toggle:null};chartDescriptionPanel=panel;
-  bindReadingWheel(target,list);
-  target.addEventListener('pointerenter',()=>{clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=null;});
-  target.addEventListener('pointerleave',event=>{if(event.pointerType!=='touch'&&!chartDescriptionOwner?.card.contains(event.relatedTarget))leaveChartDescription();});
-  target.addEventListener('toggle',event=>{if(event.newState==='closed'&&chartDescriptionOwner&&!target.matches(':popover-open'))dismissChartDescription(false,false);});
-  document.addEventListener('pointerdown',event=>{if(chartDescriptionOwner&&!chartDescriptionOwner.card.contains(event.target))dismissChartDescription();});
-  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented&&chartDescriptionOwner){event.preventDefault();dismissChartDescription(true);}});
-  document.addEventListener('scroll',event=>{
-    // A wheel gesture emits many root scroll events. Once the first one starts
-    // the shared exit motion, do not keep cancelling and restarting it.
-    if(chartDescriptionOwner&&(event.target===document||event.target===document.documentElement))dismissChartDescription();
-  },{capture:true,passive:true});
-  globalThis.addEventListener?.('resize',scheduleChartDescriptions);
-  globalThis.addEventListener?.('blur',()=>dismissChartDescription(false,false));
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)dismissChartDescription(false,false);});
-  document.fonts?.ready?.then(scheduleChartDescriptions);return panel;
 }
 function showChartDescription(view,input='mouse'){
   if(!view?.overflow||!view.preview.isConnected||!view.card||!hostVisible||document.hidden||appExiting||phase!=='ready')return false;
   if($('tag-picker').matches(':popover-open')||$('selected-tag-popover').matches(':popover-open'))return false;
-  clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=null;view.input=input;
-  const panel=ensureChartDescriptionPopover();
-  if(chartDescriptionOwner===view){if(input==='keyboard')panel.list.focus({preventScroll:true});return true;}
-  if(panel.toggle!==view.preview)dismissChartDescription(false,false);
+  view.input=input;if(chartDescriptionOwner===view)return setChartDescriptionExpanded(view,false);
+  if(chartDescriptionOwner)dismissChartDescription(false);
   closeTemporaryReviews(reviewPopoverOwner,false,false);dismissChartTags();
-  const same=panel.toggle===view.preview,from=cancelReadingMotion(panel);
-  if(!same){panel.list.replaceChildren();appendChartDescription(panel.list,view.row[8].description);panel.list.scrollTop=0;}
-  chartDescriptionOwner=view;panel.toggle=view.preview;view.preview.after(panel.target);
-  view.preview.classList.add('is-open');view.preview.setAttribute('aria-expanded','true');
-  uiAttr(panel.target,'aria-label',view.row[1]+' · '+m('Chart description'));
-  panel.readingVisible=true;panel.target.hidden=false;panel.target.inert=false;positionReadingPopover(panel);
-  if(!panel.target.matches(':popover-open'))panel.target.showPopover();animateReadingPopover(panel,true,true,same?from:null);
-  if(input==='keyboard')panel.list.focus({preventScroll:true});return true;
+  return setChartDescriptionExpanded(view,true);
 }
 function bindChartDescription(row,preview,content){
-  const view={row,preview,content,card:null,overflow:false,input:'mouse'};chartDescriptionViews.set(preview,view);
-  preview.tabIndex=-1;preview.setAttribute('role','region');uiAttr(preview,'aria-label',m('Chart description'));content.inert=true;
+  const view={row,preview,content,card:null,notes:preview.parentElement,overflow:false,expanded:false,cut:0,input:'mouse',motion:null};chartDescriptionViews.set(preview,view);
+  content.id='chart-description-'+row[0];preview.tabIndex=-1;preview.setAttribute('role','region');preview.setAttribute('aria-controls',content.id);uiAttr(preview,'aria-label',m('Chart description'));content.inert=true;
   preview.addEventListener('pointerdown',event=>{view.pointerType=event.pointerType;});
-  preview.addEventListener('click',event=>{if(view.overflow){event.preventDefault();showChartDescription(view,event.detail===0?'keyboard':view.pointerType||'mouse');}});
+  preview.addEventListener('click',event=>{
+    if(!view.overflow)return;if(view.expanded&&event.target.closest?.('a'))return;
+    const selection=globalThis.getSelection?.();if(view.expanded&&selection&&!selection.isCollapsed&&preview.contains(selection.anchorNode))return;
+    event.preventDefault();showChartDescription(view,event.detail===0?'keyboard':view.pointerType||'mouse');
+  });
   preview.addEventListener('keydown',event=>{if(event.target===preview&&view.overflow&&['Enter',' '].includes(event.key)){event.preventDefault();showChartDescription(view,'keyboard');}});
+  preview.addEventListener('pointerleave',event=>{if(view.expanded&&event.pointerType!=='touch'&&!preview.contains(event.relatedTarget))setChartDescriptionExpanded(view,false);});
+  preview.addEventListener('wheel',event=>{
+    if(!view.expanded||event.ctrlKey)return;event.preventDefault();event.stopPropagation();
+    const scale=event.deltaMode===1?20:event.deltaMode===2?Math.max(1,content.clientHeight):1;
+    content.scrollTop+=event.deltaY*scale;
+  },{passive:false});
   if(typeof ResizeObserver==='function'){
     if(!chartDescriptionObserver)chartDescriptionObserver=new ResizeObserver(scheduleChartDescriptions);
     chartDescriptionObserver.observe(preview);
   }
-  ensureChartDescriptionPopover();scheduleChartDescriptions();return view;
+  if(!chartDescriptionControlsReady){
+    chartDescriptionControlsReady=true;
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented&&chartDescriptionOwner){event.preventDefault();dismissChartDescription(true);}});
+    globalThis.addEventListener?.('resize',()=>{dismissChartDescription(false,false);scheduleChartDescriptions();});
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)dismissChartDescription(false,false);});
+    document.fonts?.ready?.then(scheduleChartDescriptions);
+  }
+  scheduleChartDescriptions();return view;
 }
 function bindChartDescriptionCard(card){
-  const view=chartDescriptionViews.get(card.querySelector('.chart-description'));if(!view)return;view.card=card;
-  card.addEventListener('pointerenter',()=>{if(chartDescriptionOwner===view){clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=null;}});
-  card.addEventListener('pointerleave',event=>{if(event.pointerType!=='touch'&&!card.contains(event.relatedTarget))leaveChartDescription(view);});
-  card.addEventListener('focusout',event=>{if(chartDescriptionOwner===view&&view.input==='keyboard'&&!card.contains(event.relatedTarget))dismissChartDescription();});
+  const view=chartDescriptionViews.get(card.querySelector('.chart-description'));if(!view)return;view.card=card;view.notes=view.preview.parentElement;
 }
 let chartTagsPopover=null,chartTagsOwner=null,chartTagsTimer=null,chartTagsFrame=0,chartTagsIgnoreFocus=false;
 function chartTagsOverflow(strip){return strip.clientWidth>0&&strip.scrollWidth>strip.clientWidth+1;}
@@ -1458,7 +1599,7 @@ function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIREC
   return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
 }
 async function installerRequest(method,path,body,revision=''){
-  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/desktop/window','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
   if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
   if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
   const request=new AbortController();let timedOut=false;
@@ -1470,7 +1611,7 @@ async function installerRequest(method,path,body,revision=''){
     let result;try{result=await readJSONResponse({ok:true,headers:response.headers,body:response.body},64*1024);}catch(error){if(request.signal.aborted)throw error;throw uiError(m("Could not confirm installation. Check its status before trying again."));}
     if(!response.ok){
       const code=typeof result?.code==='string'?result.code:'',detail=typeof result?.error==='string'?localizeInstallerMessage(result.error):'',localized=code==='queue_full'?m('The install queue is full. Wait for a task to finish, then try again.'):Object.hasOwn(INSTALLER_ERROR_TEXT,code)?INSTALLER_ERROR_TEXT[code]:'';
-      const error=uiError(localized||detail||m("The installer returned HTTP ")+response.status+m('.'));error.httpStatus=response.status;error.code=code;
+      const error=uiError(localized||detail||m("The installer returned HTTP ")+response.status);error.httpStatus=response.status;error.code=code;
       if(error.code==='settings_changed'){settingsStale=true;error.uiMessage=errorText(error)+m(" Open Settings to confirm the directory before retrying.");updateAllInstallationViews();}
       throw error;
     }
@@ -1968,7 +2109,7 @@ function installationControl(row,stats,card){
     uiAttr(link,'aria-label',m('Download on SpinShare: ')+row[1]);uiAttr(link,'aria-description',m('DLC chart: authorize and download on SpinShare.'));link.append(icon('downloads'),element('span',m('Download on official site')));actions.append(link);card.append(stats);return;
   }
   const button=element('button',undefined,'download-button'),label=element('span',m("Download and install")),note=element('p','','install-note'),presence=element('span',m('Installation status unknown'),'install-presence'),progress=element('progress',undefined,'task-progress');
-  button.type='button';uiAttr(button,'aria-label',m('Download and install ')+row[1]);uiAttr(button,'aria-description',m('Install all difficulties and replace matching files.'));button.append(icon('downloads'),label);button.addEventListener('click',()=>startInstallation(row));
+  button.type='button';uiAttr(button,'aria-label',m('Download and install ')+row[1]);uiAttr(button,'aria-description',m('Install all difficulties and replace matching files.'));button.append(icon('downloads'),label);button.addEventListener('click',()=>requestInstallation(row,button));
   note.setAttribute('role','status');note.setAttribute('aria-live','polite');note.hidden=true;progress.hidden=true;actions.append(presence,button);card.append(stats,progress,note);
   installationViews.set(row[0],{button,label,note,presence,progress,row,songTitle:row[1]});updateInstallationView(row[0]);
 }

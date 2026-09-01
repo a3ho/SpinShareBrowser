@@ -31,6 +31,7 @@ async function settle(until = () => true) {
 
 function harness({now = Date.UTC(2026, 8, 1), storage = new Map(), storageAvailable = true} = {}) {
   const nodes = new Map(), timers = new Map(), frames = new Map(), requests = [], profiles = [], motions = [], entries = [], observers = [], styleReads = [];
+  const selection = {isCollapsed: true, anchorNode: null};
   let nextTimer = 0, nextFrame = 0, allowMotion = false, clock = now;
   class ClockDate extends Date { static now() { return clock; } }
   const styles = () => Object.defineProperties({}, {
@@ -92,6 +93,10 @@ function harness({now = Date.UTC(2026, 8, 1), storage = new Map(), storageAvaila
       if (selector === ':hover') return this.hovered;
       if (selector === ':popover-open') return this.popoverOpen;
       return selector.startsWith('.') ? this.classList.contains(selector.slice(1)) : this.tagName === selector;
+    }
+    closest(selector) {
+      for (let node = this; node; node = node.parentElement) if (node.matches?.(selector)) return node;
+      return null;
     }
     showPopover() {
       assert(this.hasAttribute('popover')); assert.equal(this.hidden, false);
@@ -163,6 +168,7 @@ function harness({now = Date.UTC(2026, 8, 1), storage = new Map(), storageAvaila
   }
   const api = vm.createContext({
     document, $: node, element, AbortController, DOMException, Response, TextDecoder, TypeError, URL, queueMicrotask, Date: ClockDate,
+    getSelection: () => selection,
     localStorage: {
       getItem(key) { if (!storageAvailable) throw new Error('Storage unavailable'); return storage.get(key) ?? null; },
       setItem(key, value) { if (!storageAvailable) throw new Error('Storage unavailable'); storage.set(key, String(value)); },
@@ -254,8 +260,7 @@ function harness({now = Date.UTC(2026, 8, 1), storage = new Map(), storageAvaila
     owner: () => vm.runInContext('reviewPopoverOwner', api), animate: () => { allowMotion = true; },
     descriptionViews: () => vm.runInContext('chartDescriptionViews', api),
     descriptionOwner: () => vm.runInContext('chartDescriptionOwner', api),
-    descriptionPanel: () => vm.runInContext('chartDescriptionPanel', api),
-    descriptionTimer: () => vm.runInContext('chartDescriptionLeaveTimer', api),
+    selection,
     readingMotion: () => vm.runInContext('READING_MOTION', api),
     tagsOwner: () => vm.runInContext('chartTagsOwner', api),
     reduceMotion: () => { allowMotion = false; api.syncMotion(); }};
@@ -294,17 +299,24 @@ function described(h, id = 1, text = 'A complete chart note', lines = 7, tags = 
   content.textRects = Array.from({length: lines}, (_, index) => ({top: 102 + index * 20, bottom: 116 + index * 20, width: 200, height: 14}));
   h.runFrames();
   const view = h.descriptionViews().get(preview); assert.strictEqual(view.card, cell.card);
+  const collapsed = view.cut + 3, notesHeight = collapsed + (tags.length ? 40 : 0);
+  preview.clientHeight = collapsed; preview.clientWidth = 520;
+  preview.bounds = {top: 130, bottom: 130 + collapsed, left: 700, right: 1220, width: 520, height: collapsed};
+  view.notes.clientHeight = notesHeight;
+  view.notes.bounds = {top: 130, bottom: 130 + notesHeight, left: 674, right: 1220, width: 546, height: notesHeight};
   return {cell, view, preview, content};
 }
 function clickDescription(item, input = 'mouse') {
   if (input !== 'keyboard') item.preview.emit('pointerdown', {pointerType: input});
   return item.preview.emit('click', {detail: input === 'keyboard' ? 0 : 1});
 }
-function assertDescriptionClosed(h) {
-  assert.equal(h.descriptionOwner(), null); assert.equal(h.descriptionTimer(), null);
-  const panel = h.descriptionPanel();
-  assert.equal(panel.target.hidden, true); assert.equal(panel.target.inert, true);
-  assert.equal(panel.target.matches(':popover-open'), false);
+function assertDescriptionClosed(h, item) {
+  assert.equal(h.descriptionOwner(), null);
+  if (!item) return;
+  assert.equal(item.view.expanded, false); assert.equal(item.preview.getAttribute('aria-expanded'), 'false');
+  assert.equal(item.preview.classList.contains('is-expanded'), false); assert.equal(item.content.inert, true);
+  assert.equal(item.preview.classList.contains('is-floating'), false);
+  assert.equal(item.cell.card.classList.contains('is-description-expanded'), false);
 }
 
 test('collapsed cards load positive and zero counts without mounting reviews, and still discover uploaders', async () => {
@@ -737,7 +749,7 @@ test('late fade callbacks cannot hide a reopened popover, another owner, or pinn
   assert.equal(h.document.documentElement.classList.contains('review-layout-update'), false);
 });
 
-test('description overflow uses the original five-line budget and clips through actual glyph boxes without state oscillation', () => {
+test('description overflow keeps the five-line budget and exposes a real half line without oscillation', () => {
   const h = harness(), short = described(h, 1, 'Guide: https://example.com/short.', 3), long = described(h, 2);
   assert.equal(short.view.overflow, false); assert.equal(short.content.inert, false);
   assert.equal(short.preview.getAttribute('role'), 'region'); assert.equal(short.preview.tabIndex, -1);
@@ -745,10 +757,13 @@ test('description overflow uses the original five-line budget and clips through 
   const link = short.content.querySelector('a'); assert.equal(link.href, 'https://example.com/short');
   const shortClick = short.preview.emit('click', {target: link});
   assert(!shortClick.defaultPrevented); assertDescriptionClosed(h);
+
   assert.equal(long.view.overflow, true); assert.equal(long.content.inert, true);
   assert.equal(long.preview.getAttribute('role'), 'button'); assert.equal(long.preview.tabIndex, 0);
-  assert.equal(long.preview.getAttribute('aria-expanded'), 'false'); assert.equal(long.preview.getAttribute('aria-haspopup'), 'dialog');
+  assert.equal(long.preview.getAttribute('aria-expanded'), 'false'); assert.equal(long.preview.hasAttribute('aria-haspopup'), false);
+  assert.equal(long.preview.getAttribute('aria-controls'), long.content.id);
   assert.equal(long.preview.style.getPropertyValue('--description-preview-height'), '89px');
+  assert.equal(long.preview.classList.contains('has-overflow'), true);
   long.preview.clientHeight = 89;
   for (let i = 0; i < 3; i++) {
     h.api.refreshChartDescriptions(); assert.equal(long.view.overflow, true);
@@ -759,186 +774,131 @@ test('description overflow uses the original five-line budget and clips through 
   h.api.refreshChartDescriptions();
   assert.equal(long.preview.style.getPropertyValue('--description-preview-height'), '69px');
   long.content.textRects = []; h.api.refreshChartDescriptions();
-  assert.equal(long.preview.style.getPropertyValue('--description-preview-height'), '90px', 'Missing glyph boxes use the half-line fallback');
+  assert.equal(long.preview.style.getPropertyValue('--description-preview-height'), '90px', 'Missing glyph boxes retain the four-and-a-half-line fallback');
   long.content.scrollHeight = 101; h.api.refreshChartDescriptions();
   assert.equal(long.view.overflow, false); assert.equal(long.content.inert, false);
   assert.equal(long.preview.getAttribute('role'), 'region'); assert.equal(long.preview.style.getPropertyValue('--description-preview-height'), '');
+  assert.equal(long.preview.classList.contains('has-overflow'), false); assert.equal(long.preview.hasAttribute('aria-expanded'), false);
   h.api.refreshChartDescriptions(); assert.equal(long.view.overflow, false);
   assert.equal(h.requests.length, 0);
 });
 
-test('description hover never opens; click, keyboard and touch reveal one cached full-text surface with working link semantics', () => {
-  const h = harness(), text = '完整说明\n' + 'Read every line 😀\n'.repeat(60) + 'Guide: https://example.com/guide?q=1#part.\n<script>plain text</script>\nFinal line';
-  const item = described(h, 1, text), panel = h.descriptionPanel();
+test('description grows downward from its original region as one floating surface without moving card layout', () => {
+  const h = harness(), text = '完整说明\n' + 'Read every line 😀\n'.repeat(8) + 'Guide: https://example.com/guide?q=1#part.\nFinal line';
+  const item = described(h, 1, text, 11), originalContent = item.content, replacements = item.content.replacements;
   for (const pointerType of ['mouse', 'pen', 'touch']) {
-    item.preview.hovered = true; item.preview.emit('pointerenter', {pointerType});
-    item.cell.card.emit('pointerenter', {pointerType}); h.advance(1000); h.runFrames();
-    assertDescriptionClosed(h); assert.equal(h.timers.size, 0, 'Hover must not reserve an automatic-open timer');
+    item.preview.emit('pointerenter', {pointerType}); item.cell.card.emit('pointerenter', {pointerType}); h.advance(1000); h.runFrames();
+    assertDescriptionClosed(h, item);
   }
-  item.preview.hovered = false;
+
   assert.equal(clickDescription(item).defaultPrevented, true);
-  assert.strictEqual(h.descriptionOwner(), item.view); assert.strictEqual(panel.toggle, item.preview);
-  assert.equal(item.content.inert, true); assert.equal(panel.target.inert, false); assert.equal(panel.list.inert, false);
-  assert(item.cell.card.contains(panel.target)); assert.equal(panel.target.getAttribute('role'), 'dialog');
-  assert.equal(panel.list.textContent, text); assert.equal(panel.list.querySelector('script'), null);
-  assert(!panel.target.querySelector('.review-context'), 'The note popover has no visible song-title header');
-  assert.equal(panel.target.textContent, text, 'Only the complete note belongs in the visible popover');
-  assert.equal(panel.target.getAttribute('aria-label'), item.cell.row[1] + ' · Chart description');
-  assert.equal(item.cell.card.querySelector('.song-title').textContent, item.cell.row[1]);
-  const link = panel.list.querySelector('a');
+  assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(item.view.expanded, true);
+  assert.equal(item.preview.classList.contains('is-expanded'), true); assert.equal(item.preview.classList.contains('is-floating'), true);
+  assert.equal(item.preview.getAttribute('role'), 'region'); assert.equal(item.preview.hasAttribute('aria-expanded'), false);
+  assert.equal(item.content.inert, false);
+  assert.equal(item.cell.card.classList.contains('is-description-expanded'), true);
+  assert.equal(item.view.notes.classList.contains('is-description-expanded'), true);
+  assert.equal(item.view.notes.style.height, '92px', 'The collapsed note column keeps its original layout height');
+  assert.equal(item.preview.style.getPropertyValue('--description-float-top'), '0px');
+  assert.equal(item.preview.style.getPropertyValue('--description-float-left'), '26px');
+  assert.equal(item.preview.style.getPropertyValue('--description-float-width'), '520px');
+  assert.equal(item.preview.style.getPropertyValue('--description-expanded-height'), '220px');
+  assert.strictEqual(item.preview.querySelector('.chart-description-text'), originalContent);
+  assert.strictEqual(item.cell.card.querySelector('.chart-description-text'), originalContent);
+  assert.equal(item.content.textContent, text); assert.equal(item.content.replacements, replacements);
+  assert.equal(h.document.querySelectorAll('.chart-description-popover').length, 0, 'The original surface floats; no detached card or title is created');
+  const link = item.content.querySelector('a');
   assert.equal(link.href, 'https://example.com/guide?q=1#part'); assert.equal(link.target, '_blank'); assert.equal(link.rel, 'noopener noreferrer');
-  assert.equal(panel.target.querySelector('.review-close'), null); assert.equal(panel.target.querySelector('button'), null);
-  h.document.emit('pointerdown', {target: link});
-  assert.strictEqual(h.descriptionOwner(), item.view, 'A full-text link is inside the source card and must remain operable');
-  panel.list.scrollHeight = 1000; panel.list.clientHeight = 200; panel.list.scrollTop = 123;
-  const replacements = panel.list.replacements;
-  h.document.emit('keydown', {key: 'Escape'}); assertDescriptionClosed(h);
-  assert.strictEqual(h.document.activeElement, item.preview); assert.equal(item.preview.focusOptions.preventScroll, true);
+  const linkClick = item.preview.emit('click', {target: link}); assert(!linkClick.defaultPrevented);
+  assert.strictEqual(h.descriptionOwner(), item.view, 'Links remain usable inside the expanded disclosure');
+
+  h.selection.isCollapsed = false; h.selection.anchorNode = item.content;
+  const selectedClick = item.preview.emit('click', {target: item.content}); assert(!selectedClick.defaultPrevented);
+  assert.strictEqual(h.descriptionOwner(), item.view, 'Finishing a text selection must not collapse the disclosure');
+  h.selection.isCollapsed = true; h.selection.anchorNode = null;
+  assert.equal(clickDescription(item).defaultPrevented, true); assertDescriptionClosed(h, item);
+
   for (const key of ['Enter', ' ']) {
-    const event = item.preview.emit('keydown', {key}); assert.equal(event.defaultPrevented, true);
-    assert.strictEqual(h.document.activeElement, panel.list); assert.equal(panel.list.focusOptions.preventScroll, true);
-    assert.equal(panel.list.replacements, replacements); assert.equal(panel.list.scrollTop, 123);
-    h.document.emit('keydown', {key: 'Escape'}); assertDescriptionClosed(h);
+    const opening = item.preview.emit('keydown', {key}); assert.equal(opening.defaultPrevented, true);
+    assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(item.preview.getAttribute('role'), 'region');
+    const closing = item.preview.emit('keydown', {key}); assert.equal(closing.defaultPrevented, true); assertDescriptionClosed(h, item);
   }
-  const unrelated = item.preview.emit('keydown', {key: 'ArrowDown'}); assert(!unrelated.defaultPrevented); assertDescriptionClosed(h);
+  const unrelated = item.preview.emit('keydown', {key: 'ArrowDown'}); assert(!unrelated.defaultPrevented); assertDescriptionClosed(h, item);
+
+  clickDescription(item);
+  item.content.clientHeight = 80; item.content.scrollHeight = 240;
+  const wheel = item.preview.emit('wheel', {deltaY: 42, deltaMode: 0});
+  assert.equal(wheel.defaultPrevented, true); assert.equal(wheel.propagationStopped, true); assert.equal(item.content.scrollTop, 42);
+  const boundary = item.preview.emit('wheel', {deltaY: 1000, deltaMode: 0});
+  assert.equal(boundary.defaultPrevented, true); assert.equal(item.content.scrollTop, 160, 'Wheel remains trapped at the inner boundary');
+  const zoom = item.preview.emit('wheel', {deltaY: 20, deltaMode: 0, ctrlKey: true}); assert.equal(zoom.defaultPrevented, undefined);
+  item.preview.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null}); assertDescriptionClosed(h, item);
+
   clickDescription(item, 'touch');
-  item.cell.card.emit('pointerleave', {pointerType: 'touch', relatedTarget: null}); h.advance(1000);
-  assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(h.descriptionTimer(), null);
-  const outside = h.element('button'); outside.focus(); h.document.emit('pointerdown', {target: outside});
-  assertDescriptionClosed(h); assert.strictEqual(h.document.activeElement, outside);
-  assert.equal(h.document.querySelectorAll('.chart-description-popover').length, 1);
-  assert.equal(h.requests.length, 0); assert.equal(h.profiles.length, 0);
+  item.preview.emit('pointerleave', {pointerType: 'touch', relatedTarget: null});
+  assert.strictEqual(h.descriptionOwner(), item.view, 'Touch has no hover-leave concept and closes by a second tap');
+  clickDescription(item, 'touch'); assertDescriptionClosed(h, item);
+  assert.equal(h.requests.length, 0); assert.equal(h.profiles.length, 0); assert.equal(h.timers.size, 0);
 });
 
-test('description pointer union and whole-surface wheel handling retain the source card and dismiss only after the leave delay', () => {
-  const h = harness(), item = described(h), panel = h.descriptionPanel(); clickDescription(item);
-  item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: panel.body});
-  assert.equal(h.descriptionTimer(), null);
-  item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null}); h.advance(159);
-  assert.strictEqual(h.descriptionOwner(), item.view);
-  panel.target.emit('pointerenter', {pointerType: 'mouse'}); h.advance(1);
-  assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(h.descriptionTimer(), null);
-  panel.target.emit('pointerleave', {pointerType: 'mouse', relatedTarget: item.cell.card});
-  assert.equal(h.descriptionTimer(), null, 'Moving from the floating surface into its source card stays inside the union');
-  panel.target.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
-  item.cell.card.emit('pointerenter', {pointerType: 'mouse'}); h.advance(160);
-  assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(h.descriptionTimer(), null);
-  panel.list.clientHeight = 120; panel.list.scrollHeight = 600;
-  for (const target of [panel.body, panel.list, panel.target]) {
-    const event = panel.target.emit('wheel', {target, deltaY: 40, deltaMode: 0});
-    assert.equal(event.defaultPrevented, true); assert.equal(event.propagationStopped, true);
-  }
-  assert.equal(panel.list.scrollTop, 120);
-  panel.list.scrollTop = 480;
-  const end = panel.target.emit('wheel', {target: panel.body, deltaY: 80, deltaMode: 0});
-  assert.equal(end.defaultPrevented, true); assert.equal(end.propagationStopped, true); assert.equal(panel.list.scrollTop, 480);
-  panel.list.scrollHeight = 120; panel.list.scrollTop = 0;
-  const short = panel.target.emit('wheel', {deltaY: -80, deltaMode: 0});
-  assert.equal(short.defaultPrevented, true); assert.equal(short.propagationStopped, true); assert.equal(panel.list.scrollTop, 0);
-  const zoom = panel.target.emit('wheel', {deltaY: 80, deltaMode: 0, ctrlKey: true}); assert(!zoom.defaultPrevented); assert(!zoom.propagationStopped);
-  h.document.emit('scroll', {target: panel.list}); assert.strictEqual(h.descriptionOwner(), item.view);
-  item.cell.card.hovered = true; panel.target.hovered = true;
-  panel.target.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
-  h.advance(160); assertDescriptionClosed(h);
-  item.cell.card.hovered = false; panel.target.hovered = false;
-  clickDescription(item, 'keyboard');
-  item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null}); h.advance(160);
-  assert.strictEqual(h.descriptionOwner(), item.view); assert.equal(h.descriptionTimer(), null);
-  item.cell.card.emit('focusout', {relatedTarget: panel.list}); assert.strictEqual(h.descriptionOwner(), item.view);
-  item.cell.card.emit('focusout', {relatedTarget: h.element('button')}); assertDescriptionClosed(h);
-  for (const target of [h.document, h.document.documentElement]) {
-    clickDescription(item); h.document.emit('scroll', {target}); assertDescriptionClosed(h);
-  }
-});
-
-test('continuous page scrolling starts one unified description exit and never extends its lifetime', async () => {
-  const h = harness(), item = described(h), panel = h.descriptionPanel(); h.animate(); clickDescription(item);
-  assert.equal(panel.readingMotion.options.duration, h.readingMotion().enter.duration);
-  assert.equal(panel.readingBackdropMotion.options.duration, panel.readingMotion.options.duration);
-  assert.equal(panel.readingMotion.options.easing, h.readingMotion().enter.easing);
-  panel.readingMotion.finish(); await settle();
-  item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
-  assert.notEqual(h.descriptionTimer(), null);
-  h.styleReads.length = 0; h.document.emit('scroll', {target: h.document});
-  const closing = panel.readingMotion, backdrop = panel.readingBackdropMotion;
-  const motionCount = h.motions.length, styleReadCount = h.styleReads.length;
-  assert.equal(h.descriptionOwner(), null); assert.equal(h.descriptionTimer(), null);
-  assert.equal(closing.options.duration, h.readingMotion().exit.duration); assert.equal(backdrop.options.duration, closing.options.duration);
-  assert.equal(closing.options.easing, h.readingMotion().exit.easing); assert.equal(backdrop.options.easing, closing.options.easing);
-  assert.equal(panel.target.hidden, false); assert.equal(panel.target.inert, true);
-  assert.equal(panel.target.matches(':popover-open'), true, 'The one shared exit remains mounted until it settles');
-  for (let index = 0; index < 8; index++) {
-    h.document.emit('scroll', {target: index % 2 ? h.document.documentElement : h.document});
-    assert.strictEqual(panel.readingMotion, closing);
-    assert.strictEqual(panel.readingBackdropMotion, backdrop);
-  }
-  assert.equal(h.motions.length, motionCount, 'Inertial scroll must not restart either exit animation');
-  assert.equal(h.styleReads.length, styleReadCount, 'Inertial scroll must not resnapshot compositor styles');
-  closing.finish(); await settle(); assertDescriptionClosed(h);
-  const beforeReduced = h.motions.length; h.reduceMotion(); clickDescription(item);
-  h.document.emit('scroll', {target: h.document}); assertDescriptionClosed(h);
-  assert.equal(h.motions.length, beforeReduced, 'Reduced motion closes synchronously without WAAPI');
-});
-
-test('description ownership excludes review and tag popovers, and stale exit callbacks cannot hide the next note', async () => {
+test('description ownership is exclusive with another description, temporary reviews and tag popovers', () => {
   const h = harness(), first = described(h, 1, 'First complete note'), second = described(h, 2, 'Second complete note', 7, ['A tag']);
-  const panel = h.descriptionPanel(), strip = second.cell.card.querySelector('.chart-tags');
-  strip.clientWidth = 100; strip.scrollWidth = 220;
+  const strip = second.cell.card.querySelector('.chart-tags'); strip.clientWidth = 100; strip.scrollWidth = 220;
+
   clickDescription(first); h.click(second.cell);
-  assertDescriptionClosed(h); assert.strictEqual(h.owner(), second.cell);
-  clickDescription(first); assertClosed(second.cell); assert.equal(h.owner(), null); assert.strictEqual(h.descriptionOwner(), first.view);
-  assert.equal(h.api.showChartTags(strip), true); assertDescriptionClosed(h); assert.strictEqual(h.tagsOwner(), strip);
+  assertDescriptionClosed(h, first); assert.strictEqual(h.owner(), second.cell);
+  h.click(second.cell); assert.equal(h.owner(), null);
+
+  clickDescription(first); assert.strictEqual(h.descriptionOwner(), first.view);
+  assert.equal(h.api.showChartTags(strip), true); assertDescriptionClosed(h, first); assert.strictEqual(h.tagsOwner(), strip);
   clickDescription(second); assert.equal(h.tagsOwner(), null); assert.strictEqual(h.descriptionOwner(), second.view);
-  assert.equal(first.preview.getAttribute('aria-expanded'), 'false'); assert.equal(second.preview.getAttribute('aria-expanded'), 'true');
-  assert.equal(panel.list.textContent, 'Second complete note'); assert(second.cell.card.contains(panel.target));
-  h.animate(); h.api.dismissChartDescription();
-  const closing = panel.readingMotion, backdrop = panel.readingBackdropMotion;
-  closing.finish(); clickDescription(first); const opening = panel.readingMotion;
-  await settle();
-  assert.strictEqual(panel.readingMotion, opening); assert.equal(backdrop.cancelled, true);
-  assert.strictEqual(h.descriptionOwner(), first.view); assert.equal(panel.target.hidden, false); assert.equal(panel.target.inert, false);
-  assert.equal(panel.list.textContent, 'First complete note'); assert(first.cell.card.contains(panel.target));
-  h.reduceMotion(); await settle();
-  assert.equal(panel.readingMotion, null); assert.equal(panel.readingBackdropMotion, null); assert.equal(h.api.activeMotions.size, 0);
-  assert.strictEqual(h.descriptionOwner(), first.view);
-  assert.equal(h.document.querySelectorAll('.chart-description-popover').length, 1); assert.equal(h.requests.length, 0);
+  assert.equal(second.preview.getAttribute('role'), 'region'); assert.equal(first.preview.getAttribute('aria-expanded'), 'false');
+
+  clickDescription(first);
+  assert.strictEqual(h.descriptionOwner(), first.view); assert.equal(first.preview.getAttribute('role'), 'region');
+  assert.equal(second.preview.getAttribute('aria-expanded'), 'false'); assert.equal(second.view.expanded, false);
+  assert.strictEqual(first.preview.querySelector('.chart-description-text'), first.content);
+  assert.strictEqual(second.preview.querySelector('.chart-description-text'), second.content);
+  assert.equal(h.document.querySelectorAll('.chart-description-popover').length, 0); assert.equal(h.requests.length, 0);
 });
 
-test('description resize, removal and visibility changes release ownership and reject unavailable or detached sources', async () => {
-  const h = harness(), item = described(h), panel = h.descriptionPanel();
-  const observer = h.observers.find(observer => observer.targets.has(item.preview)); assert(observer);
-  clickDescription(item, 'keyboard');
-  item.content.scrollHeight = 60;
-  observer.show(item.preview); h.window.emit('resize'); observer.show(item.preview);
-  assert.equal(h.frames.size, 1, 'Resize measurements share one scheduled frame'); h.runFrames();
-  assertDescriptionClosed(h); assert.equal(item.content.inert, false); assert.equal(item.preview.getAttribute('role'), 'region');
-  assert.strictEqual(h.document.activeElement, item.preview); assert.equal(item.preview.focusOptions.preventScroll, true);
-  assert.equal(h.api.showChartDescription(item.view), false);
-  item.content.scrollHeight = 140; observer.show(item.preview); h.runFrames();
-  for (const [target, key, value] of [[h.api, 'hostVisible', false], [h.document, 'hidden', true], [h.api, 'appExiting', true], [h.api, 'phase', 'loading']]) {
-    const previous = target[key]; target[key] = value;
-    assert.equal(h.api.showChartDescription(item.view), false); assertDescriptionClosed(h); target[key] = previous;
-  }
-  for (const id of ['tag-picker', 'selected-tag-popover']) {
-    h.node(id).popoverOpen = true; assert.equal(h.api.showChartDescription(item.view), false); assertDescriptionClosed(h); h.node(id).popoverOpen = false;
-  }
+test('description removal, replacement, rapid reversal and reduced motion leave one coherent disclosure state', async () => {
+  const h = harness(), item = described(h), observer = h.observers.find(candidate => candidate.targets.has(item.preview)); assert(observer);
   h.animate(); clickDescription(item);
-  const opening = panel.readingMotion, backdrop = panel.readingBackdropMotion;
-  item.cell.card.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null});
-  // render() retires the comment controller before detaching the shared card.
+  const opening = item.view.motion; assert(opening); assert.equal(opening.options.duration, 220);
+  item.preview.bounds.height = 118;
+  clickDescription(item); const closing = item.view.motion;
+  assert(opening.cancelled); assert(closing); assert.equal(closing.options.duration, 180); assert.notStrictEqual(closing, opening);
+  assert.equal(item.preview.classList.contains('is-floating'), true, 'The reverse animation keeps the floating geometry until it reaches the source');
+  assert.equal(item.preview.classList.contains('is-collapsing'), true);
+  item.preview.bounds.height = 104;
+  clickDescription(item); const reopening = item.view.motion;
+  assert(closing.cancelled); assert(reopening); assert.strictEqual(h.descriptionOwner(), item.view);
+  assert.equal(item.preview.classList.contains('is-collapsing'), false);
+  h.reduceMotion(); await settle();
+  assert.equal(item.view.motion, null); assert.equal(h.api.activeMotions.size, 0);
+  const beforeReduced = h.motions.length;
+  clickDescription(item); assertDescriptionClosed(h, item);
+  clickDescription(item); assert.strictEqual(h.descriptionOwner(), item.view);
+  assert.equal(h.motions.length, beforeReduced, 'Reduced motion changes state without creating WAAPI work');
+
+  h.document.hidden = true; h.document.emit('visibilitychange'); assertDescriptionClosed(h, item);
+  h.document.hidden = false;
+  h.animate(); clickDescription(item); const detachedOpening = item.view.motion; assert(detachedOpening);
   h.api.retireReviewCell(item.cell); item.cell.card.remove(); h.api.cardViews.delete(item.cell.row[0]);
   h.api.refreshChartDescriptions(); await settle();
-  assertDescriptionClosed(h); assert.equal(h.descriptionViews().size, 0); assert.equal(observer.targets.has(item.preview), false);
-  assert.equal(opening.cancelled, true); assert.equal(backdrop.cancelled, true); assert.equal(h.api.activeMotions.size, 0);
-  assert.equal(h.api.showChartDescription(item.view), false); h.advance(160); assertDescriptionClosed(h);
-  const replacement = described(h, 2, 'A replacement note'); clickDescription(replacement);
-  assert.strictEqual(h.descriptionPanel(), panel); assert.equal(panel.target.isConnected, true);
-  assert.strictEqual(h.descriptionOwner(), replacement.view); assert.equal(panel.list.textContent, 'A replacement note');
-  h.document.hidden = true; h.document.emit('visibilitychange'); await settle(); assertDescriptionClosed(h);
-  h.document.hidden = false; clickDescription(replacement); h.window.emit('blur'); await settle(); assertDescriptionClosed(h);
-  assert.equal(h.requests.length, 0); assert.equal(h.timers.size, 0);
-});
+  assert.equal(h.descriptionOwner(), null); assert.equal(h.descriptionViews().has(item.preview), false);
+  assert.equal(observer.targets.has(item.preview), false); assert.equal(detachedOpening.cancelled, true);
+  assert.equal(h.api.showChartDescription(item.view), false);
 
+  const replacement = described(h, 1, 'A replacement note');
+  assert.notStrictEqual(replacement.preview, item.preview); assert.notStrictEqual(replacement.content, item.content);
+  clickDescription(replacement); assert.strictEqual(h.descriptionOwner(), replacement.view);
+  assert.strictEqual(replacement.preview.querySelector('.chart-description-text'), replacement.content);
+  h.api.dismissChartDescription(true, false); assertDescriptionClosed(h, replacement);
+  assert.strictEqual(h.document.activeElement, replacement.preview); assert.equal(replacement.preview.focusOptions.preventScroll, true);
+  assert.equal(h.document.querySelectorAll('.chart-description-popover').length, 0);
+});
 test('cached counts survive refresh failures; full cached contents can be remounted on a replacement card', async () => {
   const h = harness(), first = h.card(7);
   await counted(h, first, [review(1, 'Cached complete text')]);

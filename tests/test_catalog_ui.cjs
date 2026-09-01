@@ -98,7 +98,7 @@ function checkQueryStatusOwnership() {
   ].join('\n'), view);
   view.setStatus(view.m('Loading charts...'));
   assert.equal(queryNode('status').textContent, '', 'Loading must not duplicate the result-stage status above the results');
-  assert.equal(queryNode('empty').textContent, 'Loading charts...');
+  assert.equal(queryNode('empty').textContent, 'Loading charts…');
   assert.equal(queryNode('empty').classList.contains('is-loading'), true, 'The result stage owns the sole loading animation');
   view.phase = 'error'; view.setStatus('Detailed failure', true);
   assert.equal(queryNode('status').textContent, ''); assert.equal(queryNode('empty').textContent, 'Detailed failure');

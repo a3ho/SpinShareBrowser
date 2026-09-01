@@ -61,6 +61,9 @@ class CatalogNotificationTests(unittest.TestCase):
         self.assertNotIn("\n", value)
         self.assertLessEqual(len(value), 220)
         self.assertTrue(value.endswith("…"))
+        self.assertEqual(desktop._clean_notice_text("Update complete."), "Update complete")
+        self.assertEqual(desktop._clean_notice_text("更新完成。"), "更新完成")
+        self.assertEqual(desktop._clean_notice_text("Working..."), "Working...")
 
     def test_compact_geometry_tracks_each_monitor_working_area_and_dpi(self):
         class Work:

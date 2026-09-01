@@ -78,6 +78,8 @@ def _parse_config(raw):
             not isinstance(config.get("closeBehavior", "ask"), str) or
             config.get("closeBehavior", "ask") not in portable.CLOSE_BEHAVIORS or
             type(config.get("trayNoticeShown", False)) is not bool or
+            type(config.get("playerShortcutHintShown", False)) is not bool or
+            type(config.get("installDirectoryConfirmed", False)) is not bool or
             config.get("customDirectory") is not None and
             (not isinstance(config["customDirectory"], str) or not config["customDirectory"])):
         raise MaintenanceError("The existing configuration has an unknown format; it was retained.")

@@ -19,13 +19,73 @@ class WindowsInstallerTests(unittest.TestCase):
         setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
         for fragment in (
             "DetectExistingInstall", "ExistingVersionIsNewer", "ComparePackedVersion(Installed, Current) > 0",
-            "UpdateWelcomeTitle", "UpdateWelcomeBody", "UpdateReady",
-            "覆盖/更新 {#AppName}", "游戏 Custom 目录中的谱面不会受到影响",
+            "UpdateWelcomeTitle", "UpdateWelcomeBody",
+            "覆盖/更新 {#AppName}", "本地已安装谱面不受影响",
+            "Locally installed charts remain unchanged",
             "cannot downgrade it", "不会执行降级覆盖",
         ):
             self.assertIn(fragment, setup)
         self.assertIn("DisableWelcomePage=no", setup)
+        self.assertNotIn("charts in the game's Custom directory", setup)
+        self.assertNotIn("游戏 Custom 目录中的谱面", setup)
         self.assertIsNone(re.search(r"(?i)repair mode|修复模式", setup))
+
+    def test_existing_install_detection_does_not_depend_on_display_version(self):
+        setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
+        helper = re.search(
+            r"function DetectExistingInstallInRoot\b(?P<body>.*?)"
+            r"function DetectExistingInstall\b",
+            setup,
+            re.S,
+        )
+        self.assertIsNotNone(helper)
+        self.assertIn("Result := RegKeyExists(Root, UninstallKey);", helper.group("body"))
+        self.assertIn("RegQueryStringValue(Root, UninstallKey, 'DisplayVersion', FoundVersion)", helper.group("body"))
+        self.assertNotIn("Result := RegQueryStringValue", helper.group("body"))
+
+        detector = re.search(
+            r"function DetectExistingInstall\(var Version: String\): Boolean;(?P<body>.*?)"
+            r"function ExistingVersionIsNewer\b",
+            setup,
+            re.S,
+        )
+        self.assertIsNotNone(detector)
+        for root in ("HKCU64", "HKCU32", "HKLM64", "HKLM32"):
+            self.assertIn(f"DetectExistingInstallInRoot({root}, Version)", detector.group("body"))
+        self.assertIn("FileExists(ExpandConstant('{#InstallDir}\\SpinShareBrowser.exe'))", detector.group("body"))
+
+    def test_conflicting_registry_roots_keep_the_highest_parseable_version(self):
+        setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
+        helper = re.search(
+            r"function DetectExistingInstallInRoot\b(?P<body>.*?)"
+            r"function DetectExistingInstall\b",
+            setup,
+            re.S,
+        )
+        self.assertIsNotNone(helper)
+        body = helper.group("body")
+        self.assertIn("Result := RegKeyExists(Root, UninstallKey);", body)
+        self.assertIn("StrToVersion(FoundVersion, FoundPacked)", body)
+        self.assertIn("StrToVersion(Version, HighestPacked)", body)
+        self.assertIn("ComparePackedVersion(FoundPacked, HighestPacked) > 0", body)
+        self.assertNotIn("Result and (Version = '')", body)
+
+    def test_update_copy_is_reapplied_only_on_the_welcome_page(self):
+        setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
+        page_change = re.search(
+            r"procedure CurPageChanged\(CurPageID: Integer\);(?P<body>.*?)"
+            r"function PrepareToInstall\b",
+            setup,
+            re.S,
+        )
+        self.assertIsNotNone(page_change)
+        body = page_change.group("body")
+        self.assertIn("if ExistingInstall then", body)
+        self.assertIn("CurPageID = wpWelcome", body)
+        self.assertIn("UpdateWelcomeTitle", body)
+        self.assertIn("UpdateWelcomeBody", body)
+        self.assertNotIn("CurPageID = wpReady", body)
+        self.assertNotIn("UpdateReady", body)
 
 
 if __name__ == "__main__":

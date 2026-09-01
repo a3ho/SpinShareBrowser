@@ -1,10 +1,12 @@
 """Offline checks for split frontend resources and safe inline page assembly."""
 import importlib.util
+import http.client
 import json
 from pathlib import Path
 import re
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -138,6 +140,89 @@ class WebResourceTests(unittest.TestCase):
                 self.assertIsNone(re.search(r"uiAttr\([^;\n]*,\s*['\"]title['\"]", sources[name]))
                 self.assertIsNone(re.search(r"\.[Tt]itle\s*=", sources[name]))
         self.assertNotIn("['aria-label','title']", sources["app.js"])
+
+    def test_system_prompt_copy_omits_terminal_full_stops(self):
+        catalog = json.loads((ROOT / "web" / "locales.json").read_text(encoding="utf-8"))
+        for language, messages in catalog.items():
+            for key, value in messages.items():
+                with self.subTest(language=language, key=key):
+                    self.assertFalse(value.endswith((".", "。")), value)
+                    self.assertNotIn("...", value, "Loading copy uses one typographic ellipsis")
+
+        template = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        static_text = re.compile(
+            r'<(?P<tag>[A-Za-z][\w:-]*)\b[^>]*\bdata-ui-static="[^"]+"[^>]*>'
+            r'(?P<text>[^<]*)</(?P=tag)>'
+        )
+        for match in static_text.finditer(template):
+            text = match.group("text")
+            with self.subTest(fallback=text):
+                self.assertFalse(text.endswith((".", "。")))
+                self.assertNotIn("...", text)
+
+
+class PlayerShortcutPersistenceTests(unittest.TestCase):
+    def setUp(self):
+        temporary_root = ROOT / ".qa" / "tmp"
+        temporary_root.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="player-shortcut-", dir=temporary_root)
+        self.root = Path(self.temporary.name)
+        self.target_patch = mock.patch.object(portable.installer, "default_target_directory",
+                                              return_value=self.root / "Custom")
+        self.target_patch.start()
+
+    def tearDown(self):
+        self.target_patch.stop()
+        self.temporary.cleanup()
+
+    def test_old_config_adds_false_and_non_boolean_is_rejected(self):
+        store = portable.ConfigStore(self.root / "state")
+        legacy = {
+            "schemaVersion": 1,
+            "token": "1" * 64,
+            "customDirectory": None,
+            "revision": "2" * 32,
+            "language": "zh-CN",
+            "closeBehavior": "ask",
+            "trayNoticeShown": False,
+            "windowSize": None,
+        }
+        store.path.write_bytes(portable._json_bytes(legacy))
+
+        migrated = store.load()
+
+        self.assertIs(migrated["playerShortcutHintShown"], False)
+        self.assertIs(json.loads(store.path.read_bytes())["playerShortcutHintShown"], False)
+        store.path.write_bytes(portable._json_bytes(dict(migrated, playerShortcutHintShown=0)))
+        with self.assertRaises(portable.PortableError):
+            store.load()
+
+    def test_seen_endpoint_persists_true_and_updates_bootstrap(self):
+        state = self.root / "state"
+        app = portable.PortableApplication(state)
+        worker = threading.Thread(target=app.serve_forever, daemon=True)
+        worker.start()
+        self.assertTrue(app.started.wait(2))
+        try:
+            self.assertIs(app.bootstrap()["playerShortcutHintShown"], False)
+            connection = http.client.HTTPConnection(portable.HOST, app.port, timeout=3)
+            try:
+                connection.request("POST", "/v1/player-shortcuts-seen", body=b"{}", headers={
+                    "Origin": app.origin,
+                    "X-SpinShare-Key": app.token,
+                    "Content-Type": "application/json",
+                })
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.loads(response.read()), {"shown": True})
+            finally:
+                connection.close()
+            self.assertIs(app.bootstrap()["playerShortcutHintShown"], True)
+        finally:
+            app.close()
+            worker.join(3)
+            self.assertFalse(worker.is_alive())
+        self.assertIs(portable.ConfigStore(state).load()["playerShortcutHintShown"], True)
 
 
 if __name__ == "__main__":

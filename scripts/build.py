@@ -31,6 +31,7 @@ SOURCE_FILES = (
     "tests/test_focus_modality.cjs", "tests/test_choice_menus.cjs",
     "tests/test_install_queue.py", "tests/test_install_pipeline.py", "tests/test_download_transport.py",
     "tests/read_web_template.cjs", "tests/test_web_resources.py",
+    "tests/test_install_directory_confirmation.py", "tests/test_install_directory_confirmation.cjs",
     *WEB_FILES, "scripts/build.py", "scripts/windows.iss",
     "assets/spinshare-browser.png", "assets/spinshare-browser-favicon.png",
     "assets/spinshare-browser.ico",
