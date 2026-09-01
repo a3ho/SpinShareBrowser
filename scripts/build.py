@@ -16,13 +16,20 @@ import urllib.request
 import zipfile
 
 PROJECT = Path(__file__).resolve().parent.parent
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 SOURCE_DATE_EPOCH = "1788048000"
+WEB_FILES = ("web/index.html", "web/interface.css", "web/chart-card.js", "web/app.js", "web/locales.json")
 SOURCE_FILES = (
     ".gitattributes", ".gitignore", "LICENSE", "README.md", "README.zh-CN.md",
+    "PRODUCT.md", "DESIGN.md",
     "requirements-build.txt", "src/installer.py", "src/spinshare_portable.py",
     "src/desktop.py", "src/maintenance.py",
-    "web/index.html", "web/locales.json", "scripts/build.py", "scripts/windows.iss",
+    "tests/test_external_links.py", "tests/test_tag_filters.cjs", "tests/test_date_picker.cjs",
+    "tests/test_catalog_ui.cjs", "tests/test_chart_cache.py",
+    "tests/test_review_drawers.cjs", "tests/test_installation_filters.cjs",
+    "tests/test_install_queue.py", "tests/test_install_pipeline.py", "tests/test_download_transport.py",
+    "tests/read_web_template.cjs", "tests/test_web_resources.py",
+    *WEB_FILES, "scripts/build.py", "scripts/windows.iss",
     "assets/spinshare-browser.png", "assets/spinshare-browser-favicon.png",
     "assets/spinshare-browser.ico",
     "assets/windows-version.txt", "assets/README.md", "assets/README.zh-CN.md",
@@ -179,8 +186,7 @@ def main() -> None:
         "--version-file", str(snapshot / "assets" / "windows-version.txt"),
         "--distpath", str(staging), "--workpath", str(build / "work"),
         "--specpath", str(build / "spec"), "--paths", str(snapshot / "src"),
-        "--add-data", f"{snapshot / 'web' / 'index.html'}{os.pathsep}web",
-        "--add-data", f"{snapshot / 'web' / 'locales.json'}{os.pathsep}web",
+        *[argument for name in WEB_FILES for argument in ("--add-data", f"{snapshot / name}{os.pathsep}web")],
         "--add-data", f"{snapshot / 'assets' / 'spinshare-browser.ico'}{os.pathsep}assets",
         "--resource", f"{os.path.relpath(notice_path, build / 'spec')},10,22000,0",
         str(snapshot / "src" / "spinshare_portable.py"),

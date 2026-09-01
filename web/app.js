@@ -1,0 +1,2114 @@
+'use strict';
+const UI_CATALOG=__SPINSHARE_UI_CATALOG__;
+const UI_KEYS=Object.keys(UI_CATALOG.en),UI_KEY_INDEX=new Map(UI_KEYS.map((key,index)=>[key,index]));
+const UI_PREFIX='\u0001spinshare-'+Math.random().toString(36).slice(2)+':',UI_END='\u0002';
+const UI_PATTERN=new RegExp(UI_PREFIX+'(text|number):([^\u0002]*)'+UI_END,'g');
+const uiBindings=new WeakMap();
+let uiLanguage='zh-CN',languageBusy=false;
+// Translate app tokens, leaving user text and existing card nodes untouched.
+function m(key){const index=UI_KEY_INDEX.get(key);if(index===undefined)throw new Error('Missing UI catalog key: '+key);return UI_PREFIX+'text:'+index+UI_END;}
+function renderUI(value,language=uiLanguage){return String(value??'').replace(UI_PATTERN,(_,kind,data)=>kind==='text'?UI_CATALOG[language][UI_KEYS[Number(data)]]:Number(data).toLocaleString(language));}
+function uiText(node,value){
+  const text=String(value??''),binding=uiBindings.get(node)||{attributes:new Map()};
+  if(text.includes(UI_PREFIX)){binding.text=text;uiBindings.set(node,binding);node.setAttribute('data-ui-text','');}else{delete binding.text;node.removeAttribute('data-ui-text');}
+  node.textContent=renderUI(text);return node;
+}
+function uiAttr(node,name,value){
+  const text=String(value??''),binding=uiBindings.get(node)||{attributes:new Map()};
+  if(text.includes(UI_PREFIX)){binding.attributes.set(name,text);uiBindings.set(node,binding);node.setAttribute('data-ui-attributes','');}else binding.attributes.delete(name);
+  node.setAttribute(name,renderUI(text));return node;
+}
+function uiError(value){const error=new Error(renderUI(value,'en'));error.uiMessage=String(value);return error;}
+function errorText(error){return typeof error?.uiMessage==='string'?error.uiMessage:typeof error?.message==='string'?error.message:String(error);}
+function setUILanguage(language){
+  if(!['zh-CN','en'].includes(language))return;
+  uiLanguage=language;document.documentElement.lang=language;
+  for(const node of document.querySelectorAll('[data-ui-text],[data-ui-attributes]')){const binding=uiBindings.get(node);if(!binding)continue;if(binding.text!==undefined)node.textContent=renderUI(binding.text);for(const [name,value] of binding.attributes)node.setAttribute(name,renderUI(value));}
+  for(const id of ['ui-language','settings-language'])$(id).value=language;
+  syncTagControls();scheduleChartTagsRefresh();scheduleChartDescriptions();syncCatalogRefresh();renderDateCalendar();
+}
+async function saveLanguage(language=uiLanguage){
+  if(languageBusy||appExiting)return;
+  if(!['zh-CN','en'].includes(language))return;
+  setUILanguage(language);for(const prefix of ['language','settings-language'])$(prefix+'-feedback').hidden=true;
+  languageBusy=true;for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=true;
+  languageFeedback(m('Saving...'),false,true);let saved=false;
+  try{const result=await installerRequest('POST','/v1/language',{language});if(result?.language!==language)throw uiError(m('The language could not be saved. Please retry.'));saved=true;}
+  catch(error){languageFeedback(m('Could not save the language. Please retry.')+'\n'+errorText(error),true);}
+  finally{languageBusy=false;for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=appExiting;for(const prefix of ['language','settings-language']){loadingIndicator($(prefix+'-message'),false);if(saved)$(prefix+'-feedback').hidden=true;}}
+}
+function languageFeedback(message,retry=false,loading=false){for(const prefix of ['language','settings-language']){uiText($(prefix+'-message'),message);loadingIndicator($(prefix+'-message'),loading);$(prefix+'-feedback').hidden=false;$(prefix+'-retry').hidden=!retry;}}
+function setupLanguage(){
+  for(const node of document.querySelectorAll('[data-ui-static]'))uiText(node,m(node.getAttribute('data-ui-static')));
+  for(const name of ['aria-label','title','alt','placeholder'])for(const node of document.querySelectorAll('[data-ui-attr-'+name+']'))uiAttr(node,name,m(node.getAttribute('data-ui-attr-'+name)));
+  setUILanguage(APP_CONFIG.language);
+  for(const id of ['ui-language','settings-language'])$(id).addEventListener('change',event=>saveLanguage(event.target.value));
+  for(const id of ['language-retry','settings-language-retry'])$(id).addEventListener('click',()=>saveLanguage());
+}
+const $ = id => document.getElementById(id);
+const labels = ['Easy','Normal','Hard','Expert','XD'];
+const shortLabels = ['E','N','H','EX','XD'];
+const keys = [['hasEasyDifficulty','easyDifficulty'],['hasNormalDifficulty','normalDifficulty'],['hasHardDifficulty','hardDifficulty'],['hasExtremeDifficulty','expertDifficulty'],['hasXDDifficulty','XDDifficulty']];
+const requestTimeout = 120000, responseLimit = 32*1024*1024;
+const FIRST_UPLOAD_DATE='2020-01-01',scrollBatchSize=20;
+const pagerMedia=typeof matchMedia==='function'?matchMedia('(max-width:900px)'):null;
+const APP_CONFIG=validateRuntimeConfig(__SPINSHARE_RUNTIME_CONFIG__);
+uiLanguage=APP_CONFIG.language;
+const INSTALL_KEY=APP_CONFIG.key,INSTALL_ORIGIN=APP_CONFIG.origin;
+let INSTALL_DIRECTORY=APP_CONFIG.targetDirectory,DEFAULT_INSTALL_DIRECTORY=APP_CONFIG.defaultDirectory,settingsRevision=APP_CONFIG.settingsRevision;
+const installationStates=new Map(),installationViews=new Map();
+let settingsBusy='',settingsLoaded=false,settingsStale=false,closeBehavior=APP_CONFIG.closeBehavior;
+let appDialogState=null,appDialogBusy=false,appDialogFocus=null;
+let appExiting=false,exitFailed=false,activityJobs=[],activityTimer=null,activityPending=false,activityProblem='';
+const activityViews=new Map();let activityVisible=false,activityMotion=null;
+let currentRows=[],applied=null,lastAppliedCriteria=null,filtered=[],page=1,controller=null,phase='idle';
+let resultToolsVisible=false,resultToolsMotion=null;
+let showChartReviews=false;
+let reviewPopoverOwner=null;
+const REVIEW_REFRESH_MS=60000,REVIEW_REFRESH_STORAGE_KEY='spinshare.reviewRefreshNextAllowedAt';
+let reviewRefreshNextAllowedAt=0,reviewRefreshOwner=null,reviewRefreshTimer=null;
+let pageDetails = null, textFilterTimer = null, appliedText = '';
+const searchFields={title:1,subtitle:2,artist:3,creator:4},searchScopes=new Set(Object.keys(searchFields)),userSearchCache=new Map();
+const selectedTags=new Map(),tagCatalog=new Map();
+let tagResultCounts=new Map(),tagPickerAnchor=null,tagCandidateIndex=-1,tagCandidates=[],tagStripSignature='',pendingTagAnchor=null,tagViewportFrame=null;
+let textSearchWork=null,textSearchProblem='';
+let visibleCount=scrollBatchSize,renderedCount=0,moreObserver=null;
+const reviewCounts=new Map(),cardViews=new Map(),installedCharts=new Map(),presenceQueue=new Map();
+const reviewCache=new Map(),profileCache=new Map(),profileRequests=new Map();
+let catalog=null,cacheGeneration=0,presenceBusy=false,presenceGeneration=0;
+let installationCandidates=[],installationFilterPending=false,presenceRefreshQueued=false,installationActivityIds=new Map();
+let catalogNextAllowedAt=0,catalogFetchedAt=null;
+const motionPreference=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion: reduce)'):null;
+const MOTION_MS=Object.freeze({feedback:150,standard:180,panel:220,expressive:280});
+const READING_MOTION=Object.freeze({
+  enter:Object.freeze({duration:MOTION_MS.panel,easing:'cubic-bezier(.16,1,.3,1)'}),
+  exit:Object.freeze({duration:MOTION_MS.feedback,easing:'cubic-bezier(.4,0,1,1)'})
+});
+const activeMotions=new Set(),entrySeen=new Set(),entryTargets=new Map();
+let hostVisible=true,entryObserver=null;
+function motionAllowed(){return hostVisible&&!document.hidden&&!motionPreference?.matches;}
+function playMotion(node,keyframes,options={}){
+  if(!motionAllowed()||typeof node?.animate!=='function')return null;
+  const animation=node.animate(keyframes,{duration:MOTION_MS.feedback,easing:'cubic-bezier(.2,.7,.2,1)',...options});
+  activeMotions.add(animation);
+  animation.finished.then(()=>activeMotions.delete(animation),()=>activeMotions.delete(animation));
+  return animation;
+}
+function syncMotion(){
+  document.documentElement.classList.toggle('motion-paused',!motionAllowed());
+  if(!motionAllowed())for(const animation of [...activeMotions]){try{animation.finish();}catch{animation.cancel();}}
+  if(!hostVisible||document.hidden){dismissCloseHelp($('settings-panel'));dismissCloseHelp($('app-dialog'));dismissChartDescription(false,false);}
+}
+function rememberEntry(key){
+  if(entrySeen.has(key))return false;
+  entrySeen.add(key);
+  if(entrySeen.size>20000)entrySeen.delete(entrySeen.values().next().value);
+  return true;
+}
+function revealEntry(node,key,kind='card',delay=0){
+  if(!rememberEntry(key))return;
+  playMotion(node,[{opacity:0,transform:`translateY(${kind==='card'?10:4}px)`},{opacity:1,transform:'translateY(0)'}],{duration:kind==='card'?MOTION_MS.panel:MOTION_MS.standard,delay:Math.min(delay,100),fill:'backwards'});
+}
+function queueEntry(node,key,kind='card'){
+  if(entrySeen.has(key))return;
+  if(typeof IntersectionObserver!=='function'||typeof node.animate!=='function'){revealEntry(node,key,kind);return;}
+  if(!entryObserver)entryObserver=new IntersectionObserver(entries=>{
+    let index=0;
+    for(const entry of entries){
+      if(!entry.isIntersecting)continue;
+      const target=entryTargets.get(entry.target);entryObserver.unobserve(entry.target);entryTargets.delete(entry.target);
+      if(target&&entry.target.isConnected)revealEntry(entry.target,target.key,target.kind,index++*20);
+    }
+  });
+  entryTargets.set(node,{key,kind});entryObserver.observe(node);
+}
+function pruneEntries(){for(const node of entryTargets.keys())if(!node.isConnected){entryObserver?.unobserve(node);entryTargets.delete(node);}}
+function setupMotion(){
+  document.addEventListener('visibilitychange',syncMotion);
+  motionPreference?.addEventListener?.('change',syncMotion);
+  syncMotion();
+  const panel=$('filter-panel');
+  // Keep the large document reflow native and instantaneous. Only the newly
+  // revealed controls move, so opening the filter never animates layout.
+  panel.addEventListener('toggle',()=>{
+    if(panel.open)playMotion($('filters'),[{opacity:.55,transform:'translateY(-4px)'},{opacity:1,transform:'none'}],{duration:MOTION_MS.standard,fill:'backwards'});
+  });
+}
+const number = n => UI_PREFIX+'number:'+n+UI_END;
+function loadingIndicator(target,active,queued=false){target.classList.toggle('is-loading',Boolean(active)&&!queued);target.classList.toggle('is-queued',Boolean(active)&&queued);}
+function updateTaskProgress(target,job,active,label){
+  const downloading=job?.state==='downloading',installing=job?.state==='extracting',total=downloading?job.totalBytes:installing?job.fileCount:0,done=downloading?job.downloadedBytes:installing?job.filesWritten:0;
+  target.hidden=!active||!Number.isSafeInteger(total)||total<=0||!Number.isSafeInteger(done)||done<0;
+  if(!target.hidden){target.max=total;target.value=Math.min(done,total);uiAttr(target,'aria-label',label);}
+}
+function setStatus(message,error=false){uiText($('status'),message);$('status').classList.toggle('error',error);loadingIndicator($('status'),Boolean(message)&&phase==='loading'&&!error);}
+const INSTALLER_MESSAGE_REPLACEMENTS=Object.keys(UI_CATALOG.en).filter(key=>key.startsWith("engine.")).map(key=>[UI_CATALOG.en[key],key]).sort((a,b)=>b[0].length-a[0].length);
+const INSTALLER_ERROR_TEXT=Object.freeze({invalid_installations:m("Installation status could not be read."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
+function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS)text=text.replaceAll(english,m(key));return text;}
+function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
+function validateRuntimeConfig(config){
+  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.0.0'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
+  if(valid){try{const url=new URL(config.origin);valid=url.protocol==='http:'&&url.hostname==='127.0.0.1'&&Number(url.port)>=1&&Number(url.port)<=65535&&url.origin===config.origin&&globalThis.location?.origin===config.origin&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}catch{valid=false;}}
+  if(valid)valid=typeof config.settingsRevision==='string'&&/^[a-f0-9]{32}$/.test(config.settingsRevision);
+  if(valid)valid=['zh-CN','en'].includes(config.language);
+  if(valid)valid=config.closeBehavior===undefined||['ask','exit','tray'].includes(config.closeBehavior);
+  if(!valid){uiText($('status'),m("Unable to open the app. Reopen SpinShareBrowser.exe."));$('status').classList.add('error');throw uiError('Invalid SpinShare Browser runtime configuration');}
+  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask'});
+}
+function settingsMessage(message,error=false){uiText($('settings-message'),message);$('settings-message').classList.toggle('is-error',error);loadingIndicator($('settings-message'),Boolean(message)&&Boolean(settingsBusy)&&!error);}
+function hasActiveInstallations(){return activityJobs.length>0||[...installationStates.values()].some(state=>state.running||state.requesting);}
+function refreshSettingsControls(){
+  const locked=Boolean(settingsBusy)||appExiting,active=hasActiveInstallations();
+  $('settings-default').disabled=locked||!settingsLoaded||active||INSTALL_DIRECTORY===DEFAULT_INSTALL_DIRECTORY;
+  $('settings-select').disabled=locked||!settingsLoaded||active;
+  $('settings-exit').disabled=Boolean(settingsBusy)||(appExiting&&!exitFailed);
+  for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.disabled=locked||!settingsLoaded;
+  for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=languageBusy||appExiting;
+  $('settings-close').disabled=settingsBusy==='saving'||settingsBusy==='shutdown';
+  if(!settingsBusy)loadingIndicator($('settings-message'),false);
+  loadingIndicator($('settings-exit'),settingsBusy==='shutdown');
+}
+function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
+function readSettings(payload){
+  const settings=payload?.settings;
+  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||settings.version!=='2.0.0')throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  if(settings.targetDirectory!==(settings.customDirectory===null?settings.defaultDirectory:settings.customDirectory))throw uiError(m("Open Settings and choose the install folder again."));
+  if(settings.closeBehavior!==undefined&&!['ask','exit','tray'].includes(settings.closeBehavior))throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',exiting:settings.exiting===true};
+}
+function applySettings(settings){
+  const changed=settingsStale||settingsRevision!==settings.revision||INSTALL_DIRECTORY!==settings.targetDirectory;
+  if(changed){installedCharts.clear();presenceQueue.clear();presenceGeneration++;for(const [id,state] of installationStates)if(!state.running&&!state.requesting)installationStates.delete(id);}
+  INSTALL_DIRECTORY=settings.targetDirectory;DEFAULT_INSTALL_DIRECTORY=settings.defaultDirectory;settingsRevision=settings.revision;settingsLoaded=true;settingsStale=false;
+  uiText($('install-directory'),INSTALL_DIRECTORY);
+  uiText($('settings-directory'),INSTALL_DIRECTORY);
+  closeBehavior=settings.closeBehavior;appExiting=appExiting||settings.exiting;syncCloseOptions();renderActivity();
+  updateAllInstallationViews();syncFilters();queueInstallationChecks([...installationViews.values()].map(view=>view.row));
+  if(changed)refreshInstallationResults();
+}
+async function loadSettings(){
+  if(settingsBusy)return;
+  settingsBusy='loading';refreshSettingsControls();settingsMessage(m("Loading settings..."));
+  try{
+    applySettings(readSettings(await installerRequest('GET','/v1/settings')));settingsMessage('');
+  }
+  catch(error){settingsMessage(errorText(error),true);}
+  finally{settingsBusy='';refreshSettingsControls();}
+}
+const dialogMotions=new WeakMap();
+function openDialogPanel(panel){
+  if(panel.open&&!panel.inert)return;
+  const current=panel.open?globalThis.getComputedStyle?.(panel):null;
+  const from={opacity:panel.open?(current?.opacity||'1'):0,transform:panel.open?(current?.transform||'none'):'translateY(6px)'};
+  const previous=dialogMotions.get(panel);dialogMotions.delete(panel);previous?.cancel();
+  panel.inert=false;panel.classList.remove('dialog-closing');if(!panel.open)panel.showModal();else panel.querySelector('.settings-close')?.focus({preventScroll:true});
+  const animation=playMotion(panel,[from,{opacity:1,transform:'none'}],{duration:MOTION_MS.feedback,easing:'cubic-bezier(.2,.7,.2,1)'});
+  if(animation){dialogMotions.set(panel,animation);const done=()=>{if(dialogMotions.get(panel)===animation)dialogMotions.delete(panel);};animation.finished.then(done,done);}
+}
+function closeDialogPanel(panel,onClosed){
+  if(!panel.open){onClosed?.();return;}
+  if(panel.inert)return;
+  const current=globalThis.getComputedStyle?.(panel),from={opacity:current?.opacity||'1',transform:current?.transform||'none'};
+  const previous=dialogMotions.get(panel);dialogMotions.delete(panel);previous?.cancel();
+  panel.inert=true;panel.classList.add('dialog-closing');
+  const animation=playMotion(panel,[from,{opacity:0,transform:'translateY(4px)'}],{duration:MOTION_MS.feedback,easing:'ease-out'});
+  const done=()=>{if(animation&&dialogMotions.get(panel)!==animation)return;dialogMotions.delete(panel);panel.close();panel.inert=false;panel.classList.remove('dialog-closing');onClosed?.();};
+  if(animation){dialogMotions.set(panel,animation);animation.finished.then(done,done);}else done();
+}
+function refreshCloseHelpTasks(){
+  const active=hasActiveInstallations()||Boolean(appDialogState?.activeCount>0);
+  for(const note of document.querySelectorAll('.close-help-task'))note.hidden=!active;
+}
+const closeHelpIds=['settings-close-help','app-dialog-help'];let closeHelpTimer=null;
+function positionCloseHelp(id){
+  const button=$(id),panel=$(id+'-panel');if(!panel.matches(':popover-open'))return;
+  const anchor=button.getBoundingClientRect(),owner=$(id==='settings-close-help'?'settings-panel':'app-dialog').getBoundingClientRect();
+  const width=document.documentElement.clientWidth,height=document.documentElement.clientHeight,gap=8,edge=12;
+  if(anchor.bottom<=Math.max(edge,owner.top)||anchor.top>=Math.min(height-edge,owner.bottom)){setCloseHelp(id,false);return;}
+  panel.style.maxHeight=`${height-edge*2}px`;let box=panel.getBoundingClientRect(),left=anchor.right+gap,top=anchor.top-6;
+  if(left+box.width>width-edge)left=anchor.left-gap-box.width;
+  if(left<edge){
+    left=Math.max(edge,Math.min(anchor.left,width-edge-box.width));
+    const below=height-edge-anchor.bottom-gap,above=anchor.top-gap-edge,down=below>=box.height||below>=above;
+    panel.style.maxHeight=`${Math.max(1,down?below:above)}px`;box=panel.getBoundingClientRect();
+    top=down?anchor.bottom+gap:anchor.top-gap-box.height;
+  }
+  panel.style.left=`${Math.max(edge,Math.min(left,width-edge-box.width))}px`;
+  panel.style.top=`${Math.max(edge,Math.min(top,height-edge-box.height))}px`;
+}
+function setCloseHelp(id,visible){
+  clearTimeout(closeHelpTimer);closeHelpTimer=null;
+  const button=$(id),panel=$(id+'-panel'),owner=$(id==='settings-close-help'?'settings-panel':'app-dialog');
+  if(visible&&(button.hidden||button.disabled||!owner.open||owner.inert||!hostVisible||document.hidden))return;
+  button.classList.toggle('is-active',visible);
+  if(!visible){if(panel.matches(':popover-open'))panel.hidePopover();return;}
+  for(const other of closeHelpIds)if(other!==id&&$(other+'-panel').matches(':popover-open'))setCloseHelp(other,false);
+  refreshCloseHelpTasks();if(!panel.matches(':popover-open'))panel.showPopover();positionCloseHelp(id);
+}
+function dismissCloseHelp(panel){
+  const button=panel.querySelector('.help-toggle');if(!button||!$(button.id+'-panel').matches(':popover-open'))return false;
+  setCloseHelp(button.id,false);return true;
+}
+function setupCloseHelp(){
+  for(const id of closeHelpIds){
+    const button=$(id),panel=$(id+'-panel'),show=()=>setCloseHelp(id,true);
+    const leave=()=>{clearTimeout(closeHelpTimer);closeHelpTimer=setTimeout(()=>{closeHelpTimer=null;if(!button.matches(':hover,:focus-visible')&&!panel.matches(':hover'))setCloseHelp(id,false);},100);};
+    button.addEventListener('pointerenter',show);panel.addEventListener('pointerenter',show);
+    button.addEventListener('pointerleave',leave);panel.addEventListener('pointerleave',leave);
+    button.addEventListener('focus',()=>{if(button.matches(':focus-visible'))show();});button.addEventListener('blur',leave);
+  }
+  const reposition=()=>{for(const id of closeHelpIds)positionCloseHelp(id);};
+  globalThis.addEventListener?.('resize',reposition);globalThis.addEventListener?.('scroll',reposition,true);
+  globalThis.addEventListener?.('blur',()=>{for(const id of closeHelpIds)setCloseHelp(id,false);});
+  if(typeof ResizeObserver==='function'){const observer=new ResizeObserver(reposition);for(const id of closeHelpIds)observer.observe($(id+'-panel'));}
+}
+async function openSettings(){
+  const panel=$('settings-panel');dismissCloseHelp(panel);openDialogPanel(panel);
+  uiText($('settings-directory'),INSTALL_DIRECTORY);
+  await loadSettings();
+}
+function closeSettings(){if(settingsBusy==='saving'||settingsBusy==='shutdown')return;const panel=$('settings-panel');dismissCloseHelp(panel);closeDialogPanel(panel,()=>$('settings-open').focus({preventScroll:true}));}
+async function selectDirectory(useDefault=false){
+  if(settingsBusy||appExiting)return;
+  if(!settingsLoaded){settingsMessage(m("Load the current settings before saving."),true);return;}
+  if(hasActiveInstallations()){settingsMessage(m("Wait for installations to finish."),true);return;}
+  settingsBusy='saving';updateAllInstallationViews();settingsMessage(useDefault?m("Saving..."):m("Choose an install folder in the Windows dialog."));
+  try{
+    const result=await installerRequest('POST',useDefault?'/v1/settings':'/v1/directory/select',{...(useDefault?{directory:null}:{}),expectedRevision:settingsRevision});
+    if(!useDefault&&typeof result?.cancelled!=='boolean')throw uiError(m("Folder selection failed. Try again."));
+    applySettings(readSettings(result));settingsMessage(result.cancelled?m("Folder selection cancelled."):m("Saved."));
+  }
+  catch(error){settingsMessage(errorText(error),true);}
+  finally{settingsBusy='';updateAllInstallationViews();}
+}
+async function exitTool(){
+  if(settingsBusy||appExiting&&!exitFailed)return;
+  settingsBusy='shutdown';refreshSettingsControls();settingsMessage('');
+  try{const result=await installerRequest('POST','/v1/desktop/exit',{});if(result?.ok!==true)throw uiError(m("Could not confirm exit. Please try again."));}
+  catch(error){settingsMessage(errorText(error),true);}
+  finally{settingsBusy='';refreshSettingsControls();}
+}
+function syncCloseOptions(){for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.checked=input.value===closeBehavior;}
+async function saveCloseBehavior(behavior){
+  if(settingsBusy||appExiting||!settingsLoaded)return;
+  settingsBusy='saving';refreshSettingsControls();settingsMessage(m("Saving..."));
+  try{applySettings(readSettings(await installerRequest('POST','/v1/close-behavior',{closeBehavior:behavior})));settingsMessage(m("Saved."));}
+  catch(error){syncCloseOptions();settingsMessage(errorText(error),true);}
+  finally{settingsBusy='';refreshSettingsControls();}
+}
+function applyWindowState(state){
+  if(typeof state?.visible==='boolean'){hostVisible=state.visible;syncMotion();}
+  if(typeof state?.exitFailed==='boolean'){exitFailed=state.exitFailed;renderActivity();refreshSettingsControls();}
+  if(state?.exiting===true&&!appExiting){appExiting=true;updateAllInstallationViews();renderActivity();syncFilters();refreshActivity();}
+  if(typeof state?.customChrome!=='boolean'||typeof state.maximized!=='boolean')return;
+  document.documentElement.classList.toggle('desktop-chrome',state.customChrome);
+  document.documentElement.classList.toggle('desktop-maximized',state.maximized);
+  $('window-controls').hidden=!state.customChrome;
+  $('window-controls').classList.toggle('is-maximized',state.maximized);
+  for(const attribute of ['aria-label','title'])uiAttr($('window-maximize'),attribute,m(state.maximized?'Restore window':'Maximize window'));
+}
+async function windowCommand(action){
+  try{const result=await installerRequest('POST','/v1/desktop/window',{action});if(result?.ok!==true)throw uiError(m('The window control could not be used. Please try again.'));}
+  catch(error){languageFeedback(errorText(error));}
+}
+function setupWindowControls(){
+  for(const action of ['minimize','maximize','close'])$('window-'+action).addEventListener('click',()=>windowCommand(action));
+  let receivedEvent=false;
+  globalThis.addEventListener?.('spinshare-window-state',event=>{receivedEvent=true;applyWindowState(event.detail);});
+  installerRequest('GET','/v1/desktop/window').then(result=>{if(!receivedEvent)applyWindowState(result?.window);}).catch(()=>{});
+}
+const dialogControls=['app-dialog-close','app-dialog-continue','app-dialog-wait','app-dialog-tray','app-dialog-remember-choice','app-dialog-help'];
+function showAppDialog(detail){
+  const dialog=$('app-dialog');
+  if(detail===null){appDialogState=null;dismissCloseHelp(dialog);closeDialogPanel(dialog,()=>{appDialogFocus?.focus({preventScroll:true});appDialogFocus=null;});return;}
+  if(!detail||typeof detail.id!=='string'||!/^[a-f0-9]{32}$/.test(detail.id)||!['close','exit','message'].includes(detail.kind)||typeof detail.message!=='string')return;
+  const changed=appDialogState?.id!==detail.id||appDialogState?.kind!==detail.kind,choosing=detail.kind==='close';appDialogState=detail;
+  uiText($('app-dialog-title'),m(choosing?'Close window':detail.kind==='exit'?'Quit app':'Notice'));
+  uiText($('app-dialog-message'),UI_KEY_INDEX.has(detail.message)?m(detail.message):detail.message);
+  uiText($('app-dialog-continue'),m(choosing?'Cancel':detail.kind==='exit'?'Keep running':'OK'));
+  uiText($('app-dialog-wait'),m(choosing&&!(detail.activeCount>0)?'Quit app':'Exit after tasks finish'));
+  $('app-dialog-wait').hidden=detail.kind==='message';$('app-dialog-tray').hidden=!choosing;$('app-dialog-remember').hidden=!choosing;$('app-dialog-continue').hidden=choosing;$('app-dialog-help').hidden=detail.kind==='message';
+  if(changed){dismissCloseHelp(dialog);dismissCloseHelp($('settings-panel'));$('app-dialog-remember-choice').checked=false;uiText($('app-dialog-error'),'');appDialogBusy=false;for(const id of dialogControls)$(id).disabled=false;loadingIndicator($('app-dialog-actions'),false);}
+  refreshCloseHelpTasks();if(!dialog.open)appDialogFocus=document.activeElement;openDialogPanel(dialog);
+  if(changed)$(choosing?'app-dialog-close':'app-dialog-continue').focus();
+}
+async function replyAppDialog(action){
+  if(!appDialogState||appDialogBusy)return;
+  const id=appDialogState.id,remember=appDialogState.kind==='close'&&['exit','tray'].includes(action)?$('app-dialog-remember-choice').checked:undefined;appDialogBusy=true;
+  dismissCloseHelp($('app-dialog'));
+  for(const name of dialogControls)$(name).disabled=true;
+  loadingIndicator($('app-dialog-actions'),true);
+  uiText($('app-dialog-error'),'');
+  try{
+    const result=await installerRequest('POST','/v1/desktop/dialog',{id,action,...(remember===undefined?{}:{remember})});
+    if(result?.ok!==true)throw uiError(m('Could not confirm exit. Please try again.'));
+    if(appDialogState?.id===id)showAppDialog(null);
+    if(action==='wait'||action==='exit')refreshActivity();
+  }catch(error){if(appDialogState?.id===id)uiText($('app-dialog-error'),errorText(error));}
+  finally{if(!appDialogState||appDialogState.id===id){appDialogBusy=false;for(const name of dialogControls)$(name).disabled=false;loadingIndicator($('app-dialog-actions'),false);}}
+}
+function setupAppDialogs(){
+  $('app-dialog-close').addEventListener('click',()=>replyAppDialog('continue'));
+  $('app-dialog-continue').addEventListener('click',()=>replyAppDialog('continue'));
+  $('app-dialog-wait').addEventListener('click',()=>replyAppDialog(appDialogState?.kind==='close'?'exit':'wait'));
+  $('app-dialog-tray').addEventListener('click',()=>replyAppDialog('tray'));
+  $('app-dialog').addEventListener('cancel',event=>{event.preventDefault();if(!dismissCloseHelp($('app-dialog')))replyAppDialog('continue');});
+  let receivedEvent=false;
+  globalThis.addEventListener?.('spinshare-dialog',event=>{receivedEvent=true;showAppDialog(event.detail);});
+  installerRequest('GET','/v1/desktop/dialog').then(result=>{if(!receivedEvent)showAppDialog(result?.dialog);}).catch(()=>{});
+}
+function setupRuntime(){
+  setupMotion();
+  setupLanguage();
+  setupWindowControls();
+  setupAppDialogs();setupCloseHelp();setupActivity();setupScrolling();
+  uiText($('install-directory'),INSTALL_DIRECTORY);$('settings-open').hidden=false;uiText($('settings-version'),'SpinShare Browser '+APP_CONFIG.version);
+  $('settings-open').addEventListener('click',openSettings);$('settings-close').addEventListener('click',closeSettings);
+  $('settings-panel').addEventListener('cancel',event=>{event.preventDefault();if(!dismissCloseHelp($('settings-panel')))closeSettings();});
+  $('settings-select').addEventListener('click',()=>selectDirectory());
+  syncCloseOptions();
+  for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
+  $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
+  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();
+}
+function readDifficulty(){
+  const min=Number($('min').value),max=Number($('max').value),diffs=Array.from(document.querySelectorAll('input[name="diff"]:checked'),el=>Number(el.value));
+  if($('min').value===''||$('max').value===''||!Number.isInteger(min)||!Number.isInteger(max)||min<0||max>999||min>max)throw uiError(m("Use whole numbers from 0 to 999, with minimum no higher than maximum."));
+  if(!diffs.length)throw uiError(m("Select at least one difficulty."));
+  return {min,max,diffs};
+}
+function readCriteria(){
+  const difficulty=readDifficulty();
+  const dateFrom=$('date-from').value.trim(),dateTo=$('date-to').value.trim(),today=updateDateBounds();
+  if([dateFrom,dateTo].some(value=>value&&(!validDate(value)||value<FIRST_UPLOAD_DATE||value>today)))throw uiError(m("Choose dates between 2020-01-01 and today."));
+  if(dateFrom&&dateTo&&dateFrom>dateTo)throw uiError(m("Choose a valid date range, with the start no later than the end."));
+  return {...difficulty,dateFrom,dateTo};
+}
+function filtersChanged(){
+  if(!applied)return false;
+  try{return JSON.stringify(readCriteria())!==JSON.stringify(applied);}catch{return true;}
+}
+function syncResultTools(visible,previousFocus){
+  const panel=$('result-tools'),busy=phase==='loading';
+  if(!visible&&panel.contains(previousFocus)||previousFocus===$('cancel')&&!busy||previousFocus===$('apply-filters')&&busy){
+    const filter=$('filter-panel'),action=$(busy?'cancel':'apply-filters');
+    const target=filter.open&&!action.hidden&&!action.disabled?action:filter.querySelector('summary');
+    target.focus({preventScroll:true});
+  }
+  panel.inert=!visible;if(visible===resultToolsVisible)return;resultToolsVisible=visible;
+  const height=panel.hidden?0:panel.getBoundingClientRect().height,opacity=panel.hidden?0:globalThis.getComputedStyle?.(panel)?.opacity||'1';
+  const previous=resultToolsMotion;resultToolsMotion=null;previous?.cancel();
+  if(panel.hidden&&!visible)return;panel.hidden=false;panel.classList.add('is-transitioning');
+  const end=visible?$('result-tools-content').getBoundingClientRect().height:0;
+  const animation=playMotion(panel,[{height:height+'px',opacity},{height:end+'px',opacity:visible?1:0}],{duration:MOTION_MS.standard});
+  const finish=()=>{if(animation&&resultToolsMotion!==animation)return;resultToolsMotion=null;panel.hidden=!resultToolsVisible;panel.classList.remove('is-transitioning');};
+  if(animation){resultToolsMotion=animation;animation.finished.then(finish,finish);}else finish();
+}
+function syncFilters(){
+  const busy=phase==='loading',ready=Boolean(applied)&&phase==='ready',previousFocus=document.activeElement;
+  $('difficulty-fields').disabled=appExiting;$('date-fields').disabled=appExiting;
+  if(appExiting&&$('date-calendar')?.matches?.(':popover-open'))$('date-calendar').hidePopover();
+  $('apply-filters').disabled=busy||appExiting;
+  loadingIndicator($('apply-filters'),busy);
+  syncCatalogRefresh();
+  $('reset-filters').disabled=appExiting;
+  for(const id of ['local-search','search-submit','search-clear'])$(id).disabled=!ready;
+  $('installation-filter').disabled=!ready||appExiting;
+  $('cancel').hidden=!busy;$('cancel').disabled=false;
+  uiText($('filter-dirty'),filtersChanged()?m('Filters changed. Select Filter charts to apply them.'):'');
+  syncResultTools(ready,previousFocus);
+  syncTagControls();
+}
+function cancelQuery(){
+  const active=controller;controller=null;active?.abort();
+  stopTextSearch(true);clearTimeout(textFilterTimer);textFilterTimer=null;
+  currentRows=[];filtered=[];applied=null;appliedText='';phase='idle';
+  setStatus('');render();
+}
+function validDate(value){return /^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;}
+function siteToday(){
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  return ['year','month','day'].map(type=>parts.find(part=>part.type===type).value).join('-');
+}
+function updateDateBounds(){
+  const today=siteToday();
+  for(const id of ['date-from','date-to']){
+    const picker=$(id+'-picker');picker.setAttribute('min',FIRST_UPLOAD_DATE);picker.setAttribute('max',today);
+  }
+  return today;
+}
+function syncDates(){
+  $('custom-dates').hidden=$('date-preset').value!=='custom';
+  for(const id of ['date-from','date-to'])$(id+'-picker').value=validDate($(id).value.trim())?$(id).value.trim():'';
+  if($('custom-dates').hidden)closeDateCalendar();else if(dateCalendar?.matches(':popover-open'))renderDateCalendar();
+}
+let dateCalendar=null,dateCalendarField='',dateCalendarFocus='';
+function closeDateCalendar(restoreFocus=false){
+  if(!dateCalendar?.matches(':popover-open'))return;
+  dateCalendar.hidePopover();
+  if(restoreFocus&&!appExiting)$(dateCalendarField+'-open').focus({preventScroll:true});
+}
+function positionDateCalendar(){
+  if(!dateCalendar?.matches(':popover-open'))return;
+  const anchor=$(dateCalendarField+'-open'),rect=anchor.getBoundingClientRect(),edge=12,gap=8;
+  const width=document.documentElement.clientWidth,height=document.documentElement.clientHeight;
+  const ceiling=Math.max(edge,(document.querySelector('.topbar')?.getBoundingClientRect().bottom||0)+gap);
+  if(appExiting||!anchor.isConnected||$('custom-dates').hidden||rect.bottom<=ceiling||rect.top>=height-edge){closeDateCalendar();return;}
+  dateCalendar.style.width=Math.min(320,Math.max(1,width-edge*2))+'px';dateCalendar.style.maxHeight=Math.max(1,height-ceiling-edge)+'px';
+  let box=dateCalendar.getBoundingClientRect();
+  const below=height-edge-rect.bottom-gap,above=rect.top-gap-ceiling,down=below>=box.height||below>=above;
+  dateCalendar.style.maxHeight=Math.max(1,down?below:above)+'px';box=dateCalendar.getBoundingClientRect();
+  dateCalendar.style.left=Math.max(edge,Math.min(rect.left,width-edge-box.width))+'px';
+  dateCalendar.style.top=Math.max(ceiling,Math.min(down?rect.bottom+gap:rect.top-gap-box.height,height-edge-box.height))+'px';
+}
+function moveDateCalendar(days=0,months=0,focus=true){
+  if(appExiting)return;
+  const date=new Date(dateCalendarFocus+'T00:00:00Z'),day=date.getUTCDate(),today=updateDateBounds();
+  if(months){
+    date.setUTCDate(1);date.setUTCMonth(date.getUTCMonth()+months);
+    date.setUTCDate(Math.min(day,new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate()));
+  }
+  date.setUTCDate(date.getUTCDate()+days);
+  const value=date.toISOString().slice(0,10);dateCalendarFocus=value<FIRST_UPLOAD_DATE?FIRST_UPLOAD_DATE:value>today?today:value;
+  renderDateCalendar(focus);
+}
+function chooseCalendarDate(value){
+  if(appExiting||!dateCalendar?.matches(':popover-open'))return;
+  if(value&&(!validDate(value)||value<FIRST_UPLOAD_DATE||value>updateDateBounds()))return;
+  $(dateCalendarField).value=value;$('date-preset').value='custom';
+  syncDates();syncFilters();closeDateCalendar(true);
+}
+function renderDateCalendar(focus=false){
+  if(!dateCalendar||!dateCalendarField)return;
+  const restoreFocus=focus||dateCalendar.contains(document.activeElement)&&document.activeElement.classList.contains('calendar-day');
+  const today=updateDateBounds(),date=new Date(dateCalendarFocus+'T00:00:00Z'),year=date.getUTCFullYear(),month=date.getUTCMonth(),monthKey=dateCalendarFocus.slice(0,7);
+  const from=$('date-from').value.trim(),to=$('date-to').value.trim(),selected=$(dateCalendarField).value.trim();
+  const hasRange=validDate(from)&&validDate(to)&&from>=FIRST_UPLOAD_DATE&&to<=today&&from<=to;
+  uiText(dateCalendar.querySelector('.calendar-context'),m(dateCalendarField==='date-from'?'Choose start date':'Choose end date'));
+  const yearSelect=dateCalendar.querySelector('.calendar-year'),monthSelect=dateCalendar.querySelector('.calendar-month');
+  yearSelect.replaceChildren();monthSelect.replaceChildren();
+  for(let value=Number(FIRST_UPLOAD_DATE.slice(0,4));value<=Number(today.slice(0,4));value++){
+    const option=element('option',String(value));option.value=String(value);yearSelect.append(option);
+  }
+  const monthLabel=new Intl.DateTimeFormat(uiLanguage,{month:'long',timeZone:'UTC'});
+  for(let value=0;value<12;value++){
+    const key=year+'-'+String(value+1).padStart(2,'0'),option=element('option',monthLabel.format(new Date(Date.UTC(year,value,1))));
+    option.value=String(value);option.disabled=key<FIRST_UPLOAD_DATE.slice(0,7)||key>today.slice(0,7);monthSelect.append(option);
+  }
+  yearSelect.value=String(year);monthSelect.value=String(month);
+  const nav=dateCalendar.querySelectorAll('.calendar-nav');nav[0].disabled=monthKey<=FIRST_UPLOAD_DATE.slice(0,7);nav[1].disabled=monthKey>=today.slice(0,7);
+  const weekdays=dateCalendar.querySelector('.calendar-weekdays'),days=dateCalendar.querySelector('.calendar-days');weekdays.replaceChildren();days.replaceChildren();
+  const weekdayLabel=new Intl.DateTimeFormat(uiLanguage,{weekday:'short',timeZone:'UTC'}),fullLabel=new Intl.DateTimeFormat(uiLanguage,{weekday:'long',year:'numeric',month:'long',day:'numeric',timeZone:'UTC'});
+  date.setUTCDate(1);date.setUTCDate(1-(date.getUTCDay()+6)%7);
+  for(let index=0;index<42;index++,date.setUTCDate(date.getUTCDate()+1)){
+    if(index<7)weekdays.append(element('span',weekdayLabel.format(date)));
+    const value=date.toISOString().slice(0,10),button=element('button',String(date.getUTCDate()),'calendar-day');
+    button.type='button';button.dataset.date=value;button.disabled=value<FIRST_UPLOAD_DATE||value>today;button.tabIndex=value===dateCalendarFocus?0:-1;
+    button.setAttribute('aria-label',fullLabel.format(date));button.setAttribute('aria-pressed',String(value===selected));
+    button.classList.toggle('is-outside',date.getUTCMonth()!==month);button.classList.toggle('is-today',value===today);
+    button.classList.toggle('is-in-range',hasRange&&value>=from&&value<=to);
+    button.classList.toggle('is-range-start',hasRange&&value===from);button.classList.toggle('is-range-end',hasRange&&value===to);
+    if(value===today)button.setAttribute('aria-current','date');days.append(button);
+  }
+  positionDateCalendar();
+  if(restoreFocus&&dateCalendar.matches(':popover-open'))days.querySelector('[tabindex="0"]')?.focus({preventScroll:true});
+}
+function ensureDateCalendar(){
+  if(dateCalendar)return dateCalendar;
+  const panel=element('div',undefined,'date-calendar');dateCalendar=panel;
+  panel.id='date-calendar';panel.setAttribute('popover','auto');panel.setAttribute('role','dialog');panel.setAttribute('aria-labelledby','date-calendar-context');
+  const context=element('p',undefined,'calendar-context');context.id='date-calendar-context';context.setAttribute('aria-live','polite');
+  const header=element('div',undefined,'calendar-header'),selects=element('div',undefined,'calendar-selects');
+  const year=element('select',undefined,'calendar-year'),month=element('select',undefined,'calendar-month');
+  uiAttr(year,'aria-label',m('Year'));uiAttr(month,'aria-label',m('Month'));
+  year.addEventListener('change',()=>moveDateCalendar(0,(Number(year.value)-Number(dateCalendarFocus.slice(0,4)))*12,false));
+  month.addEventListener('change',()=>moveDateCalendar(0,Number(month.value)-Number(dateCalendarFocus.slice(5,7))+1,false));
+  selects.append(year,month);
+  for(const offset of [-1,1]){
+    const button=element('button',undefined,'calendar-nav');button.type='button';button.append(icon(offset<0?'left':'right'));
+    uiAttr(button,'aria-label',m(offset<0?'Previous month':'Next month'));button.addEventListener('click',()=>moveDateCalendar(0,offset));
+    header.append(button);if(offset<0)header.append(selects);
+  }
+  const weekdays=element('div',undefined,'calendar-weekdays'),days=element('div',undefined,'calendar-days'),footer=element('div',undefined,'calendar-footer');
+  weekdays.setAttribute('aria-hidden','true');
+  const today=element('button',m('Today'),'calendar-today'),clear=element('button',m('Clear date'),'calendar-clear');today.type='button';clear.type='button';
+  today.addEventListener('click',()=>chooseCalendarDate(siteToday()));clear.addEventListener('click',()=>chooseCalendarDate(''));
+  footer.append(today,clear);panel.append(context,header,weekdays,days,footer);
+  days.addEventListener('click',event=>{const button=event.target.closest('.calendar-day');if(button&&!button.disabled)chooseCalendarDate(button.dataset.date);});
+  panel.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeDateCalendar(true);return;}
+    if(!event.target.classList.contains('calendar-day')||event.altKey||event.ctrlKey||event.metaKey)return;
+    dateCalendarFocus=event.target.dataset.date;
+    if(event.key==='Enter'||event.key===' '){event.preventDefault();chooseCalendarDate(dateCalendarFocus);return;}
+    const weekday=(new Date(dateCalendarFocus+'T00:00:00Z').getUTCDay()+6)%7,offsets={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7,Home:-weekday,End:6-weekday};
+    if(event.key in offsets){event.preventDefault();moveDateCalendar(offsets[event.key]);}
+    else if(event.key==='PageUp'||event.key==='PageDown'){event.preventDefault();moveDateCalendar(0,(event.key==='PageUp'?-1:1)*(event.shiftKey?12:1));}
+  });
+  panel.addEventListener('toggle',()=>{for(const id of ['date-from','date-to'])$(id+'-open').setAttribute('aria-expanded',String(panel.matches(':popover-open')&&dateCalendarField===id));});
+  globalThis.addEventListener?.('resize',positionDateCalendar);
+  globalThis.addEventListener?.('scroll',event=>{if(!panel.contains(event.target))positionDateCalendar();},{capture:true,passive:true});
+  return panel;
+}
+function openDatePicker(id){
+  if(appExiting)return;
+  const today=updateDateBounds(),picker=$(id+'-picker'),value=$(id).value.trim();picker.value=validDate(value)?value:'';
+  if(dateCalendar?.matches(':popover-open')&&dateCalendarField===id){closeDateCalendar(true);return;}
+  dateCalendarField=id;dateCalendarFocus=!validDate(value)||value>today?today:value<FIRST_UPLOAD_DATE?FIRST_UPLOAD_DATE:value;
+  const panel=ensureDateCalendar(),control=$(id+'-open').closest('.date-control');
+  if(panel.parentElement!==control.parentElement){closeDateCalendar();control.after(panel);}
+  renderDateCalendar();
+  if(!panel.matches(':popover-open'))panel.showPopover();positionDateCalendar();
+  for(const field of ['date-from','date-to'])$(field+'-open').setAttribute('aria-expanded',String(panel.matches(':popover-open')&&field===id));
+  panel.querySelector('[tabindex="0"]')?.focus({preventScroll:true});
+}
+function presetDates(preset,today=siteToday()){
+  if(preset==='all')return {from:'',to:''};
+  if(!validDate(today))throw new Error('Invalid calendar date');
+  const date=new Date(today+'T00:00:00Z');
+  if(preset==='month'||preset==='quarter'){
+    const day=date.getUTCDate();date.setUTCDate(1);date.setUTCMonth(date.getUTCMonth()-(preset==='month'?1:3));
+    const last=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();date.setUTCDate(Math.min(day,last)+1);
+  }else if(['1','2','7'].includes(preset))date.setUTCDate(date.getUTCDate()-Number(preset)+1);
+  else throw new Error('Unknown date preset');
+  const from=date.toISOString().slice(0,10);return {from:from<FIRST_UPLOAD_DATE?FIRST_UPLOAD_DATE:from,to:today};
+}
+function applyDatePreset(){
+  updateDateBounds();
+  if($('date-preset').value!=='custom'){
+    const range=presetDates($('date-preset').value);$('date-from').value=range.from;$('date-to').value=range.to;
+  }
+  syncDates();syncFilters();
+}
+function titleKey(value){return String(value).normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase();}
+function remember(cache,key,value,limit=128,maxLength=65536){
+  // Bound each entry and the number retained; oversized responses are displayed directly.
+  if(JSON.stringify(value).length>maxLength)return value;
+  cache.delete(key);cache.set(key,value);if(cache.size>limit)cache.delete(cache.keys().next().value);return value;
+}
+function canSearchUsers(query){return query.length>=2&&query.length<=80&&(query.match(/[\p{L}\p{N}]/ug)||[]).length>=2&&!/[%*]/.test(query);}
+function unknownSearchUploaders(){return currentRows.some(row=>row[8].uploader&&!profileCache.has(row[8].uploader));}
+function needsUserSearch(query){return phase==='ready'&&searchScopes.has('creator')&&canSearchUsers(query)&&!userSearchCache.has(query)&&unknownSearchUploaders();}
+function syncSearchControls(){
+  $('search-clear').hidden=!$('local-search').value;
+  for(const field of Object.keys(searchFields)){
+    const button=$('search-scope-'+field),selected=searchScopes.has(field),last=selected&&searchScopes.size===1;
+    button.setAttribute('aria-pressed',String(selected));button.setAttribute('aria-disabled',String(last));
+    uiAttr(button,'title',last?m('Keep at least one search field selected.'):'');
+  }
+  const query=titleKey($('local-search').value),active=phase==='ready'&&searchScopes.has('creator')&&Boolean(query);
+  const message=!active?'':textSearchWork?m('Searching uploader accounts...'):textSearchProblem||(!canSearchUsers(query)&&unknownSearchUploaders()?m('For uploader accounts, enter 2–80 characters with at least two letters or digits, without % or *.'):'');
+  uiText($('search-message'),message);$('search-feedback').hidden=!message;$('search-feedback').classList.toggle('is-error',Boolean(textSearchProblem));$('search-retry').hidden=!active||!textSearchProblem;
+  loadingIndicator($('search-message'),active&&Boolean(textSearchWork));
+}
+// Tag matching uses only the catalog already returned by searchCharts.
+// Never fetch /api/song/{id}: the site's detail endpoint increments views.
+function tagKey(value){return String(value??'').trim().toLowerCase();}
+function cleanTags(value){
+  const tags=new Map();
+  for(const tag of Array.isArray(value)?value:[])if(typeof tag==='string'&&tag.trim()&&!tags.has(tagKey(tag)))tags.set(tagKey(tag),tag.trim());
+  return [...tags.values()];
+}
+function rowsMatchingTags(rows,selection=selectedTags){
+  if(!selection.size)return rows;
+  const required=[...selection.keys()];
+  return rows.filter(row=>{const tags=new Set((row[8].tags||[]).map(tagKey));return required.every(key=>tags.has(key));});
+}
+function countTagResults(rows){
+  const counts=new Map();
+  for(const row of rows)for(const key of new Set((row[8].tags||[]).map(tagKey)))counts.set(key,(counts.get(key)||0)+1);
+  return counts;
+}
+function indexCatalogTags(data){
+  tagCatalog.clear();
+  for(const song of data)for(const tag of cleanTags(song?.tags))if(!tagCatalog.has(tagKey(tag)))tagCatalog.set(tagKey(tag),tag);
+}
+function tagFilterReady(){return phase==='ready'&&Boolean(applied)&&!appExiting;}
+function positionTagPanel(panel,anchor){
+  if(!anchor||!panel.matches(':popover-open'))return;
+  const rect=anchor.getBoundingClientRect(),top=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||60;
+  if(!anchor.isConnected||rect.bottom<top||rect.top>innerHeight){panel.hidePopover();return;}
+  const width=panel.offsetWidth,height=panel.offsetHeight;
+  panel.style.left=Math.max(12,Math.min(rect.left,innerWidth-width-12))+'px';
+  panel.style.top=Math.max(top+8,Math.min(rect.bottom+8,innerHeight-height-12))+'px';
+}
+function tagChip(key,name){
+  const chip=element('span',undefined,'selected-tag'),label=element('span',name,'selected-tag-name'),remove=element('button','×','selected-tag-remove');
+  chip.dataset.tagKey=key;label.title=name;remove.type='button';uiAttr(remove,'aria-label',m('Remove tag: ')+name);
+  remove.addEventListener('click',()=>removeTagFilter(key));chip.append(label,remove);return chip;
+}
+function updateTagOverflow(){
+  const strip=$('tag-filter-strip'),container=$('selected-tags'),more=$('tag-more');
+  if(strip.hidden)return;
+  for(const chip of container.children){chip.style.visibility='';chip.inert=false;chip.removeAttribute('aria-hidden');}
+  more.hidden=true;
+  if(container.scrollWidth<=container.clientWidth+1)return;
+  more.hidden=false;uiText(more,'+'+selectedTags.size);
+  const edge=container.getBoundingClientRect().right;let hidden=0;
+  for(const chip of container.children)if(chip.getBoundingClientRect().right>edge+1){chip.style.visibility='hidden';chip.inert=true;chip.setAttribute('aria-hidden','true');hidden++;}
+  more.hidden=!hidden;uiText(more,'+'+hidden);
+}
+function syncTagControls(){
+  const ready=tagFilterReady(),strip=$('tag-filter-strip'),signature=JSON.stringify([...selectedTags]);
+  $('tag-add-open').disabled=!ready;strip.hidden=!ready||!selectedTags.size;strip.inert=!ready;
+  if(signature!==tagStripSignature){
+    tagStripSignature=signature;$('selected-tags').replaceChildren();$('selected-tag-popover-content').replaceChildren();
+    for(const [key,name] of selectedTags){$('selected-tags').append(tagChip(key,name));$('selected-tag-popover-content').append(tagChip(key,name));}
+    refreshChartTagButtons();
+  }
+  if(!ready){for(const id of ['tag-picker','selected-tag-popover'])if($(id).matches(':popover-open'))$(id).hidePopover();dismissChartTags();}
+  if(strip.hidden&&$('selected-tag-popover').matches(':popover-open'))$('selected-tag-popover').hidePopover();
+  updateTagOverflow();
+  if($('tag-picker').matches(':popover-open'))renderTagCandidates();
+  positionTagPanel($('selected-tag-popover'),$('tag-more'));
+}
+function renderTagCandidates(){
+  const query=tagKey($('tag-input').value),previous=tagCandidates[tagCandidateIndex]?.key;
+  tagCandidates=[...tagCatalog].filter(([key])=>!selectedTags.has(key)&&(!query||key.includes(query)))
+    .map(([key,name])=>({key,name,count:tagResultCounts.get(key)||0}))
+    .sort((a,b)=>Number(b.key.startsWith(query))-Number(a.key.startsWith(query))||b.count-a.count||a.name.localeCompare(b.name,uiLanguage)).slice(0,30);
+  tagCandidateIndex=previous?tagCandidates.findIndex(item=>item.key===previous):-1;
+  const pending=Boolean(textSearchWork),list=$('tag-candidates');list.replaceChildren();
+  for(const [index,item] of tagCandidates.entries()){
+    const button=element('button',undefined,'tag-candidate'),label=element('span',item.name,'tag-candidate-name'),count=element('small',pending?m('Counting...'):number(item.count)+m(' results'),'tag-candidate-count');
+    button.type='button';button.id='tag-candidate-'+index;button.setAttribute('role','option');button.tabIndex=-1;button.setAttribute('aria-selected',String(index===tagCandidateIndex));
+    button.append(label,count);button.addEventListener('pointerdown',event=>event.preventDefault());
+    button.addEventListener('click',()=>{if(addTagFilter(item.name,button)){$('tag-input').value='';tagCandidateIndex=-1;renderTagCandidates();$('tag-input').focus({preventScroll:true});}});
+    list.append(button);
+  }
+  if(tagCandidateIndex>=0)$('tag-input').setAttribute('aria-activedescendant','tag-candidate-'+tagCandidateIndex);else $('tag-input').removeAttribute('aria-activedescendant');
+  uiText($('tag-picker-feedback'),tagCandidates.length?m('Counts include the current search and all selected tags.'):query?m('No matching tag. Choose an existing tag.'):m('No more tags available.'));
+  positionTagPanel($('tag-picker'),tagPickerAnchor);
+}
+function openTagPicker(anchor){
+  if(!tagFilterReady())return;
+  dismissChartTags();tagPickerAnchor=anchor;
+  if($('selected-tag-popover').matches(':popover-open'))$('selected-tag-popover').hidePopover();
+  $('tag-input').value='';tagCandidateIndex=-1;
+  if(!$('tag-picker').matches(':popover-open'))$('tag-picker').showPopover();
+  renderTagCandidates();$('tag-input').focus({preventScroll:true});
+}
+function captureTagAnchor(source){
+  if(scrollY<10)return null;
+  let view=cardViews.get(Number(source?.dataset.chartId));
+  if(!view){const top=$('tag-filter-strip').hidden?60:$('tag-filter-strip').getBoundingClientRect().bottom;view=[...cardViews.values()].find(item=>{const rect=item.card.getBoundingClientRect();return rect.bottom>top&&rect.top<innerHeight;});}
+  return view?{id:view.row[0],top:view.card.getBoundingClientRect().top}:null;
+}
+function captureTagViewport(){return {viewport:true,left:scrollX,top:scrollY,page,visibleCount};}
+function tagFlightTarget(key){
+  const chip=[...$('selected-tags').children].find(node=>node.dataset.tagKey===key&&!node.inert);
+  return chip||(!$('tag-more').hidden?$('tag-more'):$('tag-filter-strip'));
+}
+function pulseTag(key){const target=tagFlightTarget(key);if(!target.hidden)playMotion(target,[{filter:'brightness(1)'},{filter:'brightness(1.8)'},{filter:'brightness(1)'}],{duration:MOTION_MS.panel});}
+function flyTag(name,rect,key){
+  if(!rect||!motionAllowed()){pulseTag(key);return;}
+  const target=tagFlightTarget(key).getBoundingClientRect(),ghost=element('div',name,'tag-flight');
+  ghost.setAttribute('aria-hidden','true');ghost.setAttribute('popover','manual');ghost.style.left=rect.left+'px';ghost.style.top=rect.top+'px';document.body.append(ghost);ghost.showPopover();
+  const dx=target.left+target.width/2-rect.left-ghost.offsetWidth/2,dy=target.top+target.height/2-rect.top-ghost.offsetHeight/2;
+  const animation=playMotion(ghost,[{transform:'translate(0,0) scale(1)',opacity:.95},{transform:'translate('+(dx*.45+20)+'px,'+(dy*.55-18)+'px) scale(.98)',opacity:.9,offset:.5},{transform:'translate('+dx+'px,'+dy+'px) scale(.7)',opacity:.3}],{duration:MOTION_MS.expressive});
+  const finish=()=>{ghost.remove();if(selectedTags.has(key))pulseTag(key);};
+  if(animation)animation.finished.then(finish,finish);else finish();
+}
+function addTagFilter(value,source){
+  if(!tagFilterReady())return false;
+  const key=tagKey(value);
+  if(selectedTags.has(key)){pulseTag(key);return false;}
+  const name=tagCatalog.get(key);if(!name)return false;
+  const rect=source?.getBoundingClientRect(),anchor=source?.dataset?.chartId?captureTagAnchor(source):captureTagViewport();
+  selectedTags.set(key,name);dismissChartTags();pendingTagAnchor=anchor;
+  rebuild();flyTag(name,rect,key);return true;
+}
+function removeTagFilter(key){
+  if(!tagFilterReady()||!selectedTags.has(key))return;
+  const panel=$('selected-tag-popover'),inPanel=panel.contains(document.activeElement),area=$(inPanel?'selected-tag-popover-content':'selected-tags');
+  const index=[...area.children].findIndex(chip=>chip.dataset.tagKey===key);
+  pendingTagAnchor=captureTagViewport();selectedTags.delete(key);rebuild();
+  const next=area.children[Math.min(index,area.children.length-1)],available=inPanel?panel.matches(':popover-open'):next&&!next.inert;
+  const target=available?next?.querySelector('button'):$('tag-filter-strip').hidden?$('tag-add-open'):$('tag-add-sticky');
+  if(!document.activeElement?.isConnected||document.activeElement===document.body)target.focus({preventScroll:true});
+}
+function clearTagFilters(){
+  if(!tagFilterReady()||!selectedTags.size)return;
+  pendingTagAnchor=captureTagViewport();selectedTags.clear();rebuild();$('tag-add-open').focus({preventScroll:true});
+}
+function prepareTagAnchor(ready,continuous){
+  if(tagViewportFrame!==null){cancelAnimationFrame(tagViewportFrame);tagViewportFrame=null;}
+  document.documentElement.classList.remove('tag-viewport-update');
+  const anchor=pendingTagAnchor;if(!anchor)return;
+  if(anchor.viewport){
+    // Removing a constraint preserves the viewport, even when existing cards move to another page.
+    document.documentElement.classList.add('tag-viewport-update');
+    page=anchor.page;visibleCount=Math.max(visibleCount,anchor.visibleCount);return;
+  }
+  if(!ready)return;
+  const index=filtered.findIndex(row=>row[0]===anchor.id);
+  if(index>=0){if(continuous)visibleCount=Math.max(visibleCount,Math.ceil((index+1)/scrollBatchSize)*scrollBatchSize);else page=Math.floor(index/pageSize())+1;}
+}
+function restoreTagAnchor(){
+  const anchor=pendingTagAnchor;if(!anchor)return;pendingTagAnchor=null;
+  if(anchor.viewport){
+    const restore=()=>scrollTo({left:anchor.left,top:anchor.top,behavior:'instant'});
+    restore();
+    tagViewportFrame=requestAnimationFrame(()=>{
+      restore();document.documentElement.classList.remove('tag-viewport-update');tagViewportFrame=null;
+    });
+    return;
+  }
+  const card=cardViews.get(anchor.id)?.card;
+  if(card)scrollBy({top:card.getBoundingClientRect().top-anchor.top,behavior:'instant'});
+  else{
+    const first=$('rows').firstElementChild||$('empty'),offset=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||60)+($('tag-filter-strip').hidden?0:$('tag-filter-strip').offsetHeight)+14;
+    scrollBy({top:first.getBoundingClientRect().top-offset,behavior:'instant'});
+  }
+}
+function setupTagFilters(){
+  for(const id of ['tag-add-open','tag-add-sticky'])$(id).addEventListener('click',()=>openTagPicker($(id)));
+  $('tag-picker-close').addEventListener('click',()=>{$('tag-picker').hidePopover();tagPickerAnchor?.focus({preventScroll:true});});
+  $('tag-picker').addEventListener('toggle',event=>{if(event.newState==='closed')tagPickerAnchor?.setAttribute('aria-expanded','false');else tagPickerAnchor?.setAttribute('aria-expanded','true');});
+  $('tag-input').addEventListener('input',()=>{tagCandidateIndex=-1;renderTagCandidates();});
+  $('tag-input').addEventListener('keydown',event=>{
+    if(event.isComposing||event.keyCode===229)return;
+    if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+      event.preventDefault();if(!tagCandidates.length)return;
+      tagCandidateIndex=(tagCandidateIndex+(event.key==='ArrowDown'?1:-1)+tagCandidates.length)%tagCandidates.length;
+      for(const [index,node] of [...$('tag-candidates').children].entries())node.setAttribute('aria-selected',String(index===tagCandidateIndex));
+      $('tag-input').setAttribute('aria-activedescendant','tag-candidate-'+tagCandidateIndex);$('tag-candidates').children[tagCandidateIndex]?.scrollIntoView({block:'nearest'});return;
+    }
+    if(event.key==='Enter'){
+      event.preventDefault();const candidate=tagCandidates[tagCandidateIndex],name=candidate?.name||tagCatalog.get(tagKey($('tag-input').value));
+      if(name&&addTagFilter(name,candidate?$('tag-candidates').children[tagCandidateIndex]:$('tag-input'))){$('tag-input').value='';tagCandidateIndex=-1;renderTagCandidates();}
+      else if(!name)uiText($('tag-picker-feedback'),m('Choose a suggested tag, or enter its complete name.'));
+    }
+  });
+  $('tag-clear').addEventListener('click',clearTagFilters);
+  $('tag-more').addEventListener('click',()=>{const panel=$('selected-tag-popover');if(panel.matches(':popover-open'))panel.hidePopover();else{panel.showPopover();positionTagPanel(panel,$('tag-more'));panel.querySelector('button')?.focus({preventScroll:true});}});
+  $('selected-tag-popover').addEventListener('toggle',event=>$('tag-more').setAttribute('aria-expanded',String(event.newState==='open')));
+  $('selected-tag-popover').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();$('selected-tag-popover').hidePopover();(!$('tag-more').hidden?$('tag-more'):$('tag-add-open')).focus({preventScroll:true});}});
+  let frame=null;
+  const reposition=()=>{if(frame!==null)return;frame=requestAnimationFrame(()=>{frame=null;positionTagPanel($('tag-picker'),tagPickerAnchor);positionTagPanel($('selected-tag-popover'),$('tag-more'));});};
+  const resize=()=>{updateTagOverflow();reposition();};
+  globalThis.addEventListener('scroll',reposition,{passive:true});globalThis.addEventListener('resize',resize);
+  if(typeof ResizeObserver==='function'){const observer=new ResizeObserver(resize);observer.observe($('tag-filter-strip'));}
+  document.fonts?.ready?.then(updateTagOverflow);
+}
+function stopTextSearch(clear=false){const work=textSearchWork;textSearchWork=null;work?.controller.abort();if(clear)textSearchProblem='';}
+function scopeSearchUsers(users,rows){const ids=new Set(rows.map(row=>row[8].uploader));for(const user of users)if(ids.has(user.id))remember(profileCache,user.id,user,2048);}
+function startTextSearch(query){
+  if(textSearchWork||textSearchProblem||!needsUserSearch(query))return;
+  const work={controller:new AbortController(),query,rows:currentRows,generation:cacheGeneration,promise:null};textSearchWork=work;
+  work.promise=(async()=>{
+    try{const users=await readUserSearch(query,work.controller.signal);if(textSearchWork===work)scopeSearchUsers(users,currentRows);}
+    catch{if(textSearchWork===work)textSearchProblem=m('Uploader search failed. Please retry.');}
+    finally{if(textSearchWork===work){textSearchWork=null;await rebuild(false);}}
+  })();
+}
+function changeSearchScope(field){
+  if(searchScopes.has(field)){if(searchScopes.size===1)return;searchScopes.delete(field);}else searchScopes.add(field);
+  textSearchProblem='';if(!searchScopes.has('creator'))stopTextSearch();
+  syncSearchControls();if(phase!=='ready'||!titleKey($('local-search').value))return;
+  rebuild(false);
+  if(!textSearchWork&&needsUserSearch(titleKey($('local-search').value)))textFilterTimer=setTimeout(()=>{textFilterTimer=null;rebuild();},300);
+}
+function resetFilters(){
+  selectedTags.clear();pendingTagAnchor=null;
+  lastAppliedCriteria=null;cancelQuery();$('local-search').value='';$('min').value='0';$('max').value='99';
+  for(const field of Object.keys(searchFields))searchScopes.add(field);
+  for(const input of document.querySelectorAll('input[name="diff"]'))input.checked=input.value==='4';
+  $('date-preset').value='7';applyDatePreset();$('sort').value='date';$('sort-direction').value='desc';syncSearchControls();syncFilters();
+}
+function element(tag,text,className){const el=document.createElement(tag);if(text!==undefined)uiText(el,text);if(className)el.className=className;return el;}
+function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),use=document.createElementNS('http://www.w3.org/2000/svg','use');svg.setAttribute('class','icon');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');use.setAttribute('href','#icon-'+name);svg.append(use);return svg;}
+function countValue(value){return typeof value==='number'&&Number.isSafeInteger(value)&&value>=0?value:null;}
+function coverURL(value){
+  try{const url=new URL(String(value));if(url.username||url.password||url.search||url.hash)return '';
+    if(['https://spinsha.re','https://spinshare.b-cdn.net'].includes(url.origin)&&/^\/uploads\/(cover|thumbnail)\/[a-zA-Z0-9_-]+\.(png|jpg|jpeg|webp|gif|avif)$/i.test(url.pathname))return 'https://spinshare.b-cdn.net'+url.pathname;
+    if(url.origin==='https://spinshare.b-cdn.net'&&url.pathname==='/assets/img/defaultAlbumArt.jpg')return url.href;
+  }catch{}return '';
+}
+const defaultAvatarURL='https://spinshare.b-cdn.net/assets/img/defaultAvatar.jpg';
+function avatarURL(value){
+  try{const url=new URL(String(value));if(url.username||url.password||url.search||url.hash)return '';
+    if(url.origin==='https://spinsha.re'&&/^\/uploads\/avatar\/[a-zA-Z0-9_-]{1,128}\.(png|jpg|jpeg|webp|gif)$/i.test(url.pathname))return url.href;
+    if(url.href===defaultAvatarURL)return url.href;
+  }catch{}return '';
+}
+function publicUser(value){
+  const user=value&&typeof value==='object'?value:{},id=user.id;
+  const legacy=typeof user.coverReference==='string'&&/^[a-zA-Z0-9_-]{1,128}\.(png|jpg|jpeg|webp|gif)$/i.test(user.coverReference)?'https://spinsha.re/uploads/avatar/'+user.coverReference:'';
+  return {id:Number.isSafeInteger(id)&&id>0?id:null,name:String(user.username||m("Unnamed user")),avatar:avatarURL(user.avatar)||legacy,verified:user.isVerified===true,patron:user.isPatreon===true,pronouns:String(user.pronouns||'')};
+}
+function makeAvatar(url,name){
+  const box=element('span',undefined,'avatar-box');box.setAttribute('role','img');uiAttr(box,"aria-label",name+m("'s avatar"));
+  const initial=String(name).includes(UI_PREFIX)?'':([...String(name).trim()][0]||'').toLocaleUpperCase();
+  const placeholder=initial?element('span',initial,'avatar-initial'):icon('user');box.append(placeholder);
+  url=avatarURL(url);if(!url||url===defaultAvatarURL)return box;
+  const img=element('img',undefined,'avatar');uiAttr(img,"alt",'');img.width=28;img.height=28;img.loading='lazy';img.decoding='async';img.fetchPriority='low';img.referrerPolicy='no-referrer';
+    const loaded=()=>{if(img.parentNode===box){placeholder.setAttribute('hidden','');if(rememberEntry('avatar:'+url))playMotion(img,[{opacity:0},{opacity:1}],{duration:MOTION_MS.feedback});}};
+  img.addEventListener('load',loaded);
+  img.addEventListener('error',()=>{if(img.parentNode===box){placeholder.removeAttribute('hidden');box.replaceChildren(placeholder);uiAttr(box,"title",m("Avatar unavailable"));}});
+  box.append(img);img.src=url;if(img.complete&&img.naturalWidth>0)loaded();return box;
+}
+function userLink(user,className){
+  const link=element(user.id?'a':'span',user.name,className);
+  if(user.id){link.href='https://spinsha.re/user/'+user.id;link.target='_blank';link.rel='noopener noreferrer';}
+  return link;
+}
+const coverViews=new Map(),coverTargets=new Map();
+let coverObserver=null,activeCovers=0;
+function cancelCover(view){
+  if(view.state!=='loading')return;
+  clearTimeout(view.timer);activeCovers--;view.state='idle';
+  view.probe?.abort();view.probe=null;
+  const image=view.image;view.image=null;image.removeAttribute('src');image.remove();
+}
+function syncCovers(){
+  if(!coverObserver&&typeof IntersectionObserver==='function')coverObserver=new IntersectionObserver(entries=>{
+    for(const entry of entries){const view=coverTargets.get(entry.target);if(view)view.visible=entry.isIntersecting&&view.box.isConnected;}
+    pumpCovers();
+  },{rootMargin:'300px'});
+  const inactive=[];
+  for(const view of coverViews.values()){
+    if(view.box.isConnected){
+      if(view.state==='loaded'||view.state==='missing'||!view.sources.length)continue;
+      if(coverObserver){if(!coverTargets.has(view.box)){coverTargets.set(view.box,view);coverObserver.observe(view.box);}}
+      else view.visible=true;
+    }else{
+      view.visible=false;coverObserver?.unobserve(view.box);coverTargets.delete(view.box);cancelCover(view);inactive.push(view);
+    }
+  }
+  for(const view of inactive.slice(0,Math.max(0,inactive.length-80)))coverViews.delete(view.key);
+  pumpCovers();
+}
+function pumpCovers(){
+  for(const view of coverViews.values()){
+    if(activeCovers>=2)return;
+    if(view.visible&&view.box.isConnected&&view.state==='idle'&&view.sources.length)loadCover(view);
+  }
+}
+function loadCover(view){
+  const image=element('img',undefined,'cover');uiAttr(image,'alt','');image.width=64;image.height=64;image.loading='eager';image.decoding='async';image.fetchPriority='auto';image.referrerPolicy='no-referrer';
+  const source=view.sources[view.index],url=new URL(source);
+  if(view.retryVersion)url.searchParams.set('v',String(view.retryVersion));
+  view.image=image;view.state='loading';activeCovers++;
+  const finish=(loaded,missing=false)=>{
+    if(view.image!==image||view.state!=='loading')return;
+    clearTimeout(view.timer);activeCovers--;
+    view.probe?.abort();view.probe=null;
+    if(loaded){view.state='loaded';view.placeholder.setAttribute('hidden','');coverObserver?.unobserve(view.box);coverTargets.delete(view.box);if(rememberEntry('cover:'+source))playMotion(image,[{opacity:0},{opacity:1}],{duration:MOTION_MS.feedback});}
+    else{
+      if(missing)view.missingSources.add(source);
+      view.image=null;image.removeAttribute('src');image.remove();view.index++;
+      while(view.missingSources.has(view.sources[view.index]))view.index++;
+      view.state=view.index<view.sources.length?'idle':view.missingSources.size===view.sources.length?'missing':'error';
+      if(view.state==='error'){view.link.hidden=true;view.retry.hidden=false;}
+      if(view.state==='missing'){view.missing.hidden=false;uiAttr(view.link,'title',m('Cover missing on SpinShare.'));coverObserver?.unobserve(view.box);coverTargets.delete(view.box);}
+    }
+    pumpCovers();
+  };
+  image.addEventListener('load',()=>finish(true));
+  image.addEventListener('error',()=>{
+    if(view.image!==image||view.state!=='loading'||view.probe)return;
+    const probe=new AbortController();view.probe=probe;
+    fetch(url.href,{method:'HEAD',mode:'cors',credentials:'omit',cache:view.retryVersion?'reload':'default',referrerPolicy:'no-referrer',redirect:'error',signal:probe.signal})
+      .then(response=>finish(false,response.status===404||response.status===410)).catch(()=>finish(false));
+  });
+  view.link.append(image);view.timer=setTimeout(()=>finish(image.complete&&image.naturalWidth>0),12000);image.src=url.href;
+  if(image.complete&&image.naturalWidth>0)finish(true);
+}
+function makeCover(row){
+  const meta=row[8],sources=[...new Set([coverURL(meta.thumbnail),coverURL(meta.cover)].filter(Boolean))],key=JSON.stringify([cacheGeneration,row[0],meta.updateHash||'',...sources]);
+  let view=coverViews.get(key);
+  if(view){coverViews.delete(key);coverViews.set(key,view);}
+  else{
+    const box=element('div',undefined,'cover-box'),link=element('a',undefined,'cover-link'),placeholder=icon('grid'),retry=element('button',undefined,'cover-retry'),failure=element('span'),missing=element('span',m('No cover'),'cover-missing');
+    missing.hidden=Boolean(sources.length);link.href='https://spinsha.re/song/'+row[0];link.target='_blank';link.rel='noopener noreferrer';link.append(placeholder,missing);
+    retry.type='button';retry.hidden=true;retry.append(failure,icon('refresh'));box.append(link,retry);
+    view={key,box,link,placeholder,retry,failure,missing,sources,missingSources:new Set(),index:0,state:sources.length?'idle':'missing',visible:false,image:null,timer:null,probe:null,retryVersion:0};coverViews.set(key,view);
+    retry.addEventListener('click',()=>{if(view.state!=='error')return;view.index=0;while(view.missingSources.has(view.sources[view.index]))view.index++;view.retryVersion=Math.max(Date.now(),view.retryVersion+1);view.state='idle';view.link.hidden=false;if(document.activeElement===view.retry)view.link.focus({preventScroll:true});view.retry.hidden=true;view.visible=true;syncCovers();});
+  }
+  uiAttr(view.link,'aria-label',m('Open on SpinShare: ')+row[1]);uiAttr(view.link,'title',view.state==='missing'?m(sources.length?'Cover missing on SpinShare.':'No cover'):m('Open on SpinShare: ')+row[1]);uiAttr(view.retry,'aria-label',m('Retry cover')+': '+row[1]);uiAttr(view.retry,'title',m('Retry cover'));uiText(view.failure,m('Cover unavailable'));uiText(view.missing,m('No cover'));
+  return view.box;
+}
+const chartDescriptionViews=new Map();
+let chartDescriptionPanel=null,chartDescriptionOwner=null,chartDescriptionObserver=null,chartDescriptionFrame=0,chartDescriptionLeaveTimer=null;
+function refreshChartDescriptions(){
+  const measured=[];
+  for(const [preview,view] of chartDescriptionViews){
+    if(!preview.isConnected){
+      if(chartDescriptionOwner===view)dismissChartDescription(false,false);
+      chartDescriptionObserver?.unobserve(preview);chartDescriptionViews.delete(preview);continue;
+    }
+    const content=view.content,line=parseFloat(getComputedStyle(content).lineHeight)||22.1,budget=line*5;
+    const overflow=preview.clientWidth>0&&content.scrollHeight>budget+1;
+    let cut=line*4.5;
+    if(overflow&&typeof document.createRange==='function'){
+      // Clip through actual lettering, not an empty paragraph line; all reads precede writes.
+      const top=content.getBoundingClientRect().top,range=document.createRange();range.selectNodeContents(content);
+      let last=null;
+      for(const rect of range.getClientRects())if(rect.width>0&&rect.top>=top-.5&&rect.bottom<=top+budget+.5&&(!last||rect.top>last.top))last=rect;
+      if(last)cut=Math.max(line*.5,Math.min(budget-.5,last.top-top+last.height/2));
+    }
+    measured.push({view,overflow,cut});
+  }
+  for(const {view,overflow,cut} of measured){
+    const {preview,content}=view;view.overflow=overflow;
+    preview.classList.toggle('has-overflow',overflow);content.inert=overflow;preview.tabIndex=overflow?0:-1;
+    preview.setAttribute('role',overflow?'button':'region');
+    uiAttr(preview,'aria-label',overflow?m('Read the full note for ')+view.row[1]:m('Chart description'));
+    if(overflow){
+      preview.style.setProperty('--description-preview-height',cut+'px');
+      preview.setAttribute('aria-haspopup','dialog');preview.setAttribute('aria-controls','chart-description-popover');
+      preview.setAttribute('aria-expanded',String(chartDescriptionOwner===view));
+      uiAttr(preview,'aria-description',m('Click or press Enter to read the full note.'));
+    }else{
+      preview.style.removeProperty('--description-preview-height');
+      for(const name of ['aria-haspopup','aria-controls','aria-expanded'])preview.removeAttribute(name);
+      uiAttr(preview,'aria-description','');
+      if(chartDescriptionOwner===view)dismissChartDescription(chartDescriptionPanel.target.contains(document.activeElement),false);
+    }
+  }
+  if(chartDescriptionOwner)positionReadingPopover(chartDescriptionPanel);
+}
+function scheduleChartDescriptions(){
+  if(chartDescriptionFrame)return;
+  chartDescriptionFrame=requestAnimationFrame(()=>{chartDescriptionFrame=0;refreshChartDescriptions();});
+}
+function dismissChartDescription(restoreFocus=false,animate=true){
+  clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=null;
+  const owner=chartDescriptionOwner,panel=chartDescriptionPanel;chartDescriptionOwner=null;
+  if(owner){owner.preview.classList.remove('is-open');if(owner.overflow)owner.preview.setAttribute('aria-expanded','false');}
+  if(panel){
+    const from=cancelReadingMotion(panel);panel.readingVisible=false;panel.target.inert=true;
+    if(panel.target.matches(':popover-open'))animateReadingPopover(panel,false,animate,from);else panel.target.hidden=true;
+  }
+  if(restoreFocus&&owner?.preview.isConnected)owner.preview.focus({preventScroll:true});
+  return Boolean(owner);
+}
+function leaveChartDescription(view=chartDescriptionOwner){
+  if(!view||chartDescriptionOwner!==view||view.input==='keyboard')return;
+  clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=setTimeout(()=>{
+    chartDescriptionLeaveTimer=null;
+    if(chartDescriptionOwner===view&&!view.card.matches(':hover')&&!chartDescriptionPanel.target.matches(':hover'))dismissChartDescription();
+  },160);
+}
+function ensureChartDescriptionPopover(){
+  if(chartDescriptionPanel)return chartDescriptionPanel;
+  const target=element('section',undefined,'chart-description-popover reading-popover'),body=element('div',undefined,'reading-body');
+  const list=element('div',undefined,'description-full reading-content');
+  target.id='chart-description-popover';target.hidden=true;target.inert=true;target.tabIndex=-1;
+  target.setAttribute('popover','manual');target.setAttribute('role','dialog');
+  list.tabIndex=0;uiAttr(list,'aria-label',m('Chart description'));
+  body.append(list);target.append(body);document.body.append(target);
+  const panel={target,body,list,readingWidth:640,readingVisible:false,toggle:null};chartDescriptionPanel=panel;
+  bindReadingWheel(target,list);
+  target.addEventListener('pointerenter',()=>{clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=null;});
+  target.addEventListener('pointerleave',event=>{if(event.pointerType!=='touch')leaveChartDescription();});
+  target.addEventListener('toggle',event=>{if(event.newState==='closed'&&chartDescriptionOwner&&!target.matches(':popover-open'))dismissChartDescription(false,false);});
+  document.addEventListener('pointerdown',event=>{if(chartDescriptionOwner&&!chartDescriptionOwner.card.contains(event.target))dismissChartDescription();});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented&&chartDescriptionOwner){event.preventDefault();dismissChartDescription(true);}});
+  document.addEventListener('scroll',event=>{
+    // A wheel gesture emits many root scroll events. Once the first one starts
+    // the shared exit motion, do not keep cancelling and restarting it.
+    if(chartDescriptionOwner&&(event.target===document||event.target===document.documentElement))dismissChartDescription();
+  },{capture:true,passive:true});
+  globalThis.addEventListener?.('resize',scheduleChartDescriptions);
+  globalThis.addEventListener?.('blur',()=>dismissChartDescription(false,false));
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)dismissChartDescription(false,false);});
+  document.fonts?.ready?.then(scheduleChartDescriptions);return panel;
+}
+function showChartDescription(view,input='mouse'){
+  if(!view?.overflow||!view.preview.isConnected||!view.card||!hostVisible||document.hidden||appExiting||phase!=='ready')return false;
+  if($('tag-picker').matches(':popover-open')||$('selected-tag-popover').matches(':popover-open'))return false;
+  clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=null;view.input=input;
+  const panel=ensureChartDescriptionPopover();
+  if(chartDescriptionOwner===view){if(input==='keyboard')panel.list.focus({preventScroll:true});return true;}
+  if(panel.toggle!==view.preview)dismissChartDescription(false,false);
+  closeTemporaryReviews(reviewPopoverOwner,false,false);dismissChartTags();
+  const same=panel.toggle===view.preview,from=cancelReadingMotion(panel);
+  if(!same){panel.list.replaceChildren();appendChartDescription(panel.list,view.row[8].description);panel.list.scrollTop=0;}
+  chartDescriptionOwner=view;panel.toggle=view.preview;view.preview.after(panel.target);
+  view.preview.classList.add('is-open');view.preview.setAttribute('aria-expanded','true');
+  uiAttr(panel.target,'aria-label',view.row[1]+' · '+m('Chart description'));
+  panel.readingVisible=true;panel.target.hidden=false;panel.target.inert=false;positionReadingPopover(panel);
+  if(!panel.target.matches(':popover-open'))panel.target.showPopover();animateReadingPopover(panel,true,true,same?from:null);
+  if(input==='keyboard')panel.list.focus({preventScroll:true});return true;
+}
+function bindChartDescription(row,preview,content){
+  const view={row,preview,content,card:null,overflow:false,input:'mouse'};chartDescriptionViews.set(preview,view);
+  preview.tabIndex=-1;preview.setAttribute('role','region');uiAttr(preview,'aria-label',m('Chart description'));content.inert=true;
+  preview.addEventListener('pointerdown',event=>{view.pointerType=event.pointerType;});
+  preview.addEventListener('click',event=>{if(view.overflow){event.preventDefault();showChartDescription(view,event.detail===0?'keyboard':view.pointerType||'mouse');}});
+  preview.addEventListener('keydown',event=>{if(event.target===preview&&view.overflow&&['Enter',' '].includes(event.key)){event.preventDefault();showChartDescription(view,'keyboard');}});
+  if(typeof ResizeObserver==='function'){
+    if(!chartDescriptionObserver)chartDescriptionObserver=new ResizeObserver(scheduleChartDescriptions);
+    chartDescriptionObserver.observe(preview);
+  }
+  ensureChartDescriptionPopover();scheduleChartDescriptions();return view;
+}
+function bindChartDescriptionCard(card){
+  const view=chartDescriptionViews.get(card.querySelector('.chart-description'));if(!view)return;view.card=card;
+  card.addEventListener('pointerenter',()=>{if(chartDescriptionOwner===view){clearTimeout(chartDescriptionLeaveTimer);chartDescriptionLeaveTimer=null;}});
+  card.addEventListener('pointerleave',event=>{if(event.pointerType!=='touch'&&!card.contains(event.relatedTarget))leaveChartDescription(view);});
+  card.addEventListener('focusout',event=>{if(chartDescriptionOwner===view&&view.input==='keyboard'&&!card.contains(event.relatedTarget))dismissChartDescription();});
+}
+let chartTagsPopover=null,chartTagsOwner=null,chartTagsTimer=null,chartTagsFrame=0,chartTagsIgnoreFocus=false;
+function chartTagsOverflow(strip){return strip.clientWidth>0&&strip.scrollWidth>strip.clientWidth+1;}
+function makeChartTagButton(tag,chartId){
+  const button=element('button',tag,'chart-tag-button');button.type='button';button.dataset.chartTag=tag;button.dataset.chartId=String(chartId);
+  button.addEventListener('click',()=>addTagFilter(tag,button));return button;
+}
+function refreshChartTagButtons(){
+  for(const button of document.querySelectorAll('.chart-tag-button')){
+    const selected=selectedTags.has(tagKey(button.dataset.chartTag));button.setAttribute('aria-pressed',String(selected));
+    uiAttr(button,'aria-label',m(selected?'Tag already selected: ':'Filter by tag: ')+button.dataset.chartTag);
+  }
+  for(const strip of document.querySelectorAll('.chart-tags')){
+    const overflow=chartTagsOverflow(strip);strip.tabIndex=overflow?0:-1;strip.classList.toggle('has-overflow',overflow);
+    if(overflow){strip.setAttribute('aria-haspopup','dialog');strip.setAttribute('aria-controls','chart-tags-popover');uiAttr(strip,'aria-description',m('Hover, focus, or tap to show all tags.'));}
+    else{strip.removeAttribute('aria-haspopup');strip.removeAttribute('aria-controls');uiAttr(strip,'aria-description','');}
+    for(const button of strip.children)button.tabIndex=overflow?-1:0;
+  }
+  if(chartTagsOwner){if(!chartTagsOwner.isConnected||!chartTagsOverflow(chartTagsOwner))dismissChartTags();else positionChartTags();}
+}
+function scheduleChartTagsRefresh(){
+  if(chartTagsFrame)return;
+  chartTagsFrame=requestAnimationFrame(()=>{chartTagsFrame=0;refreshChartTagButtons();});
+}
+function dismissChartTags(){
+  clearTimeout(chartTagsTimer);chartTagsTimer=null;
+  const owner=chartTagsOwner;chartTagsOwner=null;owner?.classList.remove('is-open');
+  if(chartTagsPopover?.matches(':popover-open'))chartTagsPopover.hidePopover();
+  if(chartTagsPopover&&chartTagsPopover.parentElement!==document.body)document.body.append(chartTagsPopover);
+  return Boolean(owner);
+}
+function leaveChartTags(){
+  clearTimeout(chartTagsTimer);chartTagsTimer=setTimeout(()=>{
+    chartTagsTimer=null;const owner=chartTagsOwner,panel=chartTagsPopover,focused=document.activeElement;
+    if(!owner)return;
+    if(owner.matches(':hover')||panel.matches(':hover')||focused?.matches(':focus-visible')&&(owner.contains(focused)||panel.contains(focused)))return;
+    dismissChartTags();
+  },160);
+}
+function positionChartTags(){
+  const strip=chartTagsOwner,panel=chartTagsPopover;if(!strip||!panel?.matches(':popover-open'))return;
+  if(!strip.isConnected){dismissChartTags();return;}
+  const scrollTop=panel.scrollTop;
+  const anchor=strip.getBoundingClientRect(),width=document.documentElement.clientWidth,height=document.documentElement.clientHeight,edge=12,gap=6;
+  const ceiling=Math.max(edge,(document.querySelector('.topbar')?.getBoundingClientRect().bottom||0)+gap);
+  if(anchor.bottom<=ceiling||anchor.top>=height-edge){dismissChartTags();return;}
+  panel.style.width=`${Math.min(Math.max(anchor.width,280),440,Math.max(1,width-edge*2))}px`;
+  panel.style.maxHeight=`${Math.max(1,height-ceiling-edge)}px`;
+  let box=panel.getBoundingClientRect();
+  const below=height-edge-anchor.bottom-gap,above=anchor.top-gap-ceiling,down=below>=box.height||below>=above;
+  panel.style.maxHeight=`${Math.max(1,down?below:above)}px`;box=panel.getBoundingClientRect();
+  panel.style.left=`${Math.max(edge,Math.min(anchor.left,width-edge-box.width))}px`;
+  panel.style.top=`${Math.max(ceiling,Math.min(down?anchor.bottom+gap:anchor.top-gap-box.height,height-edge-box.height))}px`;
+  panel.scrollTop=scrollTop;
+}
+function ensureChartTagsPopover(){
+  if(chartTagsPopover)return chartTagsPopover;
+  const panel=element('div',undefined,'close-help chart-tags-popover');chartTagsPopover=panel;
+  panel.id='chart-tags-popover';panel.setAttribute('popover','auto');panel.setAttribute('role','dialog');panel.tabIndex=-1;uiAttr(panel,'aria-label',m('Chart tags'));document.body.append(panel);
+  panel.addEventListener('pointerenter',()=>{clearTimeout(chartTagsTimer);chartTagsTimer=null;});
+  panel.addEventListener('pointerleave',event=>{if(event.pointerType!=='touch')leaveChartTags();});
+  panel.addEventListener('focusout',leaveChartTags);
+  panel.addEventListener('beforetoggle',event=>{
+    if(event.newState!=='closed')return;
+    // Closing can restore focus to the strip before the native toggle finishes.
+    chartTagsIgnoreFocus=true;queueMicrotask(()=>{chartTagsIgnoreFocus=false;});
+    clearTimeout(chartTagsTimer);chartTagsTimer=null;chartTagsOwner?.classList.remove('is-open');chartTagsOwner=null;
+  });
+  panel.addEventListener('toggle',event=>{if(event.newState==='closed'&&!panel.matches(':popover-open')&&panel.parentElement!==document.body)document.body.append(panel);});
+  document.addEventListener('keydown',event=>{
+    if(event.key!=='Escape'||!chartTagsOwner)return;
+    const owner=chartTagsOwner,restore=panel.contains(document.activeElement);chartTagsIgnoreFocus=true;dismissChartTags();
+    if(restore&&owner.isConnected)owner.focus({preventScroll:true});chartTagsIgnoreFocus=false;event.preventDefault();event.stopPropagation();
+  },true);
+  globalThis.addEventListener?.('resize',scheduleChartTagsRefresh);
+  globalThis.addEventListener?.('scroll',event=>{if(!chartTagsPopover?.contains(event.target))positionChartTags();},{capture:true,passive:true});
+  globalThis.addEventListener?.('blur',dismissChartTags);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)dismissChartTags();});
+  if(typeof ResizeObserver==='function')new ResizeObserver(positionChartTags).observe(panel);
+  document.fonts?.ready?.then(scheduleChartTagsRefresh);return panel;
+}
+function showChartTags(strip){
+  if($('tag-picker').matches(':popover-open')||$('selected-tag-popover').matches(':popover-open'))return false;
+  clearTimeout(chartTagsTimer);chartTagsTimer=null;
+  if(!strip.isConnected||!hostVisible||document.hidden||!chartTagsOverflow(strip))return false;
+  dismissChartDescription(false,false);
+  const panel=ensureChartTagsPopover();
+  if(chartTagsOwner!==strip){
+    dismissChartTags();chartTagsOwner=strip;strip.classList.add('is-open');strip.after(panel);
+    panel.replaceChildren(...[...strip.children].map(button=>makeChartTagButton(button.dataset.chartTag,button.dataset.chartId)));
+    panel.showPopover();refreshChartTagButtons();
+  }
+  positionChartTags();return chartTagsOwner===strip;
+}
+function installationRequestId(){
+  if(!globalThis.crypto?.getRandomValues)throw uiError(m("This browser cannot create install requests. Try another browser."));
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIRECTORY){
+  const job=payload?.job,states=['queued','downloading','validating','extracting','complete','error'];
+  if(!job||typeof job!=='object'||!/^[a-f0-9]{32}$/.test(job.id)||job.songId!==songId||!states.includes(job.state)||expectedId&&job.id!==expectedId)throw uiError(m("Could not confirm installation. Check its status before trying again."));
+  if(job.targetDirectory!==targetDirectory)throw uiError(m("The install folder does not match. Check Settings before continuing."));
+  return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
+}
+async function installerRequest(method,path,body,revision=''){
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/desktop/window','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
+  if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
+  const request=new AbortController();let timedOut=false;
+  const timer=setTimeout(()=>{timedOut=true;request.abort();},path==='/v1/directory/select'?600000:10000);
+  const headers={'X-SpinShare-Key':INSTALL_KEY};if(method==='POST')headers['Content-Type']='application/json';
+  if(path==='/v1/install')headers['X-SpinShare-Settings']=revision;
+  try{
+    const response=await fetch(INSTALL_ORIGIN+path,{method,mode:'same-origin',credentials:'omit',cache:'no-store',redirect:'error',targetAddressSpace:'loopback',headers,...(body?{body:JSON.stringify(body)}:{}),signal:request.signal});
+    let result;try{result=await readJSONResponse({ok:true,headers:response.headers,body:response.body},64*1024);}catch(error){if(request.signal.aborted)throw error;throw uiError(m("Could not confirm installation. Check its status before trying again."));}
+    if(!response.ok){
+      const code=typeof result?.code==='string'?result.code:'',detail=typeof result?.error==='string'?localizeInstallerMessage(result.error):'',localized=code==='queue_full'?m('The install queue is full. Wait for a task to finish, then try again.'):Object.hasOwn(INSTALLER_ERROR_TEXT,code)?INSTALLER_ERROR_TEXT[code]:'';
+      const error=uiError(localized||detail||m("The installer returned HTTP ")+response.status+m('.'));error.httpStatus=response.status;error.code=code;
+      if(error.code==='settings_changed'){settingsStale=true;error.uiMessage=errorText(error)+m(" Open Settings to confirm the directory before retrying.");updateAllInstallationViews();}
+      throw error;
+    }
+    return result;
+  }catch(error){
+    if(timedOut){
+      if(path==='/v1/language')throw uiError(m('Saving the language timed out. Please retry.'));
+      if(path==='/v1/settings')throw uiError(method==='POST'?m("Saving settings timed out. Reopen Settings to check the result."):m("Loading settings timed out. Reopen Settings and try again."));
+      if(path==='/v1/directory/select')throw uiError(m("Choosing a folder timed out. Close the folder dialog before retrying."));
+      if(path==='/v1/shutdown')throw uiError(m("Exit timed out. Check whether the app is still running."));
+      throw uiError(m("Installer response timed out. The task may still be running; check its progress."));
+    }
+    if(error instanceof TypeError)throw uiError(m("Cannot reach the installer. Reopen SpinShareBrowser.exe and allow local network access if asked."));
+    throw error;
+  }finally{clearTimeout(timer);}
+}
+function installationPending(songId){
+  const saved=installationStates.get(songId),state=saved?.targetDirectory===INSTALL_DIRECTORY?saved:null,activeId=installationActivityIds.get(songId);
+  return Boolean(state?.running||state?.requestId&&!state.rejected&&!state.expired&&!['complete','error'].includes(state.job?.state)||activeId&&activeId!==state?.job?.id);
+}
+function installationFilterMode(){const value=$('installation-filter').value;return ['installed','uninstalled'].includes(value)?value:'all';}
+function installationKey(row){return settingsRevision+':'+row[8].fileReference+':'+row[8].updateHash;}
+function canCheckInstallation(row){return !row[8].dlc&&/^spinshare_[a-f0-9]{1,64}$/i.test(row[8].fileReference||'')&&/^[a-f0-9]{32}$/i.test(row[8].updateHash||'');}
+function installationPresence(row){
+  if(settingsStale||!canCheckInstallation(row)||installationPending(row[0]))return null;
+  const record=installedCharts.get(row[0]);return record?.key===installationKey(row)?record.value:undefined;
+}
+function trimPresenceQueue(rows=[]){
+  const keep=new Set(rows.map(row=>row[0]));
+  for(const [id,{record}] of presenceQueue)if(!keep.has(id)){
+    if(installedCharts.get(id)===record)installedCharts.delete(id);
+    presenceQueue.delete(id);
+  }
+}
+function syncInstallationFilter(){
+  const active=Boolean(applied)&&phase==='ready'&&installationFilterMode()!=='all';let pending=0,unknown=0,retry=false;
+  if(active)for(const row of installationCandidates){
+    const value=installationPresence(row);
+    if(value===undefined)pending++;
+    else if(value===null){unknown++;if(canCheckInstallation(row)&&!installationPending(row[0]))retry=true;}
+  }
+  installationFilterPending=pending>0;
+  $('installation-filter-feedback').hidden=!active||!pending&&!unknown;
+  $('installation-filter-retry').hidden=!active||!retry||settingsStale;
+  $('installation-filter-retry').disabled=appExiting||pending>0;
+  $('installation-filter').setAttribute('aria-busy',String(pending>0));
+  uiText($('installation-filter-message'),settingsStale?m('Open Settings to confirm the changed install directory.'):pending?m('Checking installation status: ')+number(installationCandidates.length-pending)+' / '+number(installationCandidates.length):unknown?m('Installation status unknown: ')+number(unknown)+m(' charts excluded.'):'');
+  loadingIndicator($('installation-filter-message'),pending>0);return pending;
+}
+function refreshInstallationResults(){
+  if(!applied||phase!=='ready'||installationFilterMode()==='all'||presenceRefreshQueued)return;
+  presenceRefreshQueued=true;queueMicrotask(()=>{
+    presenceRefreshQueued=false;
+    if(applied&&phase==='ready'&&installationFilterMode()!=='all')rebuild(false,true);
+  });
+}
+function refreshInstallationChecks(failedOnly=false){
+  if(!applied||phase!=='ready'||appExiting||settingsStale)return;
+  let rows=installationFilterMode()==='all'?[...installationViews.values()].map(view=>view.row):installationCandidates;
+  if(failedOnly)rows=rows.filter(row=>installationPresence(row)===null);
+  queueInstallationChecks(rows,true);syncInstallationFilter();
+}
+function refreshInstallationActivity(){
+  const active=new Map(activityJobs.map(job=>[job.songId,job.id])),changed=new Set([...installationActivityIds.keys(),...active.keys()]);
+  for(const id of changed)if(installationActivityIds.get(id)===active.get(id))changed.delete(id);
+  installationActivityIds=active;
+  if(!changed.size)return;
+  for(const id of changed){installedCharts.delete(id);presenceQueue.delete(id);}
+  queueInstallationChecks(currentRows.filter(row=>changed.has(row[0])));refreshInstallationResults();
+}
+function queueInstallationChecks(rows,force=false){
+  if(settingsStale||appExiting)return;
+  for(const row of rows){
+    if(!row||!canCheckInstallation(row)||installationPending(row[0]))continue;
+    const key=installationKey(row);let record=installedCharts.get(row[0]);
+    if(record?.key!==key||force&&!record.pending){record={key,value:undefined,pending:false};installedCharts.set(row[0],record);}
+    if(record.pending||record.value!==undefined)continue;
+    record.pending=true;presenceQueue.set(row[0],{row,record});updateInstallationView(row[0]);
+  }
+  return readInstallationPresence();
+}
+async function readInstallationPresence(){
+  if(presenceBusy||settingsStale||appExiting)return;
+  presenceBusy=true;
+  try{
+    while(presenceQueue.size&&!settingsStale&&!appExiting){
+      const batch=[...presenceQueue.values()].slice(0,30),revision=settingsRevision,generation=presenceGeneration,values=new Map(batch.map(({row})=>[row[0],null]));
+      for(const {row} of batch)presenceQueue.delete(row[0]);
+      try{
+        const charts=batch.map(({row})=>({songId:row[0],fileReference:row[8].fileReference,updateHash:row[8].updateHash}));
+        const result=await installerRequest('POST','/v1/installations/check',{expectedRevision:revision,charts});
+        const seen=new Set();
+        if(result?.settingsRevision!==revision||!Array.isArray(result.installations)||result.installations.length!==batch.length)throw new Error('Invalid installation status response');
+        for(const item of result.installations){
+          if(!item||!values.has(item.songId)||seen.has(item.songId)||typeof item.installed!=='boolean')throw new Error('Invalid installation status entry');
+          seen.add(item.songId);
+        }
+        for(const item of result.installations)values.set(item.songId,item.installed);
+      }catch{}
+      if(generation!==presenceGeneration||revision!==settingsRevision)continue;
+      const wanted=new Set(installationCandidates.map(row=>row[0]));let changed=false;
+      for(const {row,record} of batch){
+        // A completed install or new directory can replace a record while this batch is in flight.
+        if(installedCharts.get(row[0])!==record)continue;
+        record.pending=false;record.value=settingsStale||installationPending(row[0])?null:values.get(row[0]);
+        updateInstallationView(row[0]);
+        if(wanted.has(row[0]))changed=true;
+      }
+      const pending=syncInstallationFilter();if(changed&&!pending)refreshInstallationResults();
+    }
+  }finally{presenceBusy=false;}
+}
+function updateInstallationView(songId){
+  const view=installationViews.get(songId);if(!view)return;
+  const saved=installationStates.get(songId),state=saved?.targetDirectory===INSTALL_DIRECTORY?saved:null,job=state?.job,presence=installationPresence(view.row),installed=presence===true;
+  let label=installed?m("Install again"):m("Download and install"),message='';
+  if(state?.problem){
+    label=state.expired?m("Download and install again"):job?m("Check progress"):state.rejected?m("Try installing again"):m("Check installation");message=state.problem+(state.expired?m("\nDownloading again will replace files with the same name."):'');
+  }else if(state?.running&&!job){
+    label=m("Submitting...");message=m("Connecting to the installer...");
+  }else if(job){
+    if(job.state==='queued'){label=m("Queued");message=m("Waiting to install.");}
+    else if(job.state==='downloading'){
+      label=m("Downloading...");message=m("Downloaded ")+(job.downloadedBytes/1000000).toFixed(1)+(job.totalBytes?(' / '+(job.totalBytes/1000000).toFixed(1)):'')+m(" MB");
+    }else if(job.state==='validating'){label=m("Preparing installation...");message=job.message==='Downloaded; waiting for installation.'?m('Downloaded; waiting for installation.'):m("Preparing files...");}
+    else if(job.state==='extracting'){label=m("Installing...");message=m("Installing: ")+number(job.filesWritten)+' / '+number(job.fileCount)+m(" files");}
+    else if(job.state==='complete'){if(!job.zipRemoved)message=m("Remove the leftover ZIP from this folder.");}
+    else{label=m("Install failed; retry");message=job.message?localizeInstallerMessage(job.message):m("Installation failed.");}
+  }
+  if(!state&&settingsStale){label=m("Confirm directory");message=m("Open Settings to confirm the changed install directory.");}
+  const error=Boolean(state?.problem)||job?.state==='error'||job?.state==='complete'&&!job.zipRemoved;
+  const needsSubmit=!job||state?.rejected||state?.expired||['complete','error'].includes(job.state);
+  uiText(view.presence,installed?m("Installed"):presence===false?m("Not installed"):presence===undefined?m('Checking installation status...'):m('Installation status unknown'));view.presence.classList.toggle('is-installed',installed);
+  uiText(view.label,label);uiAttr(view.button,"aria-label",label+' '+view.songTitle);view.button.disabled=Boolean(state?.running)||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown'||settingsStale&&needsSubmit;view.button.classList.toggle('is-complete',installed);
+  uiText(view.note,message);view.note.hidden=!message;view.note.classList.toggle('is-error',error);
+  const active=Boolean(state?.running)&&!error;
+  loadingIndicator(view.label,active,job?.state==='queued');view.button.setAttribute('aria-busy',String(active));
+  updateTaskProgress(view.progress,job,active,label+' '+view.songTitle);
+}
+function scheduleInstallationPoll(state){
+  clearTimeout(state.timer);state.timer=setTimeout(()=>{state.timer=null;pollInstallation(state);},700);
+}
+function receiveInstallationJob(state,payload){
+  state.job=installerJob(payload,state.songId,state.job?.id||'',state.targetDirectory);state.problem='';
+  state.running=!['complete','error'].includes(state.job.state);updateInstallationView(state.songId);
+  refreshSettingsControls();renderActivity();refreshActivity();
+  if(state.running)scheduleInstallationPoll(state);else if(state.row){installedCharts.delete(state.songId);queueInstallationChecks([state.row]);refreshInstallationResults();}
+}
+async function pollInstallation(state){
+  if(!state.job||state.requesting)return;state.requesting=true;
+  try{receiveInstallationJob(state,await installerRequest('GET','/v1/jobs/'+state.job.id));}
+  catch(error){state.running=false;state.expired=error.httpStatus===410&&error.code==='request_expired';state.problem=errorText(error);updateInstallationView(state.songId);}
+  finally{state.requesting=false;refreshSettingsControls();renderActivity();refreshActivity();if(state.expired&&state.row){queueInstallationChecks([state.row]);refreshInstallationResults();}}
+}
+async function startInstallation(row){
+  if(row[8].dlc||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown')return;
+  let state=installationStates.get(row[0]);if(state?.running||state?.requesting)return;
+  if(settingsStale&&(!state?.job||state.rejected||state.expired||['complete','error'].includes(state.job.state))){updateInstallationView(row[0]);return;}
+  if(!state||state.rejected||state.expired||state.job&&['complete','error'].includes(state.job.state)){
+    state={songId:row[0],row,requestId:'',job:null,running:false,requesting:false,rejected:false,expired:false,problem:'',timer:null,targetDirectory:INSTALL_DIRECTORY,settingsRevision};installationStates.set(row[0],state);
+  }
+  installedCharts.delete(row[0]);presenceQueue.delete(row[0]);state.running=true;state.problem='';refreshSettingsControls();renderActivity();refreshInstallationResults();
+  queueInstallationChecks([...installationViews.values()].map(view=>view.row));
+  if(state.job){updateInstallationView(state.songId);await pollInstallation(state);return;}
+  updateInstallationView(state.songId);state.requesting=true;
+  const confirmingUnknown=Boolean(state.requestId);
+  try{
+    if(!state.requestId)state.requestId=installationRequestId();
+    receiveInstallationJob(state,await installerRequest('POST','/v1/install',{songId:state.songId,requestId:state.requestId},state.settingsRevision));
+  }catch(error){
+    const lostConfirmation=confirmingUnknown&&error.httpStatus===409&&error.code==='settings_changed';
+    state.running=false;state.expired=lostConfirmation||error.httpStatus===410&&error.code==='request_expired';state.rejected=!state.expired&&error.httpStatus>=400&&error.httpStatus<500;
+    state.problem=lostConfirmation?m("Installation could not be confirmed. Check the folder in Settings before downloading again."):errorText(error);updateInstallationView(state.songId);
+  }
+  finally{state.requesting=false;refreshSettingsControls();renderActivity();refreshActivity();if(!installationPending(state.songId)){queueInstallationChecks([state.row]);refreshInstallationResults();}}
+}
+function applyActivity(data){
+  if(!data||typeof data.exiting!=='boolean'||!Number.isInteger(data.activeCount)||data.activeCount<0||data.activeCount>128||!Array.isArray(data.jobs)||data.jobs.length!==data.activeCount)throw uiError(m('Task status is unavailable. Please retry.'));
+  for(const job of data.jobs){
+    if(!job||typeof job.id!=='string'||!/^[a-f0-9]{32}$/.test(job.id)||!Number.isSafeInteger(job.songId)||job.songId<1||!['queued','downloading','validating','extracting'].includes(job.state)||!['downloadedBytes','filesWritten','fileCount'].every(key=>Number.isSafeInteger(job[key])&&job[key]>=0)||job.totalBytes!==null&&(!Number.isSafeInteger(job.totalBytes)||job.totalBytes<0))throw uiError(m('Task status is unavailable. Please retry.'));
+  }
+  appExiting=appExiting||data.exiting;activityJobs=data.jobs;activityProblem='';updateAllInstallationViews();renderActivity();syncFilters();
+}
+function showActivity(visible){
+  if(activityVisible===visible)return;
+  activityVisible=visible;activityMotion?.cancel();activityMotion=null;
+  const panel=$('app-activity'),frames=[{opacity:0,transform:'translateY(6px)'},{opacity:1,transform:'translateY(0)'}];
+  if(visible)panel.hidden=false;
+  const motion=playMotion(panel,visible?frames:[...frames].reverse(),{duration:MOTION_MS.feedback,easing:'ease-out'});activityMotion=motion;
+  if(!visible){if(motion)motion.finished.then(()=>{if(!activityVisible)panel.hidden=true;}).catch(()=>{});else panel.hidden=true;}
+}
+function renderActivity(){
+  refreshCloseHelpTasks();
+  const jobs=new Map(activityJobs.map(job=>[job.songId,job]));
+  for(const state of installationStates.values()){
+    if(state.running||state.requesting){if(!jobs.has(state.songId)||!state.job||jobs.get(state.songId).id===state.job.id)jobs.set(state.songId,state.job||{songId:state.songId,state:'submitting'});}
+    else if(state.job&&['complete','error'].includes(state.job.state)&&jobs.get(state.songId)?.id===state.job.id)jobs.delete(state.songId);
+  }
+  const visible=appExiting||jobs.size>0||Boolean(activityProblem);
+  showActivity(visible);$('app-activity').classList.toggle('is-exiting',appExiting);
+  $('activity-retry').hidden=!activityProblem&&!exitFailed;
+  if(!visible){loadingIndicator($('activity-message'),false);for(const view of activityViews.values())loadingIndicator(view.label,false);return;}
+  uiText($('activity-message'),exitFailed?m('The app could not exit. Please try again.'):appExiting?m('The app will quit when all installations finish.'):activityProblem||m('Install queue: ')+number(jobs.size));
+  loadingIndicator($('activity-message'),appExiting&&!exitFailed&&!activityProblem);
+  const lines=[],wanted=new Set();
+  for(const job of [...jobs.values()].slice(0,2)){
+    const title=installationStates.get(job.songId)?.row?.[1]||currentRows.find(row=>row[0]===job.songId)?.[1]||m('Chart ')+job.songId;
+    const state=m(job.state==='downloading'?'Downloading...':job.state==='extracting'?'Installing...':job.state==='validating'?'Preparing installation...':job.state==='submitting'?'Submitting...':'Queued');
+    const progress=job.state==='downloading'?' '+((job.downloadedBytes||0)/1000000).toFixed(1)+(job.totalBytes?' / '+(job.totalBytes/1000000).toFixed(1):'')+m(' MB'):job.state==='extracting'?' '+number(job.filesWritten||0)+' / '+number(job.fileCount||0):'';
+    wanted.add(job.songId);let view=activityViews.get(job.songId);
+    if(!view){
+      view={node:element('span',undefined,'activity-job'),title:element('span',undefined,'activity-title'),label:element('span',undefined,'activity-job-label'),progress:element('progress',undefined,'task-progress')};
+      const line=element('span',undefined,'activity-job-line');line.append(view.title,view.label);view.node.append(line,view.progress);activityViews.set(job.songId,view);
+    }
+    uiText(view.title,title);uiAttr(view.title,'title',title);uiText(view.label,state+progress);uiAttr(view.label,'title',state+progress);loadingIndicator(view.label,!activityProblem&&!exitFailed,job.state==='queued');
+    updateTaskProgress(view.progress,job,!activityProblem&&!exitFailed,title+' · '+state);lines.push(view.node);
+  }
+  if(jobs.size>2){wanted.add('more');let view=activityViews.get('more');if(!view){view={node:element('span',undefined,'activity-job activity-job-more'),label:element('span')};view.node.append(view.label);activityViews.set('more',view);}uiText(view.label,'+ '+number(jobs.size-2));lines.push(view.node);}
+  for(const [key,view] of activityViews)if(!wanted.has(key)){view.node.remove();activityViews.delete(key);}
+  for(const [index,line] of lines.entries())if($('activity-jobs').children[index]!==line)$('activity-jobs').insertBefore(line,$('activity-jobs').children[index]||null);
+}
+async function refreshActivity(){
+  if(activityPending)return;
+  clearTimeout(activityTimer);activityTimer=null;activityPending=true;loadingIndicator($('activity-retry'),true);
+  try{applyActivity(await installerRequest('GET','/v1/activity'));}
+  catch{activityProblem=m('Task status is unavailable. Please retry.');renderActivity();}
+  finally{
+    activityPending=false;loadingIndicator($('activity-retry'),false);
+    if(!activityProblem&&(appExiting||hasActiveInstallations()))activityTimer=setTimeout(()=>{activityTimer=null;refreshActivity();},document.hidden?5000:1500);
+  }
+}
+function setupActivity(){
+  $('activity-retry').addEventListener('click',async()=>{
+    if(!exitFailed)return refreshActivity();if(settingsBusy)return;
+    loadingIndicator($('activity-retry'),true);try{await exitTool();}finally{loadingIndicator($('activity-retry'),false);}
+  });
+  globalThis.addEventListener?.('focus',refreshActivity);refreshActivity();
+}
+function reviewsOpen(cell){return !cell.retired&&reviewCounts.get(cell.row[0])!==0&&cardViews.get(cell.row[0])?.cell===cell&&(showChartReviews||cell.reviewTemporaryOpen);}
+function reviewRefreshRemaining(){
+  try{
+    const stored=Number(globalThis.localStorage.getItem(REVIEW_REFRESH_STORAGE_KEY));
+    if(Number.isSafeInteger(stored)&&stored>0)reviewRefreshNextAllowedAt=Math.max(reviewRefreshNextAllowedAt,stored);
+  }catch{}
+  return Math.max(0,reviewRefreshNextAllowedAt-Date.now());
+}
+function reviewRefreshClock(remaining){
+  const seconds=Math.ceil(remaining/1000);return Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
+}
+function syncReviewRefresh(){
+  const remaining=reviewRefreshRemaining(),blocked=remaining>0||Boolean(reviewRefreshOwner);
+  const label=m('Refresh reviews')+(remaining?' · '+reviewRefreshClock(remaining):'');
+  const help=remaining?m('Reviews can be refreshed again in ')+reviewRefreshClock(remaining):reviewRefreshOwner?m('A review refresh is queued. Please wait.') : '';
+  let active=false;
+  for(const {cell} of cardViews.values()){
+    if(cell.retired)continue;active=true;
+    cell.refresh.disabled=Boolean(cell.pending)||blocked;uiText(cell.refreshLabel,label);
+    uiAttr(cell.refresh,'title',help||m('Refresh reviews'));
+    uiAttr(cell.refresh,'aria-label',m('Reload ')+cell.row[1]+m("'s complete reviews")+(help?' · '+help:''));
+  }
+  if(remaining&&active){
+    if(reviewRefreshTimer===null)reviewRefreshTimer=setTimeout(()=>{reviewRefreshTimer=null;syncReviewRefresh();},1000);
+  }else{clearTimeout(reviewRefreshTimer);reviewRefreshTimer=null;}
+}
+function reserveReviewRefresh(cell,state){
+  if(reviewRefreshRemaining()>0||reviewRefreshOwner){syncReviewRefresh();return null;}
+  const owner={cell,state,started:false};reviewRefreshOwner=owner;syncReviewRefresh();return owner;
+}
+function releaseReviewRefresh(owner){
+  if(owner&&reviewRefreshOwner===owner){reviewRefreshOwner=null;syncReviewRefresh();}
+}
+function beginReviewRefresh(owner){
+  if(owner&&(reviewRefreshOwner!==owner||owner.started||owner.cell.retired||owner.state.stopped))throw new DOMException('Aborted','AbortError');
+  const remaining=reviewRefreshRemaining();
+  if(remaining>0||reviewRefreshOwner&&reviewRefreshOwner!==owner){
+    syncReviewRefresh();
+    const error=uiError(remaining?m('Reviews can be refreshed again in ')+reviewRefreshClock(remaining):m('A review refresh is queued. Please wait.'));
+    error.code=remaining?'review_refresh_cooldown':'review_refresh_queued';throw error;
+  }
+  // A failed force request still consumes the shared minute; storage failure keeps the in-page gate.
+  reviewRefreshNextAllowedAt=Date.now()+REVIEW_REFRESH_MS;
+  try{globalThis.localStorage.setItem(REVIEW_REFRESH_STORAGE_KEY,String(reviewRefreshNextAllowedAt));}catch{}
+  if(owner)owner.started=true;syncReviewRefresh();
+}
+function bindReadingWheel(target,list,active=()=>true){
+  target.addEventListener('wheel',event=>{
+    if(!active()||target.inert||!target.matches(':popover-open')||event.ctrlKey)return;
+    // Headers, padding and scroll boundaries belong to the same reading surface.
+    event.preventDefault();event.stopPropagation();
+    const unit=event.deltaMode===1?parseFloat(getComputedStyle(list).lineHeight)||16:event.deltaMode===2?list.clientHeight||target.clientHeight:1;
+    list.scrollTop+=event.deltaY*unit;
+  },{passive:false});
+}
+function cancelReadingMotion(cell){
+  let from=null;
+  if(cell.target.matches(':popover-open')){
+    const surface=getComputedStyle(cell.body),backdrop=getComputedStyle(cell.target,'::backdrop');
+    from={opacity:surface.opacity,transform:surface.transform||'none',backdropOpacity:backdrop.opacity};
+  }
+  cell.readingMotion?.cancel();cell.readingMotion=null;
+  cell.readingBackdropMotion?.cancel();cell.readingBackdropMotion=null;
+  return from;
+}
+function animateReadingPopover(cell,open,animate,from=null){
+  const target=cell.target,offset=cell.readingEnterOffset||10;
+  const start=from?{opacity:from.opacity,transform:from.transform}:{opacity:0,transform:'translateY('+offset+'px) scale(.985)'};
+  const end=open?{opacity:1,transform:'translateY(0) scale(1)'}:{opacity:0,transform:'translateY('+(offset*.6)+'px) scale(.985)'};
+  const options={...(open?READING_MOTION.enter:READING_MOTION.exit),fill:'both'};
+  const motion=animate?playMotion(cell.body,[start,end],options):null;
+  let backdropMotion=null;
+  // Older WebViews may not animate ::backdrop; the static shade remains usable.
+  if(animate)try{backdropMotion=playMotion(target,[{opacity:from?.backdropOpacity??0},{opacity:open?1:0}],{...options,pseudoElement:'::backdrop'});}catch{}
+  cell.readingMotion=motion;cell.readingBackdropMotion=backdropMotion;
+  const finish=()=>{
+    if(cell.readingMotion!==motion)return;
+    cell.readingMotion=null;
+    if(!cell.readingVisible){if(target.matches(':popover-open'))target.hidePopover();target.hidden=true;}
+    motion?.cancel();backdropMotion?.cancel();
+    if(cell.readingBackdropMotion===backdropMotion)cell.readingBackdropMotion=null;
+  };
+  if(motion)motion.finished.then(finish,()=>{});else finish();
+}
+function positionReadingPopover(cell){
+  const anchor=cell.toggle.getBoundingClientRect(),width=document.documentElement.clientWidth||innerWidth,height=innerHeight;
+  const top=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+12;
+  const narrow=width<=680,panelWidth=Math.min(cell.readingWidth||680,width-24),spaceBelow=height-anchor.bottom-20,spaceAbove=anchor.top-top-8;
+  const style=cell.target.style,left=Math.max(12,Math.min(anchor.left,width-panelWidth-12));
+  style.width=panelWidth+'px';style.left=left+'px';
+  if(narrow){
+    // Keep the sheet within a short pointer path even when its trigger is near the top.
+    style.top=Math.max(top,Math.min(anchor.bottom+8,height*.3))+'px';style.bottom='12px';style.height='auto';style.maxHeight='none';
+    cell.readingEnterOffset=12;cell.body.style.transformOrigin='50% 100%';
+  }else{
+    const below=spaceBelow>=Math.min(360,height*.45)||spaceBelow>=spaceAbove;
+    style.top=below?Math.max(top,anchor.bottom+8)+'px':'auto';
+    style.bottom=below?'auto':Math.max(12,height-anchor.top+8)+'px';
+    style.height='auto';style.maxHeight=Math.max(100,Math.min(560,below?height-Math.max(top,anchor.bottom+8)-12:spaceAbove))+'px';
+    cell.readingEnterOffset=below?-10:10;cell.body.style.transformOrigin=Math.max(16,Math.min(panelWidth-16,anchor.left+anchor.width/2-left))+'px '+(below?'top':'bottom');
+  }
+}
+function changeReviewContent(cell,write){write();}
+function syncReviewCount(cell){
+  const known=reviewCounts.has(cell.row[0]),empty=reviewCounts.get(cell.row[0])===0;
+  uiText(cell.commentValue,known?number(reviewCounts.get(cell.row[0])):cell.reviewError?'!':'…');
+  cell.commentValue.setAttribute('aria-busy',String(Boolean(cell.pending)));
+  cell.toggle.classList.toggle('is-count-error',Boolean(cell.reviewError)&&!empty);
+  if(empty)syncReviewVisibility(false,[cell]);else syncReviewToggle(cell);
+}
+function syncReviewToggle(cell){
+  const empty=reviewCounts.get(cell.row[0])===0,open=reviewsOpen(cell),pinned=showChartReviews&&open;
+  cell.toggle.disabled=empty;cell.chevron.hidden=empty;
+  if(empty){cell.toggle.removeAttribute('aria-expanded');cell.toggle.removeAttribute('aria-controls');}
+  else{cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);}
+  cell.toggle.setAttribute('aria-disabled',String(empty||pinned));
+  const label=(empty||pinned?m('Reviews for '):open?m('Collapse reviews for '):m('Expand reviews for '))+cell.row[1];
+  uiAttr(cell.toggle,'aria-label',label+(reviewCounts.has(cell.row[0])?' · '+m('Reviews')+': '+number(reviewCounts.get(cell.row[0])):''));
+  uiAttr(cell.toggle,'title',empty?m('No reviews yet.'):cell.reviewError?m('Review count could not be updated. Open reviews to retry.'):pinned?m('Kept open by Expand all reviews.'):open?m('Collapse reviews'):m('Expand reviews'));
+  uiAttr(cell.toggle,'aria-description',empty?m('No reviews yet.'):cell.reviewError?m('Review count could not be updated. Open reviews to retry.'):!reviewCounts.has(cell.row[0])?m('Loading review count...'):'');
+  if(empty||pinned)cell.toggle.removeAttribute('aria-haspopup');else cell.toggle.setAttribute('aria-haspopup','dialog');
+  cell.target.classList.toggle('is-pinned',pinned);
+  cell.context.hidden=showChartReviews;
+}
+function syncReviewVisibility(animate=false,cells=[...cardViews.values()].map(view=>view.cell)){
+  const control=$('show-chart-reviews'),state=pageDetails;control.checked=showChartReviews;control.disabled=phase!=='ready';
+  if(showChartReviews)reviewPopoverOwner=null;
+  for(const cell of cells){
+    const empty=reviewCounts.get(cell.row[0])===0,restoreFocus=empty&&(cell.target.contains(document.activeElement)||document.activeElement===cell.toggle);
+    if(empty){
+      clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;cell.reviewTemporaryOpen=false;cell.reviewLoaded=false;
+      if(reviewPopoverOwner===cell)reviewPopoverOwner=null;
+      if(cell.list.children.length){cell.list.replaceChildren();pruneEntries();}
+    }
+    const target=cell.target,open=reviewsOpen(cell),changed=cell.readingVisible!==open||target.hasAttribute('popover')===showChartReviews;
+    if(changed){
+      const from=cancelReadingMotion(cell);cell.readingVisible=open;target.inert=!open;
+      if(showChartReviews){
+        if(target.matches(':popover-open'))target.hidePopover();
+        target.removeAttribute('popover');target.removeAttribute('style');cell.body.removeAttribute('style');target.setAttribute('role','region');target.hidden=!open;
+      }else{
+        target.setAttribute('popover','manual');target.setAttribute('role','dialog');
+        if(open){
+          reviewPopoverOwner=cell;target.hidden=false;positionReadingPopover(cell);
+          if(!target.matches(':popover-open'))target.showPopover();animateReadingPopover(cell,true,animate,from);
+        }else if(target.matches(':popover-open'))animateReadingPopover(cell,false,animate,from);
+        else target.hidden=true;
+      }
+    }
+    syncReviewToggle(cell);
+    if(restoreFocus)cell.card.querySelector('.song-title')?.focus({preventScroll:true});
+    if(state&&open&&animate)queueReviews(cell,state);
+  }
+  syncReviewRefresh();
+}
+function closeTemporaryReviews(cell,focus=false,animate=true){
+  if(!cell)return;
+  clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;
+  if(showChartReviews||!cell.reviewTemporaryOpen)return;
+  if(reviewPopoverOwner===cell)reviewPopoverOwner=null;
+  cell.reviewTemporaryOpen=false;syncReviewVisibility(animate,[cell]);
+  if(focus)cell.toggle.focus({preventScroll:true});
+}
+function bindReviewDrawer(cell){
+  const card=cell.card;
+  cell.toggle.addEventListener('pointerdown',event=>{cell.reviewPointerType=event.pointerType;});
+  cell.toggle.addEventListener('click',event=>{
+    if(showChartReviews||reviewCounts.get(cell.row[0])===0)return;
+    dismissChartDescription(false,false);
+    clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;
+    cell.reviewInput=event.detail===0?'keyboard':cell.reviewPointerType||'mouse';
+    if(reviewPopoverOwner&&reviewPopoverOwner!==cell)closeTemporaryReviews(reviewPopoverOwner);
+    cell.reviewTemporaryOpen=!cell.reviewTemporaryOpen;syncReviewVisibility(true,[cell]);
+    if(!cell.reviewTemporaryOpen&&reviewPopoverOwner===cell)reviewPopoverOwner=null;
+    if(cell.reviewTemporaryOpen&&cell.reviewInput==='keyboard')cell.target.focus({preventScroll:true});
+  });
+  bindReadingWheel(cell.target,cell.list,()=>!showChartReviews);
+  card.addEventListener('pointerenter',()=>{clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;});
+  card.addEventListener('pointerleave',event=>{
+    if(event.pointerType==='touch'||cell.reviewInput==='keyboard'||card.contains(event.relatedTarget))return;
+    clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=setTimeout(()=>{
+      cell.reviewLeaveTimer=null;if(!card.matches(':hover')&&!cell.target.matches(':hover'))closeTemporaryReviews(cell);
+    },180);
+  });
+  card.addEventListener('focusout',event=>{if(cell.reviewInput==='keyboard'&&!card.contains(event.relatedTarget))closeTemporaryReviews(cell);});
+  cell.target.addEventListener('toggle',event=>{
+    if(event.newState==='closed'&&cell.reviewTemporaryOpen&&!cell.target.matches(':popover-open'))closeTemporaryReviews(cell);
+  });
+}
+function retireReviewCell(cell){
+  cell.retired=true;clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;
+  cell.request?.abort();cancelReadingMotion(cell);
+  if(reviewRefreshOwner?.cell===cell)releaseReviewRefresh(reviewRefreshOwner);
+  if(reviewPopoverOwner===cell)reviewPopoverOwner=null;
+  if(cell.target.matches(':popover-open'))cell.target.hidePopover();cell.target.hidden=true;
+}
+function setupPageControls(){
+  uiText($('show-chart-reviews-label'),m('Expand all reviews'));
+  $('show-chart-reviews').addEventListener('change',()=>{
+    showChartReviews=$('show-chart-reviews').checked;
+    for(const {cell} of cardViews.values()){clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;cell.reviewTemporaryOpen=false;}
+    syncReviewVisibility(true);
+  });
+  document.addEventListener('pointerdown',event=>{if(reviewPopoverOwner&&!reviewPopoverOwner.card.contains(event.target))closeTemporaryReviews(reviewPopoverOwner);});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented&&reviewPopoverOwner){event.preventDefault();closeTemporaryReviews(reviewPopoverOwner,true);}});
+  document.addEventListener('scroll',event=>{if(event.target===document||event.target===document.documentElement)closeTemporaryReviews(reviewPopoverOwner);},{capture:true,passive:true});
+  globalThis.addEventListener?.('resize',()=>{if(reviewPopoverOwner)positionReadingPopover(reviewPopoverOwner);});
+  globalThis.addEventListener?.('blur',()=>closeTemporaryReviews(reviewPopoverOwner));
+  globalThis.addEventListener?.('focus',syncReviewRefresh);
+  globalThis.addEventListener?.('storage',event=>{if(event.key===REVIEW_REFRESH_STORAGE_KEY||event.key===null)syncReviewRefresh();});
+  syncReviewRefresh();
+  const button=$('back-to-top');uiAttr(button,'aria-label',m('Back to top'));uiAttr(button,'title',m('Back to top'));
+  let shown=false;
+  const update=()=>{
+    const visible=globalThis.scrollY>Math.max(300,globalThis.innerHeight*.5);if(visible===shown)return;shown=visible;
+    button.classList.toggle('is-visible',visible);button.inert=!visible;button.tabIndex=visible?0:-1;button.setAttribute('aria-hidden',String(!visible));
+    if(!visible&&document.activeElement===button)$('filter-panel').querySelector('summary').focus({preventScroll:true});
+  };
+  button.addEventListener('click',()=>{$('filter-panel').querySelector('summary').focus({preventScroll:true});globalThis.scrollTo({top:0,behavior:motionAllowed()?'smooth':'auto'});});
+  globalThis.addEventListener?.('scroll',update,{passive:true});globalThis.addEventListener?.('resize',update);
+  update();syncReviewVisibility();
+}
+function setupScrolling(){
+  const timers=new WeakMap(),targets=[...document.querySelectorAll('.settings-panel')].reverse();
+  let hovered=null,dragged=null;
+  const hover=target=>{if(hovered===target)return;hovered?.classList.remove('scroll-hover');hovered=target;hovered?.classList.add('scroll-hover');};
+  const hit=event=>{
+    for(const target of [...targets,document.documentElement]){
+      const root=target===document.documentElement;
+      if(target.hidden||!root&&target.tagName==='DIALOG'&&!target.open)continue;
+      const rect=root?{top:0,right:globalThis.innerWidth,bottom:globalThis.innerHeight}:target.getBoundingClientRect();
+      if(target.scrollHeight<=target.clientHeight||event.clientY<rect.top||event.clientY>rect.bottom)continue;
+      if(event.clientX>=rect.right-9&&event.clientX<=rect.right)return target;
+    }
+    return null;
+  };
+  document.addEventListener('pointermove',event=>hover(dragged||hit(event)),{capture:true,passive:true});
+  document.addEventListener('pointerdown',event=>{dragged=hit(event);hover(dragged);},{capture:true,passive:true});
+  document.addEventListener('pointerup',event=>{dragged=null;hover(hit(event));},{capture:true,passive:true});
+  document.addEventListener('pointercancel',()=>{dragged=null;hover(null);},{capture:true,passive:true});
+  document.addEventListener('pointerleave',()=>{if(!dragged)hover(null);},{passive:true});
+  globalThis.addEventListener?.('blur',()=>{dragged=null;hover(null);});
+  document.addEventListener('scroll',event=>{
+    const target=event.target===document?document.documentElement:event.target;
+    if(!target?.classList)return;
+    clearTimeout(timers.get(target));target.classList.add('is-scrolling');
+    timers.set(target,setTimeout(()=>{target.classList.remove('is-scrolling');timers.delete(target);},300));
+  },{capture:true,passive:true});
+}
+function installationControl(row,stats,card){
+  const actions=element('div',undefined,'card-actions');stats.append(actions);
+  if(row[8].dlc){
+    const link=element('a',undefined,'download-button');link.href='https://spinsha.re/song/'+row[0];link.target='_blank';link.rel='noopener noreferrer';
+    uiAttr(link,"title",m("DLC chart: authorize and download on SpinShare."));uiAttr(link,"aria-label",m("Download on SpinShare: ")+row[1]);link.append(icon('downloads'),element('span',m("Download on official site")));actions.append(link);card.append(stats);return;
+  }
+  const button=element('button',undefined,'download-button'),label=element('span',m("Download and install")),note=element('p','','install-note'),presence=element('span',m('Installation status unknown'),'install-presence'),progress=element('progress',undefined,'task-progress');
+  button.type='button';uiAttr(button,"title",m("Install all difficulties and replace matching files."));uiAttr(button,"aria-label",m("Download and install ")+row[1]);button.append(icon('downloads'),label);button.addEventListener('click',()=>startInstallation(row));
+  note.setAttribute('role','status');note.setAttribute('aria-live','polite');note.hidden=true;progress.hidden=true;actions.append(presence,button);card.append(stats,progress,note);
+  installationViews.set(row[0],{button,label,note,presence,progress,row,songTitle:row[1]});updateInstallationView(row[0]);
+}
+function isContinuous(){return $('page-size').value==='all';}
+function pageSize(){const size=Number($('page-size').value);return [10,20,30].includes(size)?size:20;}
+function pages(){return isContinuous()?1:Math.max(1,Math.ceil(filtered.length/pageSize()));}
+function renderPageLinks(suffix,ready){
+  const links=$('page-links'+suffix);links.replaceChildren();if(!ready||!filtered.length||isContinuous())return;
+  const total=pages(),count=pagerMedia?.matches?3:10,start=Math.max(1,Math.min(page-Math.floor((count-1)/2),total-count+1));
+  const targets=[...new Set([1,...Array.from({length:Math.min(count,total)},(_,index)=>start+index),total])].sort((a,b)=>a-b);
+  let previous=0;
+  for(const target of targets){
+    if(previous&&target>previous+1){const gap=element('span','…','page-gap');gap.setAttribute('aria-hidden','true');links.append(gap);}
+    const button=element('button',String(target));button.type='button';uiAttr(button,'aria-label',m("Page ")+number(target));
+    if(target===page)button.setAttribute('aria-current','page');button.addEventListener('click',()=>changePage(target));links.append(button);previous=target;
+  }
+}
+function sortRows(rows){
+  const control=$('sort'),mode=['date','views','downloads','level','title'].includes(control.value)?control.value:'date',direction=$('sort-direction').value==='asc'?1:-1;
+  control.value=mode;
+  const value=row=>mode==='date'?row[5]||null:mode==='title'?row[1]:mode==='level'?row[7]:row[8][mode];
+  rows.sort((a,b)=>{
+    const av=value(a),bv=value(b);
+    if(av==null||bv==null)return av==null&&bv==null?b[0]-a[0]:av==null?1:-1;
+    const order=typeof av==='string'?av.localeCompare(bv,mode==='title'?uiLanguage:'en'):av-bv;
+    return order*direction||b[0]-a[0];
+  });
+}
+async function rebuild(resolveUsers=true,preservePage=false){
+  if(resolveUsers){clearTimeout(textFilterTimer);textFilterTimer=null;}
+  appliedText=$('local-search').value.trim();const text=titleKey(appliedText),uploaders=new Set(),fields=[...searchScopes];
+  if(textSearchWork&&(textSearchWork.query!==text||textSearchWork.rows!==currentRows||textSearchWork.generation!==cacheGeneration||!searchScopes.has('creator')||phase!=='ready'))stopTextSearch(true);
+  if(text&&searchScopes.has('creator')){
+    const users=userSearchCache.get(text)||[];scopeSearchUsers(users,currentRows);
+    for(const row of currentRows){const user=profileCache.get(row[8].uploader);if(user&&titleKey(user.name).includes(text))uploaders.add(user.id);}
+    for(const user of users)if(titleKey(user.name).includes(text))uploaders.add(user.id);
+  }
+  installationCandidates=rowsMatchingTags(currentRows.filter(row=>!text||fields.some(field=>titleKey(row[searchFields[field]]).includes(text)||field==='creator'&&uploaders.has(row[8].uploader))));
+  const installationMode=installationFilterMode();
+  if(phase==='ready'&&installationMode!=='all'){trimPresenceQueue(installationCandidates);queueInstallationChecks(installationCandidates);}
+  filtered=installationMode==='all'?installationCandidates.slice():installationCandidates.filter(row=>installationPresence(row)===(installationMode==='installed'));
+  tagResultCounts=countTagResults(filtered);
+  if(!preservePage){page=1;visibleCount=scrollBatchSize;}
+  if(resolveUsers)startTextSearch(text);
+  syncSearchControls();syncInstallationFilter();
+  sortRows(filtered);render();return textSearchWork?.promise;
+}
+function changePage(target,scroll=true){
+  if(isContinuous()||phase!=='ready'||!Number.isInteger(target)||target<1||target>pages()||target===page)return;
+  page=target;render();if(scroll)focusResults();
+}
+function jumpToPage(suffix){
+  const input=$('page-number'+suffix),target=Number(input.value);
+  if(Number.isInteger(target)&&target>=1&&target<=pages())changePage(target);else input.value=String(page);
+}
+function loadMore(){
+  if(!isContinuous()||phase!=='ready'||renderedCount>=filtered.length)return;
+  visibleCount=Math.min(visibleCount+scrollBatchSize,filtered.length);render(true);
+}
+function watchMore(ready){
+  moreObserver?.disconnect();moreObserver=null;
+  const button=$('load-more');button.hidden=!ready||!isContinuous()||renderedCount>=filtered.length;
+  if(button.hidden||typeof IntersectionObserver!=='function')return;
+  const observer=new IntersectionObserver(entries=>{if(moreObserver===observer&&entries.some(entry=>entry.target===button&&entry.isIntersecting))loadMore();},{rootMargin:'400px'});
+  moreObserver=observer;observer.observe(button);
+}
+function focusResults(){$('results-start').scrollIntoView({block:'start'});$('results-start').focus({preventScroll:true});}
+function render(append=false){
+  const ready=phase==='ready',continuous=isContinuous();
+  prepareTagAnchor(ready,continuous);
+  if(!append){dismissChartTags();dismissChartDescription(false,false);}
+  if(!ready){stopPageDetails();installationViews.clear();cardViews.clear();renderedCount=0;$('rows').replaceChildren();if(phase!=='ready')trimPresenceQueue();}
+  const size=pageSize(),totalPages=pages();page=Math.max(1,Math.min(page,totalPages));
+  const start=continuous?0:(page-1)*size,end=Math.min(continuous?visibleCount:start+size,filtered.length);
+  const shown=ready?filtered.slice(start,end):[],wanted=new Map(shown.map(row=>[row[0],row])),reviewCells=[];
+  for(const [id,view] of cardViews)if(wanted.get(id)!==view.row){retireReviewCell(view.cell);view.card.remove();cardViews.delete(id);installationViews.delete(id);}
+  prunePageDetails(new Set([...cardViews.values()].map(view=>view.cell)));
+  for(const row of shown){
+    if(cardViews.has(row[0]))continue;
+    const view=createChartCard(row);reviewCells.push(view.cell);cardViews.set(row[0],view);
+  }
+  $('rows').setAttribute('aria-busy',phase==='loading'||installationFilterPending?'true':'false');
+  for(const [index,row] of shown.entries()){const card=cardViews.get(row[0]).card;if($('rows').children[index]!==card)$('rows').insertBefore(card,$('rows').children[index]||null);queueEntry(card,'chart:'+row[0]);}renderedCount=continuous?end:shown.length;pruneEntries();scheduleChartDescriptions();
+  $('empty').hidden=ready&&filtered.length!==0;
+  uiText($('empty'),phase==='loading'?m("Loading charts..."):phase==='error'?m("Search failed. Try again."):ready?installationFilterPending?m('Checking installation status...'):textSearchWork?m('Searching uploader accounts...'):textSearchProblem||m("No matching charts. Try other filters."):m("Choose difficulty and dates, then select Filter charts."));
+  uiText($('count'),ready?installationFilterPending?m('Checking installation status...'):number(filtered.length)+m(" charts"):phase==='loading'?m("Searching..."):phase==='error'?m("Search failed"):m("Ready to search"));
+  const scope=applied?[m("Rating: ")+applied.min+'–'+applied.max,applied.diffs.map(i=>labels[i]).join(' / ')]:[];
+  if(applied?.dateFrom||applied?.dateTo)scope.push(m("Upload date: ")+(applied.dateFrom||'…')+' – '+(applied.dateTo||'…'));
+  if(appliedText)scope.push(m("Text: ")+appliedText);uiText($('scope'),scope.join(m(" | ")));
+  $('scope').hidden=!ready||$('filter-panel').open;
+  const pageText=ready?(filtered.length?continuous?m("Showing ")+number(end)+m(" items"):m("Page ")+page+' / '+totalPages+m(" | Showing ")+number(start+1)+'–'+number(end)+m(" items"):m("No matching results")):phase==='loading'?m("Loading results..."):phase==='error'?m("Search failed"):m("Ready to search");
+  for(const suffix of ['','-bottom']){
+    uiText($('page-label'+suffix),pageText);
+    $('pager'+suffix).hidden=!ready||!filtered.length;
+    $('page-controls'+suffix).hidden=continuous;$('page-jump'+suffix).hidden=continuous;
+    renderPageLinks(suffix,ready);$('prev'+suffix).disabled=!ready||page===1;$('next'+suffix).disabled=!ready||page===totalPages;
+    $('page-number'+suffix).value=String(page);$('page-number'+suffix).max=String(totalPages);
+    $('page-number'+suffix).disabled=!ready||continuous;$('jump'+suffix).disabled=!ready||continuous;
+    $('page-size'+suffix).value=continuous?'all':String(size);$('page-size'+suffix).disabled=phase!=='ready';
+  }
+  $('results-note').hidden=!ready||!filtered.length;
+  syncFilters();syncSearchControls();syncInstallationFilter();
+  for(const id of ['sort','sort-direction'])$(id).disabled=phase!=='ready';
+  syncReviewVisibility();
+  if(ready&&reviewCells.length)watchPageReviews(reviewCells);
+  watchMore(ready);
+  syncCovers();
+  if(ready){if(installationFilterMode()==='all')trimPresenceQueue(shown);queueInstallationChecks(append?shown.slice(-scrollBatchSize):shown);}
+  if(ready||pendingTagAnchor?.viewport)restoreTagAnchor();
+}
+function setBusy(){syncFilters();}
+function compact(data,criteria){
+  const found=new Map();
+  for(const song of data){
+    if(!song||typeof song!=='object')continue;
+    const id=Number(song.id);if(!Number.isSafeInteger(id)||id<=0)continue;
+    const date=String(song.uploadDate?.date||'').slice(0,10);
+    if((criteria.dateFrom||criteria.dateTo)&&(!validDate(date)||criteria.dateFrom&&date<criteria.dateFrom||criteria.dateTo&&date>criteria.dateTo))continue;
+    const diffs=[];keys.forEach(([flag,key],index)=>{const rating=song[key];if(criteria.diffs.includes(index)&&song[flag]&&typeof rating==='number'&&Number.isFinite(rating)&&rating>=criteria.min&&rating<=criteria.max)diffs.push([index,rating]);});
+    if(!diffs.length)continue;
+    const cover=coverURL(song.cover),reference=String(song.fileReference||''),thumbnail=coverURL(song.thumbnail)||(/^spinshare_[a-f0-9]{1,64}$/i.test(reference)?'https://spinshare.b-cdn.net/uploads/thumbnail/'+reference+'.jpg':'');
+    found.set(id,[id,String(song.title||''),String(song.subtitle||''),String(song.artist||''),String(song.charter||''),String(song.uploadDate?.date||''),diffs,Math.min(...diffs.map(pair=>pair[1])),{cover,thumbnail,fileReference:reference,updateHash:/^[a-f0-9]{32}$/i.test(song.updateHash||'')?song.updateHash:'',views:countValue(song.views),downloads:countValue(song.downloads),uploader:Number.isSafeInteger(song.uploader)&&song.uploader>0?song.uploader:null,dlc:song.dlc!==undefined&&song.dlc!==null&&song.dlc!==false,tags:cleanTags(song.tags),description:typeof song.description==='string'?song.description:''}]);
+  }
+  return [...found.values()];
+}
+function syncCatalogRefresh(){
+  $('refresh-data').disabled=phase!=='ready'||!applied||appExiting;
+  uiAttr($('refresh-data'),'title',m('Refresh list'));
+}
+async function loadRemote(signal){
+  // The local service restores saved charts and the cooldown across app exits.
+  // Only it may contact searchCharts, and only after persisting a new reservation.
+  const response=await fetch(INSTALL_ORIGIN+'/v1/charts',{method:'GET',mode:'same-origin',credentials:'omit',cache:'no-store',redirect:'error',targetAddressSpace:'loopback',headers:{'X-SpinShare-Key':INSTALL_KEY},signal});
+  const result=await readJSONResponse({ok:true,headers:response.headers,body:response.body},responseLimit+64*1024,bytes=>{if(!signal.aborted)setStatus(m("Receiving chart data: ")+(bytes/1000000).toFixed(1)+' MB.');});
+  if(signal.aborted)throw new DOMException('Aborted','AbortError');
+  if(Number.isFinite(result?.nextAllowedAt)){catalogNextAllowedAt=result.nextAllowedAt;syncCatalogRefresh();}
+  if(!response.ok){
+    if(result?.code==='charts_cooldown'||result?.code==='charts_unavailable')throw uiError(m('No saved charts are available yet. Please try again later.'));
+    if(result?.code==='charts_cache_error')throw uiError(m('The chart cache could not be read or saved safely. Check app data permissions and free space.'));
+    throw uiError(INSTALLER_ERROR_TEXT[result?.code]||m('Charts could not be loaded. Try again.'));
+  }
+  if(!Array.isArray(result?.data)||!Number.isFinite(result.nextAllowedAt))throw uiError(m('Charts could not be loaded. Try again.'));
+  return result;
+}
+async function readJSONResponse(response,limit,onProgress){
+  if(!response.ok)throw uiError(m("SpinShare is unavailable (")+response.status+m("). Try again later."));
+  if(Number(response.headers.get('Content-Length'))>limit){await response.body?.cancel();throw uiError(m("This response is too large. Open SpinShare to view it."));}
+  if(!response.body)throw uiError(m("Empty response. Try again."));
+  const reader=response.body.getReader(),decoder=new TextDecoder(),parts=[];let bytes=0,lastProgress=0;
+  try{
+    while(true){
+      const chunk=await reader.read();if(chunk.done)break;bytes+=chunk.value.byteLength;
+      if(bytes>limit){await reader.cancel();throw uiError(m("This response is too large. Open SpinShare to view it."));}
+      parts.push(decoder.decode(chunk.value,{stream:true}));
+      if(onProgress&&Date.now()-lastProgress>=250){lastProgress=Date.now();onProgress(bytes);}
+    }
+  }finally{reader.releaseLock();}
+  parts.push(decoder.decode());
+  try{return JSON.parse(parts.join(''));}catch{throw uiError(m("Loading failed. Please try again."));}
+}
+async function readReviews(id,signal,refresh=false,priority='high',refreshOwner=null){
+  if(signal.aborted)throw new DOMException('Aborted','AbortError');
+  if(!refresh&&reviewCache.has(id))return reviewCache.get(id);
+  const generation=cacheGeneration;
+  if(refresh)beginReviewRefresh(refreshOwner);
+  const response=await fetch('https://spinsha.re/api/song/'+id+'/reviews',{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',priority,signal});
+  const result=await readJSONResponse(response,2*1024*1024),data=result?.data;
+  if(result?.status!==200||!data||typeof data!=='object'||Array.isArray(data))throw uiError(m("Reviews could not be loaded."));
+  // SpinShare omits reviews only for an empty collection, whose average is false.
+  const entries=!Object.hasOwn(data,'reviews')&&data.average===false?[]:data.reviews;
+  if(!Array.isArray(entries))throw uiError(m("Reviews could not be loaded."));
+  const items=entries.map(item=>{if(!item||typeof item!=='object')throw uiError(m("Reviews could not be loaded."));return {user:publicUser(item.user),text:String(item.comment||''),date:String(item.reviewDate?.date||''),timezone:String(item.reviewDate?.timezone||''),recommended:item.recommended===true?true:item.recommended===false?false:null};});
+  const average=typeof data.average==='number'&&Number.isFinite(data.average)&&data.average>=0&&data.average<=100?data.average:null;
+  const reviews={items,total:items.length,comments:items.filter(item=>item.text.trim()).length,average};
+  if(!signal.aborted&&generation===cacheGeneration){reviewCache.delete(id);remember(reviewCache,id,reviews);}
+  return reviews;
+}
+async function readSharedUser(id,signal,read){
+  if(signal.aborted)throw new DOMException('Aborted','AbortError');
+  const generation=cacheGeneration;
+  let pending=profileRequests.get(id);
+  if(!pending||pending.generation!==generation||pending.request.signal.aborted){
+    const request=new AbortController(),timer=setTimeout(()=>request.abort(),20000);
+    pending={generation,request,users:0,promise:null};
+    pending.promise=(async()=>{
+      try{return await read(request.signal,generation);}
+      finally{clearTimeout(timer);if(profileRequests.get(id)===pending)profileRequests.delete(id);}
+    })();
+    profileRequests.set(id,pending);
+  }
+  pending.users++;let released=false,rejectAbort;
+  const aborted=new Promise((resolve,reject)=>{rejectAbort=reject;});
+  const release=()=>{if(released)return;released=true;if(--pending.users===0)pending.request.abort();};
+  const onAbort=()=>{release();rejectAbort(new DOMException('Aborted','AbortError'));};
+  signal.addEventListener('abort',onAbort,{once:true});
+  try{
+    const user=await Promise.race([pending.promise,aborted]);
+    if(signal.aborted)throw new DOMException('Aborted','AbortError');
+    return user;
+  }finally{signal.removeEventListener('abort',onAbort);release();}
+}
+async function readUserProfile(id,signal){
+  if(signal.aborted)throw new DOMException('Aborted','AbortError');
+  if(profileCache.has(id))return profileCache.get(id);
+  return readSharedUser(id,signal,async(request,generation)=>{
+    const response=await fetch('https://spinsha.re/api/user/'+id,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',priority:'low',signal:request});
+    const result=await readJSONResponse(response,2*1024*1024),data=result?.data;
+    if(result?.status!==200||!data||typeof data!=='object'||Array.isArray(data))throw uiError(m("Uploader profile unavailable."));
+    const user=publicUser(data);if(user.id!==id)throw uiError(m("Uploader account mismatch."));
+    if(request.aborted)throw new DOMException('Aborted','AbortError');
+    if(generation===cacheGeneration)remember(profileCache,id,user,2048);return user;
+  });
+}
+async function readUserSearch(query,signal){
+  if(signal.aborted)throw new DOMException('Aborted','AbortError');
+  if(!canSearchUsers(query))return [];
+  if(userSearchCache.has(query))return userSearchCache.get(query);
+  return readSharedUser('search:'+query,signal,async(request,generation)=>{
+    const response=await fetch('https://spinsha.re/api/searchUsers',{method:'POST',mode:'cors',credentials:'omit',cache:'no-store',priority:'low',headers:{'Content-Type':'application/json'},body:JSON.stringify({searchQuery:query}),signal:request});
+    const result=await readJSONResponse(response,512*1024);
+    if(result?.status!==200||!Array.isArray(result.data))throw uiError(m('Uploader search failed. Please retry.'));
+    const users=result.data.filter(user=>typeof user?.username==='string'&&titleKey(user.username).includes(query)).map(publicUser).filter(user=>user.id);
+    if(request.aborted)throw new DOMException('Aborted','AbortError');
+    if(generation===cacheGeneration)remember(userSearchCache,query,users,32,2*1024*1024);return users;
+  });
+}
+function prunePageDetails(cells){
+  if(!pageDetails)return;
+  if(reviewRefreshOwner?.state===pageDetails&&!cells.has(reviewRefreshOwner.cell))releaseReviewRefresh(reviewRefreshOwner);
+  for(const [target,cell] of pageDetails.targets)if(!cells.has(cell)){pageDetails.observer?.unobserve(target);pageDetails.targets.delete(target);}
+  pageDetails.jobs=pageDetails.jobs.filter(job=>{
+    if(job.kind==='reviews'){if(!cells.has(job.cell)){job.cell.pending=false;releaseReviewRefresh(job.refreshOwner);return false;}return true;}
+    job.cells=job.cells.filter(cell=>cells.has(cell));
+    if(!job.cells.length&&pageDetails.profiles.get(job.id)===job)pageDetails.profiles.delete(job.id);
+    return Boolean(job.cells.length);
+  });
+  for(const job of pageDetails.profiles.values()){
+    job.cells=job.cells.filter(cell=>cells.has(cell));
+    if(!job.cells.length){job.request?.abort();pageDetails.profiles.delete(job.id);}
+  }
+}
+function stopPageDetails(){
+  moreObserver?.disconnect();moreObserver=null;
+  for(const {cell} of cardViews.values())retireReviewCell(cell);
+  clearTimeout(reviewRefreshTimer);reviewRefreshTimer=null;
+  if(!pageDetails)return;pageDetails.stopped=true;pageDetails.observer?.disconnect();pageDetails.jobs.length=0;
+  if(reviewRefreshOwner?.state===pageDetails)releaseReviewRefresh(reviewRefreshOwner);
+  pageDetails.targets.clear();pageDetails.profiles.clear();for(const request of pageDetails.controllers)request.abort();pageDetails=null;
+}
+function watchPageReviews(cells){
+  const state=pageDetails||{stopped:false,jobs:[],controllers:new Set(),profiles:new Map(),targets:new Map(),active:0,observer:null};pageDetails=state;
+  const queue=visible=>{
+    if(state.stopped)return;const fresh=visible.filter(cell=>!cell.seen);for(const cell of fresh)cell.seen=true;
+    for(const cell of visible)queueReviews(cell,state);for(const cell of fresh)queueProfile(cell,state);
+  };
+  for(const cell of cells){
+    if(!cell.watched){cell.watched=true;cell.refresh.addEventListener('click',()=>queueReviews(cell,state,true));}
+    // Only rendered pages/batches enter this bounded queue; collapsed cards still get counts.
+    queueReviews(cell,state);
+    const user=profileCache.get(cell.row[8].uploader);if(user)showProfile(cell,user);
+  }
+  if(typeof IntersectionObserver==='function'){
+    if(!state.observer)state.observer=new IntersectionObserver(entries=>{
+      const visible=[];for(const entry of entries)if(entry.isIntersecting){const cell=state.targets.get(entry.target);if(cell){state.observer.unobserve(entry.target);state.targets.delete(entry.target);visible.push(cell);}}queue(visible);
+    },{rootMargin:'40px'});
+    for(const cell of cells){const target=cardViews.get(cell.row[0])?.card||cell.target;state.targets.set(target,cell);state.observer.observe(target);}
+  }else queue(cells);
+}
+function queueProfile(cell,state){
+  const id=cell.row[8].uploader;if(!id||state.stopped||cell.retired)return;
+  if(profileCache.has(id)){showProfile(cell,profileCache.get(id));return;}
+  const ongoing=state.profiles.get(id);
+  if(ongoing){ongoing.cells.push(cell);return;}
+  const job={kind:'profile',id,cells:[cell]};state.profiles.set(id,job);state.jobs.push(job);pumpPageReviews(state);
+}
+function queueReviews(cell,state,refresh=false){
+  if(state.stopped||cell.retired||cell.pending)return;
+  if(!refresh&&reviewCounts.has(cell.row[0])&&(!reviewsOpen(cell)||cell.reviewLoaded)){syncReviewCount(cell);return;}
+  if(!refresh&&cell.reviewError&&!reviewsOpen(cell))return;
+  refresh=refresh||Boolean(cell.reviewError)&&reviewsOpen(cell)&&reviewCounts.has(cell.row[0])&&!reviewCache.has(cell.row[0]);
+  const refreshOwner=refresh?reserveReviewRefresh(cell,state):null;
+  if(refresh&&!refreshOwner)return;
+  if(refresh){cell.reviewRetried=false;cell.reviewLoaded=false;}
+  cell.reviewError='';
+  cell.pending=true;syncReviewRefresh();
+  syncReviewCount(cell);
+  changeReviewContent(cell,()=>{uiText(cell.summary,m("Reviews")+': '+m("Queued"));loadingIndicator(cell.summary,true,true);uiText(cell.note,'');cell.target.setAttribute('aria-busy','true');});
+  if(!refresh&&reviewCache.has(cell.row[0]))loadInlineReviews(cell,state);
+  else{state.jobs.push({kind:'reviews',cell,refresh,refreshOwner});pumpPageReviews(state);}
+}
+function pumpPageReviews(state){
+  while(!state.stopped&&state.active<2&&state.jobs.length){
+    let next=state.jobs.findIndex(job=>job.kind==='reviews'&&reviewsOpen(job.cell));
+    if(next<0)next=state.jobs.findIndex(job=>job.kind==='reviews'&&job.cell.seen);
+    if(next<0)next=state.jobs.findIndex(job=>job.kind==='profile');
+    const [job]=state.jobs.splice(next<0?0:next,1);state.active++;runPageJob(job,state);
+  }
+}
+async function runPageJob(job,state){
+  try{if(job.kind==='profile')await loadProfile(job,state);else await loadInlineReviews(job.cell,state,job.refresh,job.refreshOwner);}
+  finally{state.active--;pumpPageReviews(state);}
+}
+async function loadProfile(job,state){
+  const request=new AbortController();job.request=request;state.controllers.add(request);const timer=setTimeout(()=>request.abort(),20000);
+  try{
+    const user=await readUserProfile(job.id,request.signal);if(state.stopped||request.signal.aborted)return;
+    for(const cell of job.cells)showProfile(cell,user);
+  }catch(error){if(!state.stopped)for(const cell of job.cells)uiAttr(cell.charterAvatar,"title",m("Avatar could not be loaded."));}
+  finally{clearTimeout(timer);state.controllers.delete(request);if(state.profiles.get(job.id)===job)state.profiles.delete(job.id);}
+}
+function showProfile(cell,user){
+  if(cell.retired||cell.profile===user)return;cell.profile=user;
+  if(cell.row[4].trim()&&cell.row[4].trim().toLocaleLowerCase()===user.name.trim().toLocaleLowerCase()){
+    const link=userLink(user,'charter-name'),source=m("Avatar from uploader: ")+user.name;
+    uiAttr(cell.charterAvatar,"title",source);uiAttr(link,"aria-label",user.name);
+    cell.charterAvatar.replaceChildren(makeAvatar(user.avatar,user.name));cell.charterIdentity.replaceChildren(element('span',m("Charter"),'meta-label'),link);
+  }else{
+    uiAttr(cell.charterAvatar,"title",m("Uploader account shown below."));
+    cell.uploader.replaceChildren(element('span',m("Uploader"),'meta-label'),makeAvatar(user.avatar,user.name),userLink(user,'uploader-name'));cell.uploader.hidden=false;
+  }
+}
+function reviewElement(item){
+  const article=element('article',undefined,'review-item'),head=element('div',undefined,'review-head'),identity=element('div',undefined,'review-identity'),meta=element('div',undefined,'review-meta');
+  article.setAttribute('role','listitem');identity.append(userLink(item.user,'review-author'));
+  if(item.user.pronouns)identity.append(element('span',item.user.pronouns,'review-pronouns'));
+  if(item.user.verified)identity.append(element('span',m("Verified"),'user-badge'));
+  if(item.user.patron)identity.append(element('span',m("Patreon supporter"),'user-badge'));
+  const date=element('time',item.date.replace(/\.0+$/,'')||m("Date unavailable"),'review-date');
+  uiAttr(date,"title",m("Review date"));if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(item.date))date.setAttribute('datetime',item.date.slice(0,19).replace(' ','T'));
+  meta.append(element('span',item.recommended===true?m("Recommended"):item.recommended===false?m("Not recommended"):m("Unrated"),item.recommended===true?'recommend':item.recommended===false?'not-recommend':''),date);
+  const info=element('div',undefined,'review-person');info.append(identity,meta);head.append(makeAvatar(item.user.avatar,item.user.name),info);
+  article.append(head,element('p',item.text.trim()?item.text:m("Rating only"),'review-text'));return article;
+}
+async function renderAllReviews(cell,result,state,request){
+  const fragment=document.createDocumentFragment(),entries=[];
+  if(!result.items.length)fragment.append(element('p',m("No reviews yet."),'reviews-empty'));
+  for(let start=0;start<result.items.length;start+=40){
+    if(state.stopped||request.signal.aborted)return false;
+    for(const item of result.items.slice(start,start+40)){const node=reviewElement(item);fragment.append(node);entries.push([node,'review:'+cell.row[0]+':'+item.user.id+':'+item.date]);}
+    if(start+40<result.items.length)await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  if(state.stopped||request.signal.aborted||!reviewsOpen(cell))return false;
+  // Build off-DOM in bounded batches; the temporary popover never resizes the document.
+  changeReviewContent(cell,()=>{
+    uiText(cell.summary,number(result.total)+m(" ratings | ")+number(result.comments)+m(" comments")+(result.average===null?'':' · '+result.average+m("% recommended")));
+    cell.list.replaceChildren(fragment);uiText(cell.note,'');
+  });
+  for(const [node,key] of entries)queueEntry(node,key,'review');
+  return true;
+}
+async function loadInlineReviews(cell,state,refresh=false,refreshOwner=null){
+  if(state.stopped||cell.retired){cell.pending=false;releaseReviewRefresh(refreshOwner);return;}
+  const generation=cacheGeneration,request=new AbortController();cell.request=request;state.controllers.add(request);let timedOut=false,reading=true,retry=false;
+  uiText(cell.summary,m("Loading reviews..."));loadingIndicator(cell.summary,true);
+  const timer=setTimeout(()=>{timedOut=true;request.abort();},20000);
+  try{
+    const result=await readReviews(cell.row[0],request.signal,refresh,reviewsOpen(cell)?'high':'low',refreshOwner);
+    if(state.stopped||cell.retired||generation!==cacheGeneration)return;if(request.signal.aborted)throw new DOMException('Aborted','AbortError');
+    reading=false;clearTimeout(timer);
+    reviewCounts.set(cell.row[0],result.total);syncReviewCount(cell);
+    if(!reviewsOpen(cell)||!await renderAllReviews(cell,result,state,request))return;
+    cell.reviewLoaded=true;if(!state.stopped)uiText(cell.note,'');
+  }catch(error){
+    retry=!refresh&&reading&&!state.stopped&&!cell.retired&&!cell.reviewRetried&&(timedOut||!request.signal.aborted&&error instanceof TypeError);
+    if(retry)cell.reviewRetried=true;
+    else if(!state.stopped&&!cell.retired){
+      cell.reviewError=timedOut?m("Reading reviews timed out."):error instanceof TypeError?m("Cannot reach SpinShare reviews."):errorText(error);
+      changeReviewContent(cell,()=>{cell.list.replaceChildren();pruneEntries();uiText(cell.summary,m("Reviews unavailable"));uiText(cell.note,cell.reviewError+m(" Select Refresh reviews to retry."));});
+    }
+  }finally{
+    clearTimeout(timer);state.controllers.delete(request);
+    if(cell.request===request){
+      cell.request=null;cell.pending=false;loadingIndicator(cell.summary,false);
+      if(!state.stopped&&!cell.retired){cell.target.setAttribute('aria-busy','false');syncReviewCount(cell);}
+      if(!state.stopped&&retry)queueReviews(cell,state);
+    }
+    releaseReviewRefresh(refreshOwner);syncReviewRefresh();
+  }
+}
+async function apply(){
+  if(phase==='loading'||appExiting)return;
+  let criteria;try{criteria=readCriteria();}catch(error){setStatus(errorText(error),true);return;}
+  const request=new AbortController();controller=request;let timedOut=false,timer=null,notice='';
+  try{
+    stopTextSearch(true);clearTimeout(textFilterTimer);textFilterTimer=null;
+    currentRows=[];filtered=[];phase='loading';page=1;visibleCount=scrollBatchSize;render();
+    // Within the interval this is the same copy already read from the durable
+    // local cache. Reopening always reads it again; an expired copy is refreshed
+    // by the local service before filtering. Tags and text search stay local.
+    if(catalog===null||Date.now()>=catalogNextAllowedAt){
+      timer=setTimeout(()=>{timedOut=true;request.abort();},requestTimeout);setStatus(m('Loading charts...'));
+      try{
+        const result=await loadRemote(request.signal);
+        if(controller!==request)return;if(request.signal.aborted)throw new DOMException('Aborted','AbortError');
+        const fetchedAt=Number.isFinite(result.fetchedAt)?result.fetchedAt:null;
+        const changed=catalog!==null&&(!result.cached||fetchedAt!==catalogFetchedAt);
+        catalog=result.data;catalogFetchedAt=fetchedAt;indexCatalogTags(catalog);
+        if(changed){cacheGeneration++;reviewCounts.clear();reviewCache.clear();profileCache.clear();userSearchCache.clear();installedCharts.clear();presenceGeneration++;presenceQueue.clear();}
+        if(result.refreshError)notice=m('Could not update chart data. Showing the last saved copy.');
+      }catch(error){
+        if(controller!==request)return;
+        if(catalog===null||request.signal.aborted&&!timedOut)throw error;
+        notice=m('Could not update chart data. Showing the last saved copy.');
+      }
+      clearTimeout(timer);timer=null;
+    }
+    if(controller!==request)return;if(request.signal.aborted&&!timedOut)throw new DOMException('Aborted','AbortError');
+    const rows=compact(catalog,criteria);
+    if(lastAppliedCriteria&&JSON.stringify(criteria)!==JSON.stringify(lastAppliedCriteria)){$('local-search').value='';appliedText='';}
+    applied=criteria;lastAppliedCriteria=criteria;currentRows=rows;phase='ready';
+    syncSearchControls();setStatus(notice);await rebuild();
+  }catch(error){
+    if(controller!==request)return;request.abort();
+    const message=error.name==='AbortError'?(timedOut?m('Loading charts timed out. Try refreshing data again.'):m('Search cancelled.')):error instanceof TypeError?m('Connection failed. Check your network and try again.'):errorText(error);
+    currentRows=[];filtered=[];applied=null;phase='error';render();setStatus(message,true);
+  }finally{clearTimeout(timer);if(controller===request){controller=null;syncFilters();}}
+}
+$('filters').addEventListener('submit',event=>{event.preventDefault();return apply();});
+$('apply-filters').addEventListener('click',event=>{event.preventDefault();return apply();});
+$('refresh-data').addEventListener('click',()=>apply());
+$('chart-search-form').addEventListener('submit',event=>{event.preventDefault();textSearchProblem='';if(phase==='ready')return rebuild();});
+$('search-clear').addEventListener('click',()=>{stopTextSearch(true);$('local-search').value='';syncSearchControls();$('local-search').focus();if(phase==='ready')return rebuild();});
+for(const field of Object.keys(searchFields))$('search-scope-'+field).addEventListener('click',()=>changeSearchScope(field));
+$('search-retry').addEventListener('click',()=>{textSearchProblem='';if(phase==='ready')return rebuild();});
+$('installation-filter').addEventListener('change',()=>{if(phase==='ready'&&!appExiting)rebuild(false);});
+$('installation-filter-retry').addEventListener('click',()=>refreshInstallationChecks(true));
+$('cancel').addEventListener('click',cancelQuery);
+$('reset-filters').addEventListener('click',event=>{event.preventDefault();event.stopPropagation();resetFilters();});
+$('date-preset').addEventListener('change',applyDatePreset);
+for(const id of ['date-from','date-to']){
+  $(id).addEventListener('input',()=>{$('date-preset').value='custom';syncDates();syncFilters();});
+  $(id).addEventListener('change',()=>{$(id).value=$(id).value.trim();syncDates();syncFilters();});
+  $(id+'-open').addEventListener('click',()=>openDatePicker(id));
+  $(id+'-open').setAttribute('aria-haspopup','dialog');$(id+'-open').setAttribute('aria-controls','date-calendar');$(id+'-open').setAttribute('aria-expanded','false');
+  $(id+'-picker').addEventListener('change',()=>{if(appExiting)return;$(id).value=$(id+'-picker').value;$('date-preset').value='custom';syncDates();syncFilters();$(id+'-open').focus({preventScroll:true});});
+}
+for(const input of document.querySelectorAll('input[name="diff"],#min,#max'))input.addEventListener('input',syncFilters);
+$('filter-panel').addEventListener('toggle',()=>{$('scope').hidden=$('filter-panel').open||phase!=='ready';});
+$('local-search').addEventListener('input',()=>{stopTextSearch(true);syncSearchControls();clearTimeout(textFilterTimer);textFilterTimer=null;if(phase==='ready')textFilterTimer=setTimeout(()=>{textFilterTimer=null;rebuild();},300);});
+for(const id of ['sort','sort-direction'])$(id).addEventListener('change',()=>rebuild());
+for(const suffix of ['','-bottom']){
+  $('page-size'+suffix).addEventListener('change',()=>{$('page-size').value=$('page-size'+suffix).value;page=1;visibleCount=scrollBatchSize;render();if(suffix)focusResults();});
+  $('prev'+suffix).addEventListener('click',()=>changePage(page-1));$('next'+suffix).addEventListener('click',()=>changePage(page+1));
+  $('jump'+suffix).addEventListener('click',()=>jumpToPage(suffix));
+  $('page-number'+suffix).addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();jumpToPage(suffix);}});
+}
+$('load-more').addEventListener('click',loadMore);
+pagerMedia?.addEventListener('change',()=>{for(const suffix of ['','-bottom'])renderPageLinks(suffix,phase==='ready');});
+globalThis.addEventListener?.('focus',()=>{if(!document.hidden)refreshInstallationChecks();});
+setupTagFilters();setupRuntime();setupPageControls();applyDatePreset();render();syncFilters();

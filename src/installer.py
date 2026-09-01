@@ -1,6 +1,7 @@
 """Download and install official SpinShare chart archives."""
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import email.message
 import logging
@@ -51,10 +52,21 @@ def default_target_directory():
 
 CHUNK_SIZE = 256 * 1024
 ACTIVE_STATES = {"queued", "downloading", "validating", "extracting"}
+MAX_ACTIVE_JOBS = 128  # Running plus waiting jobs, not download concurrency.
+MAX_STORED_JOBS = MAX_ACTIVE_JOBS + 128  # Retain completed results while the queue is full.
+DOWNLOAD_WORKERS = 2
+MAX_READY_ARCHIVES = 2
+JOB_TIMEOUT_SECONDS = 15 * 60
+MAX_DOWNLOAD_CONNECTIONS = 4
+_DOWNLOAD_CONNECTIONS = threading.BoundedSemaphore(MAX_DOWNLOAD_CONNECTIONS)
 
 
 class InstallError(Exception):
     pass
+
+
+class QueueFullError(InstallError):
+    code = "queue_full"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -89,11 +101,10 @@ def _root(directory):
     current = Path(root.anchor)
     for part in root.parts[1:]:
         current = current / part
-        if os.path.lexists(current):
-            if not stat.S_ISDIR(_no_link(current).st_mode):
-                raise InstallError("An ancestor of the installation directory is not an ordinary folder.")
-        else:
-            current.mkdir()
+        if not os.path.lexists(current):
+            current.mkdir(exist_ok=True)
+        if not stat.S_ISDIR(_no_link(current).st_mode):
+            raise InstallError("An ancestor of the installation directory is not an ordinary folder.")
     if os.path.normcase(str(root.resolve())) != os.path.normcase(str(root)):
         raise InstallError("The installation directory resolves to another location.")
     return root
@@ -261,10 +272,9 @@ def install_archive(zip_path, target_dir, report=lambda update: None, limits=DEF
         with zipfile.ZipFile(zip_path) as archive:
             files, unpacked = _archive_plan(archive, root, limits)
             report({"state": "validating", "message": "Checking ZIP contents.", "fileCount": len(files)})
-            for info, _, _ in files:
-                _copy_member(archive, info, None, deadline)
             if shutil.disk_usage(root).free < unpacked:
                 raise InstallError("The target disk has insufficient free space.")
+            # Staging verifies every member's CRC before the replacement loop below.
             report({"state": "extracting", "message": "Extracting chart files."})
             for info, target, _ in files:
                 _deadline(deadline)
@@ -311,6 +321,21 @@ def install_archive(zip_path, target_dir, report=lambda update: None, limits=DEF
     return {"filesWritten": written, "overwrittenFiles": overwritten, "fileCount": len(records), "zipRemoved": True}
 
 
+@contextlib.contextmanager
+def _download_connection(deadline):
+    remaining = None if deadline is None else max(0, deadline - time.monotonic())
+    if not _DOWNLOAD_CONNECTIONS.acquire(timeout=remaining):
+        raise InstallError("Installation exceeded 15 minutes.")
+    try:
+        _deadline(deadline)
+        yield
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise
+    finally:
+        _DOWNLOAD_CONNECTIONS.release()
+
+
 class OfficialRedirects(urllib.request.HTTPRedirectHandler):
     max_redirections = 3
 
@@ -318,22 +343,24 @@ class OfficialRedirects(urllib.request.HTTPRedirectHandler):
         parsed = urllib.parse.urlsplit(new_url)
         if (parsed.scheme != "https" or parsed.hostname not in {"spinsha.re", "spinshare.b-cdn.net"} or
                 parsed.port not in (None, 443) or parsed.username is not None or parsed.password is not None):
+            file_pointer.close()
             raise InstallError("The download redirected to an unapproved location.")
         return super().redirect_request(request, file_pointer, code, message, headers, new_url)
 
 
-def download_archive(song_id, target_dir, report, limits=DEFAULT_LIMITS, deadline=None):
+def download_archive(song_id, target_dir, report, limits=DEFAULT_LIMITS, deadline=None, *, unique_name=False):
     if type(song_id) is not int or not 0 < song_id <= 9007199254740991:
         raise InstallError("Invalid chart ID.")
     root = _root(target_dir)
     opener = urllib.request.build_opener(OfficialRedirects())
     request = urllib.request.Request(
         "https://spinsha.re/api/song/" + str(song_id) + "/download",
-        headers={"User-Agent": "SpinShareBrowser/1.0.0", "Cache-Control": "no-store", "Pragma": "no-cache", "Accept": "application/zip"},
+        headers={"User-Agent": "SpinShareBrowser/2.0.0", "Cache-Control": "no-store", "Pragma": "no-cache", "Accept": "application/zip"},
     )
     temp = None
     try:
-        with opener.open(request, timeout=30) as response:
+        # The counting API is contacted exactly once; it currently streams a full ZIP.
+        with _download_connection(deadline), opener.open(request, timeout=30) as response:
             if response.getcode() != 200:
                 raise InstallError("The official server did not provide a download; HTTP " + str(response.getcode()) + ".")
             content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
@@ -348,14 +375,19 @@ def download_archive(song_id, target_dir, report, limits=DEFAULT_LIMITS, deadlin
             name = disposition.get_filename() or ""
             if not re.fullmatch(r"spinshare_[a-fA-F0-9]{1,64}\.zip", name):
                 name = "spinshare-download-" + str(song_id) + ".zip"
+            if unique_name:
+                name = Path(name).stem + "-" + secrets.token_hex(16) + ".zip"
             destination = _owned(root, root / name)
             descriptor, temp = _temporary(root, root, ".spinshare-download-")
             received, last_report = 0, 0
             report({"state": "downloading", "message": "Downloading the official ZIP.", "downloadedBytes": 0, "totalBytes": total, "zipName": name})
             with os.fdopen(descriptor, "wb") as output:
+                # Read available bytes so a trickling response cannot hide the deadline while filling a chunk.
+                read = getattr(response, "read1", response.read)
                 while True:
                     _deadline(deadline)
-                    block = response.read(CHUNK_SIZE)
+                    block = read(CHUNK_SIZE)
+                    _deadline(deadline)
                     if not block:
                         break
                     received += len(block)
@@ -397,9 +429,20 @@ class JobManager:
         self.jobs = {}
         self.requests = {}
         self.work = queue.Queue()
+        self.ready = queue.Queue(maxsize=MAX_READY_ARCHIVES)
+        # Reserve space before downloading, including ZIPs waiting to be installed.
+        self._prefetch_slots = threading.BoundedSemaphore(MAX_READY_ARCHIVES)
         self.closed = False
+        # Keep the old worker attribute; only this thread may replace or roll back files.
         self.worker = threading.Thread(target=self._run, name="SpinShareInstaller", daemon=True)
+        self.download_workers = tuple(
+            threading.Thread(target=self._download, name=f"SpinShareDownload-{index + 1}", daemon=True)
+            for index in range(DOWNLOAD_WORKERS)
+        )
+        self.workers = (*self.download_workers, self.worker)
         self.worker.start()
+        for worker in self.download_workers:
+            worker.start()
 
     def submit(self, song_id, request_id):
         if type(song_id) is not int or not 0 < song_id <= 9007199254740991:
@@ -418,8 +461,8 @@ class JobManager:
                 if job["songId"] == song_id and job["state"] in ACTIVE_STATES:
                     self.requests[request_id] = job["id"]
                     return dict(job)
-            if self.active_count() >= 16:
-                raise InstallError("The install queue is full (16 tasks). Wait for a task to finish.")
+            if self.active_count() >= MAX_ACTIVE_JOBS:
+                raise QueueFullError(f"The install queue is full ({MAX_ACTIVE_JOBS} tasks). Wait for a task to finish.")
             identifier = secrets.token_hex(16)
             job = {
                 "id": identifier, "songId": song_id, "state": "queued",
@@ -430,9 +473,9 @@ class JobManager:
             }
             self.jobs[identifier] = job
             self.requests[request_id] = identifier
-            if len(self.jobs) > 128:
+            if len(self.jobs) > MAX_STORED_JOBS:
                 for old_id in list(self.jobs):
-                    if len(self.jobs) <= 128:
+                    if len(self.jobs) <= MAX_STORED_JOBS:
                         break
                     if self.jobs[old_id]["state"] not in ACTIVE_STATES:
                         del self.jobs[old_id]
@@ -455,26 +498,68 @@ class JobManager:
                 return False
             if not self.closed:
                 self.closed = True
-                self.work.put(None)
+                for _ in self.download_workers:
+                    self.work.put(None)
+                self.ready.put(None)
             return True
 
-    def _run(self):
+    def join(self, timeout=None):
+        """Join every pipeline thread after close_if_idle succeeds."""
+        deadline = None if timeout is None else time.monotonic() + max(0, timeout)
+        for worker in self.workers:
+            worker.join(None if deadline is None else max(0, deadline - time.monotonic()))
+        return not any(worker.is_alive() for worker in self.workers)
+
+    def _report(self, identifier, update):
+        allowed = {"state", "message", "downloadedBytes", "totalBytes", "fileCount", "filesWritten", "zipName"}
+        with self.lock:
+            self.jobs[identifier].update({key: value for key, value in update.items() if key in allowed})
+
+    def _failed(self, identifier, exc):
+        message = str(exc) if isinstance(exc, InstallError) else "Installation failed: " + str(exc)
+        with self.lock:
+            self.jobs[identifier].update({"state": "error", "message": message})
+        logging.warning("An installation failed: %s", type(exc).__name__)
+
+    def _download(self):
         while True:
             identifier = self.work.get()
             if identifier is None:
                 self.work.task_done()
                 return
-
-            def report(update):
-                allowed = {"state", "message", "downloadedBytes", "totalBytes", "fileCount", "filesWritten", "zipName"}
-                with self.lock:
-                    self.jobs[identifier].update({key: value for key, value in update.items() if key in allowed})
-
+            self._prefetch_slots.acquire()
+            handed_off = False
             try:
                 with self.lock:
                     song_id = self.jobs[identifier]["songId"]
                     target_dir = Path(self.jobs[identifier]["targetDirectory"])
-                result = install_song(song_id, target_dir, report)
+                report = lambda update, job_id=identifier: self._report(job_id, update)
+                report({"state": "downloading", "message": "Downloading the official ZIP."})
+                deadline = time.monotonic() + JOB_TIMEOUT_SECONDS
+                archive = download_archive(song_id, target_dir, report, deadline=deadline, unique_name=True)
+                # Waiting for the serial installer does not consume the execution budget.
+                remaining = max(0, deadline - time.monotonic())
+                report({"state": "validating", "message": "Downloaded; waiting for installation."})
+                self.ready.put((identifier, archive, target_dir, remaining))
+                handed_off = True
+            except Exception as exc:
+                self._failed(identifier, exc)
+            finally:
+                if not handed_off:
+                    self._prefetch_slots.release()
+                    self.work.task_done()
+
+    def _run(self):
+        while True:
+            item = self.ready.get()
+            if item is None:
+                self.ready.task_done()
+                return
+            identifier, archive, target_dir, remaining = item
+            self._prefetch_slots.release()
+            try:
+                report = lambda update, job_id=identifier: self._report(job_id, update)
+                result = install_archive(archive, target_dir, report, deadline=time.monotonic() + remaining)
                 if result.get("zipRemoved") is not True:
                     raise InstallError("Installation did not finish.")
                 with self.lock:
@@ -483,9 +568,7 @@ class JobManager:
                     })
                     self.jobs[identifier].update({"state": "complete", "message": "Installed; matching files replaced and ZIP deleted."})
             except Exception as exc:
-                message = str(exc) if isinstance(exc, InstallError) else "Installation failed: " + str(exc)
-                with self.lock:
-                    self.jobs[identifier].update({"state": "error", "message": message})
-                logging.warning("An installation failed: %s", type(exc).__name__)
+                self._failed(identifier, exc)
             finally:
+                self.ready.task_done()
                 self.work.task_done()

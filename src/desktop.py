@@ -4,11 +4,14 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import ctypes
+import ipaddress
 import json
 from pathlib import Path
+import re
 import secrets
 import sys
 import threading
+import unicodedata
 from urllib.parse import urlsplit
 import webbrowser
 
@@ -125,12 +128,30 @@ def show_startup_error(message, button_text="OK"):
 
 
 def external_url_allowed(value):
-    if not isinstance(value, str) or len(value) > 8192 or "\\" in value or any(ord(char) <= 32 for char in value):
+    if (not isinstance(value, str) or not value or len(value) > 8192 or "\\" in value or
+            any(char.isspace() or unicodedata.category(char) in {"Cc", "Cf", "Cs"} for char in value)):
         return False
     try:
         parsed = urlsplit(value)
-        return parsed.scheme == "https" and parsed.netloc.lower() == "spinsha.re"
-    except ValueError:
+        if parsed.scheme not in {"http", "https"} or parsed.username is not None or parsed.password is not None:
+            return False
+        host, port = parsed.hostname, parsed.port
+        if not host or port is not None and not 1 <= port <= 65535:
+            return False
+        authority = parsed.netloc.rsplit(":", 1)[0] if port is not None else parsed.netloc
+        if authority.lower() != ("[" + host + "]" if ":" in host else host):
+            return False
+        if ":" in host:
+            return "%" not in host and ipaddress.IPv6Address(host).version == 6
+        host = host.encode("idna").decode("ascii").removesuffix(".")
+        if len(host) > 253:
+            return False
+        # Reject browser shorthand/hex IPs so the displayed host cannot hide another address.
+        if re.fullmatch(r"[0-9]+|0[xX][0-9a-fA-F]+", host.rsplit(".", 1)[-1]):
+            return str(ipaddress.IPv4Address(host)) == host
+        return all(re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?", label)
+                   for label in host.split("."))
+    except (ValueError, UnicodeError):
         return False
 
 

@@ -18,9 +18,9 @@ py -3.12 -m venv .venv
 
 | 文件 | 内容 |
 | --- | --- |
-| `SpinShareBrowser-1.0.0-windows-x64-setup.exe` | Windows 安装包 |
-| `SpinShareBrowser-1.0.0-windows-x64-setup.exe.sha256` | 安装包校验文件 |
-| `SpinShareBrowser-1.0.0-source.zip` | 源码包 |
+| `SpinShareBrowser-2.0.0-windows-x64-setup.exe` | Windows 安装包 |
+| `SpinShareBrowser-2.0.0-windows-x64-setup.exe.sha256` | 安装包校验文件 |
+| `SpinShareBrowser-2.0.0-source.zip` | 源码包 |
 
 打包后的程序目录为 `build/windows/SpinShareBrowser`。第三方许可文件随程序安装。
 
@@ -36,3 +36,16 @@ py -3.12 -m venv .venv
 | `docs` | 构建说明、截图和演示 |
 
 修改 Python 源码或网页界面后，再次运行 `scripts/build.py` 即可更新安装包。
+
+## 离线回归检查
+
+以下测试使用临时目录和本地模拟响应，不会向 SpinShare 查询或下载谱面。JavaScript 检查需要 Node.js。
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+node tests/test_tag_filters.cjs
+node tests/test_catalog_ui.cjs
+node tests/test_date_picker.cjs
+node tests/test_review_drawers.cjs
+node tests/test_installation_filters.cjs
+```

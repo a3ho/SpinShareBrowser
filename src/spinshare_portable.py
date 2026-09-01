@@ -21,7 +21,7 @@ import time
 
 import installer
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 HOST = "127.0.0.1"
 CONFIG_NAME = "config.json"
 PAGE_NAME = "browser.html"
@@ -38,6 +38,9 @@ RE_HEX64 = re.compile(r"[a-f0-9]{64}")
 MAX_SETTINGS_BYTES = 16384
 MAX_REQUEST_HISTORY = 65536
 MAX_CHART_BYTES = 32 * 1024 * 1024
+CHART_CACHE_NAME = "charts-cache.json"
+MAX_CHART_CACHE_BYTES = MAX_CHART_BYTES + MAX_SETTINGS_BYTES
+CHART_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 
 
 class PortableError(installer.InstallError):
@@ -45,10 +48,11 @@ class PortableError(installer.InstallError):
 
 
 class APIError(PortableError):
-    def __init__(self, status, code, message):
+    def __init__(self, status, code, message, **details):
         super().__init__(message)
         self.status = status
         self.code = code
+        self.details = details
 
 
 def web_resource_path(name):
@@ -348,7 +352,7 @@ def _atomic_write(path, data):
         if os.path.lexists(path):
             _safe_info(path, directory=False)
         temporary = contextlib.nullcontext(path.parent)
-        if path.name in {CONFIG_NAME, RUNTIME_NAME, PAGE_NAME}:
+        if path.name in {CONFIG_NAME, RUNTIME_NAME, PAGE_NAME, CHART_CACHE_NAME}:
             import maintenance
             temporary = maintenance.prepare_temp_directory(path.parent)
         with temporary as temp_directory:
@@ -454,6 +458,152 @@ class ConfigStore:
         return validate_directory(config["customDirectory"] or self.default_directory)
 
 
+def _fetch_chart_catalog():
+    """The search endpoint supplies tags/notes without visiting counted song details."""
+    body = _json_bytes({"searchQuery": "", "diffEasy": True, "diffNormal": True,
+                       "diffHard": True, "diffExpert": True, "diffXD": True,
+                       "diffRatingFrom": 0, "diffRatingTo": 999, "showExplicit": True})
+    connection = http.client.HTTPSConnection("spinsha.re", timeout=30)
+    deadline = time.monotonic() + 90
+    try:
+        # http.client deliberately does not follow redirects or retry requests.
+        connection.request("POST", "/api/searchCharts", body=body, headers={
+            "Content-Type": "application/json", "Accept": "application/json",
+            "Cache-Control": "no-store", "User-Agent": "SpinShareBrowser/" + VERSION})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise PortableError("The chart search endpoint is unavailable.")
+        length = response.getheader("Content-Length")
+        if length is not None and (not re.fullmatch(r"[0-9]+", length) or int(length) > MAX_CHART_BYTES):
+            raise PortableError("The chart catalog exceeds the size limit.")
+        raw = bytearray()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("The chart catalog request timed out.")
+            if connection.sock is not None:
+                connection.sock.settimeout(min(30, remaining))
+            chunk = response.read1(min(65536, MAX_CHART_BYTES + 1 - len(raw)))
+            if not chunk:
+                break
+            raw.extend(chunk)
+            if len(raw) > MAX_CHART_BYTES:
+                raise PortableError("The chart catalog exceeds the size limit.")
+        if length is not None and len(raw) != int(length):
+            raise PortableError("The chart catalog response was incomplete.")
+        result = _parse_json(raw)
+        if (not isinstance(result, dict) or result.get("status") != 200 or
+                not isinstance(result.get("data"), list) or any(not isinstance(row, dict) for row in result["data"])):
+            raise PortableError("The chart catalog format is invalid.")
+        if len(_json_bytes(result["data"])) > MAX_CHART_BYTES:
+            raise PortableError("The chart catalog exceeds the size limit.")
+        return result["data"]
+    finally:
+        connection.close()
+
+
+def validate_chart_cache(value):
+    fields = {"schemaVersion", "lastAttemptAt", "fetchedAt", "refreshError", "data"}
+    if (not isinstance(value, dict) or set(value) != fields or type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1 or
+            type(value["lastAttemptAt"]) is not int or not 0 <= value["lastAttemptAt"] < 2 ** 53 - CHART_REFRESH_INTERVAL_MS or
+            value["refreshError"] is not None and (not isinstance(value["refreshError"], str) or len(value["refreshError"]) > 512) or
+            (value["data"] is None) != (value["fetchedAt"] is None) or
+            value["data"] is not None and (not isinstance(value["data"], list) or any(not isinstance(row, dict) for row in value["data"]) or
+                type(value["fetchedAt"]) is not int or not 0 <= value["fetchedAt"] < 2 ** 53)):
+        raise PortableError("The saved chart catalog format is invalid.")
+    if len(_json_bytes(value)) > MAX_CHART_CACHE_BYTES:
+        raise PortableError("The saved chart catalog exceeds the size limit.")
+    return value
+
+
+class ChartCatalogCache:
+    def __init__(self, state_dir):
+        self.path = _directory_syntax(state_dir) / CHART_CACHE_NAME
+        self.lock = threading.Lock()
+        self.state = None
+        self.monotonic_until = 0
+
+    def _load(self):
+        if self.state is not None:
+            return
+        if os.path.lexists(self.path):
+            self.state = validate_chart_cache(_parse_json(_read_bytes(self.path, limit=MAX_CHART_CACHE_BYTES)))
+        else:
+            self.state = {"schemaVersion": 1, "lastAttemptAt": None, "fetchedAt": None, "refreshError": None, "data": None}
+        attempt = self.state["lastAttemptAt"]
+        remaining = 0 if attempt is None else max(0, attempt + CHART_REFRESH_INTERVAL_MS - time.time_ns() // 1000000)
+        self.monotonic_until = time.monotonic_ns() + remaining * 1000000
+
+    def _metadata(self, *, cached):
+        now = time.time_ns() // 1000000
+        state = self.state or {}
+        attempt = state.get("lastAttemptAt")
+        # Clock changes cannot shorten a cooldown while this process is running.
+        remaining = max(0, (self.monotonic_until - time.monotonic_ns() + 999999) // 1000000,
+                        0 if attempt is None else attempt + CHART_REFRESH_INTERVAL_MS - now)
+        return {"cached": cached, "serverNow": now, "fetchedAt": state.get("fetchedAt"),
+                "lastAttemptAt": attempt, "nextAllowedAt": now + remaining,
+                "retryAfterSeconds": (remaining + 999) // 1000, "refreshError": state.get("refreshError")}
+
+    def _save(self, state):
+        raw = _json_bytes(state)
+        if len(raw) > MAX_CHART_CACHE_BYTES:
+            raise PortableError("The saved chart catalog exceeds the size limit.")
+        _atomic_write(self.path, raw)
+
+    def get(self):
+        # The launcher already holds the per-directory process lock. This lock
+        # coalesces page reloads and concurrent local HTTP requests during a fetch.
+        with self.lock:
+            try:
+                self._load()
+            except (OSError, ValueError, PortableError) as exc:
+                raise APIError(500, "charts_cache_error", "The chart cache could not be read safely. No remote request was sent.",
+                               **self._metadata(cached=False)) from exc
+            metadata = self._metadata(cached=self.state["data"] is not None)
+            if metadata["retryAfterSeconds"]:
+                if self.state["data"] is None:
+                    raise APIError(409, "charts_cooldown", "The chart refresh is cooling down.", **metadata)
+                return {"data": self.state["data"], **metadata}
+            reservation = dict(self.state, lastAttemptAt=time.time_ns() // 1000000,
+                               refreshError="A chart refresh did not finish. Try again after the refresh cooldown.")
+            monotonic_until = time.monotonic_ns() + CHART_REFRESH_INTERVAL_MS * 1000000
+            try:
+                # Persist the reservation first: failed requests and process exits
+                # must not let a reopened window bypass the ten-minute interval.
+                self._save(reservation)
+            except (OSError, ValueError, PortableError) as exc:
+                message = "The refresh cooldown could not be saved. No remote request was sent."
+                metadata = dict(self._metadata(cached=self.state["data"] is not None), refreshError=message)
+                if isinstance(exc, OSError) and self.state["data"] is not None:
+                    return {"data": self.state["data"], **metadata}
+                raise APIError(500, "charts_cache_error", message, **metadata) from exc
+            self.state = reservation
+            self.monotonic_until = monotonic_until
+            try:
+                rows = _fetch_chart_catalog()
+            except (OSError, ValueError, PortableError, http.client.HTTPException) as exc:
+                self.state = dict(reservation, refreshError="Charts could not be loaded. Try again after the refresh cooldown.")
+                with contextlib.suppress(OSError, ValueError, PortableError):
+                    self._save(self.state)
+                metadata = self._metadata(cached=self.state["data"] is not None)
+                if self.state["data"] is None:
+                    raise APIError(502, "charts_unavailable", self.state["refreshError"], **metadata) from exc
+                return {"data": self.state["data"], **metadata}
+            updated = dict(reservation, data=rows, fetchedAt=time.time_ns() // 1000000, refreshError=None)
+            try:
+                self._save(updated)
+            except (OSError, ValueError, PortableError) as exc:
+                # Do not publish a catalog that a restarted process cannot read.
+                self.state = dict(reservation, refreshError="Charts loaded, but the local cache could not be saved.")
+                metadata = self._metadata(cached=self.state["data"] is not None)
+                if not isinstance(exc, OSError) or self.state["data"] is None:
+                    raise APIError(500, "charts_cache_error", self.state["refreshError"], **metadata) from exc
+                return {"data": self.state["data"], **metadata}
+            self.state = updated
+            return {"data": self.state["data"], **self._metadata(cached=False)}
+
+
 def validate_catalog(catalog):
     if not isinstance(catalog, dict) or set(catalog) != LANGUAGES:
         raise PortableError("The interface catalog must contain exactly en and zh-CN.")
@@ -480,6 +630,26 @@ def _script_json(value):
                               ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
         encoded = encoded.replace(char, replacement)
     return encoded
+
+
+def assemble_web_template(template: str, *, styles: str, cards: str, app: str) -> str:
+    """Embed only the three shipped frontend fragments in the inline page."""
+    fragments = {"/*__SPINSHARE_STYLES__*/": styles, "/*__SPINSHARE_CARDS__*/": cards,
+                 "/*__SPINSHARE_APP__*/": app}
+    if any(template.count(marker) != 1 for marker in fragments):
+        raise PortableError("The page template has missing or duplicate frontend fragments.")
+    # Do not scan inserted source again: marker-like strings are ordinary source text.
+    return re.sub(r"/\*__SPINSHARE_(?:STYLES|CARDS|APP)__\*/", lambda match: fragments[match[0]], template)
+
+
+def load_web_template() -> str:
+    """Read the fixed frontend resource list from source or the frozen bundle."""
+    return assemble_web_template(
+        web_resource_path(TEMPLATE_NAME).read_text(encoding="utf-8"),
+        styles=web_resource_path("interface.css").read_text(encoding="utf-8"),
+        cards=web_resource_path("chart-card.js").read_text(encoding="utf-8"),
+        app=web_resource_path("app.js").read_text(encoding="utf-8"),
+    )
 
 
 def render_page(template: str, bootstrap: dict, catalog: dict) -> str:
@@ -781,7 +951,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/health", "/v1/activity", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check"} and
+        if (self.path not in {"/v1/health", "/v1/activity", "/v1/charts", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check"} and
                 not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
@@ -817,7 +987,12 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
         if not self._authenticated():
             return
         manager = self.server.manager
-        if self.path == "/v1/settings":
+        if self.path == "/v1/charts":
+            try:
+                self._respond(200, self.server.chart_cache.get())
+            except APIError as exc:
+                self._respond(exc.status, {"error": str(exc), "code": exc.code, **exc.details})
+        elif self.path == "/v1/settings":
             try:
                 self._respond(200, {"settings": manager.settings()})
             except (OSError, installer.InstallError):
@@ -969,7 +1144,8 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
         except APIError as exc:
             self._respond(exc.status, {"error": str(exc), "code": exc.code})
         except installer.InstallError as exc:
-            self._respond(400, {"error": str(exc), "code": "invalid_request"})
+            queue_full = getattr(exc, "code", "") == "queue_full"
+            self._respond(429 if queue_full else 400, {"error": str(exc), "code": "queue_full" if queue_full else "invalid_request"})
         except OSError:
             self._respond(500, {"error": "Settings could not be saved. Check directory permissions, free space and file locks.", "code": "settings_io_error"})
 
@@ -983,7 +1159,7 @@ class PortableApplication:
     def __init__(self, state_dir, *, desktop=False):
         self.store = ConfigStore(state_dir)
         saved = self.store.load()
-        self.template = web_resource_path(TEMPLATE_NAME).read_text(encoding="utf-8")
+        self.template = load_web_template()
         self.catalog = load_catalog()
         # A fresh session epoch prevents an old page from replaying a pending
         # request after a restart, even if the OS happens to reuse the same port.
@@ -998,6 +1174,7 @@ class PortableApplication:
             self.server = PortableHTTPServer((HOST, 0), PortableHandler)
             self.server.capability = self.config["token"]
             self.server.manager = self.manager
+            self.server.chart_cache = ChartCatalogCache(self.store.directory)
             self.server.instance_id = self.instance_id
             self.port = self.server.server_address[1]
             self.origin = "http://127.0.0.1:" + str(self.port)
@@ -1014,7 +1191,7 @@ class PortableApplication:
             _atomic_write(self.runtime_path, _json_bytes(runtime))
         except BaseException:
             self.manager.close_if_idle()
-            self.manager.worker.join(3)
+            self.manager.join(3)
             if hasattr(self, "server"):
                 self.server.server_close()
             raise
@@ -1058,7 +1235,7 @@ class PortableApplication:
                 return
             self.server.server_close()
             if self.manager.close_if_idle():
-                self.manager.worker.join()
+                self.manager.join()
             try:
                 runtime = read_runtime(self.store.directory, self.token)
                 if runtime["instanceId"] == self.instance_id and runtime["pid"] == os.getpid():

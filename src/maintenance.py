@@ -21,7 +21,7 @@ MARKER_NAME = ".spinshare-owner.json"
 COMPONENTS = {"WebView2": "webview2", "Temp": "temp"}
 MAX_PAGE_BYTES = 4 * 1024 * 1024
 MAX_COMPONENT_ENTRIES = 100000
-TEMP_NAME = re.compile(r"\.spinshare-(?:(config\.json|runtime\.json|browser\.html)-)?[a-z0-9_]{8}\.tmp")
+TEMP_NAME = re.compile(r"\.spinshare-(?:(config\.json|runtime\.json|browser\.html|charts-cache\.json)-)?[a-z0-9_]{8}\.tmp")
 
 
 class MaintenanceError(portable.PortableError):
@@ -327,6 +327,15 @@ def _legacy_temporaries(state, config):
         if len(candidates) > 128:
             raise MaintenanceError("Application data contains too many temporary files for safe cleanup; they were retained.")
     for path, target in candidates:
+        if target == portable.CHART_CACHE_NAME:
+            if path.lstat().st_size <= portable.MAX_CHART_CACHE_BYTES:
+                raw = portable._read_bytes(path, limit=portable.MAX_CHART_CACHE_BYTES)
+                try:
+                    portable.validate_chart_cache(portable._parse_json(raw))
+                except (ValueError, portable.PortableError):
+                    continue
+                documents[path] = (_identity(path, False), hashlib.sha256(raw).digest())
+            continue
         if target not in {None, portable.CONFIG_NAME} or path.lstat().st_size > portable.MAX_SETTINGS_BYTES:
             continue
         raw = portable._read_bytes(path, limit=portable.MAX_SETTINGS_BYTES)
@@ -394,7 +403,7 @@ def _plan_cleanup(state, config, protected=()):
                 directories.append((directory, _identity(directory, True)))
                 for child in directory.iterdir():
                     if (child.suffix.lower() == ".srtb" or child.name.lower() in {"albumart", "audioclips", "custom"} or
-                            re.fullmatch(r"spinshare_(?:[a-f0-9]{1,64})\.zip|spinshare-download-[0-9]+\.zip|\.spinshare-(?:stage|rollback|download)-[^/\\]+\.tmp", child.name, re.I)):
+                            re.fullmatch(r"(?:spinshare_[a-f0-9]{1,64}|spinshare-download-[0-9]+)(?:-[a-f0-9]{32})?\.zip|\.spinshare-(?:stage|rollback|download)-[^/\\]+\.tmp", child.name, re.I)):
                         raise MaintenanceError("An application data component contains game files; it was retained.")
                     info = child.lstat()
                     is_directory = stat.S_ISDIR(info.st_mode)
@@ -405,14 +414,20 @@ def _plan_cleanup(state, config, protected=()):
                         files.append((child, identity, None))
                     if len(files) + len(directories) + len(pending) > MAX_COMPONENT_ENTRIES:
                         raise MaintenanceError("Application data contains too many entries for safe cleanup; it was retained.")
-        elif path.name in {portable.CONFIG_NAME, portable.RUNTIME_NAME, portable.PAGE_NAME}:
-            raw = portable._read_bytes(path, limit=MAX_PAGE_BYTES if path.name == portable.PAGE_NAME else portable.MAX_SETTINGS_BYTES)
+        elif path.name in {portable.CONFIG_NAME, portable.RUNTIME_NAME, portable.PAGE_NAME, portable.CHART_CACHE_NAME}:
+            limit = portable.MAX_CHART_CACHE_BYTES if path.name == portable.CHART_CACHE_NAME else MAX_PAGE_BYTES if path.name == portable.PAGE_NAME else portable.MAX_SETTINGS_BYTES
+            raw = portable._read_bytes(path, limit=limit)
             if path.name == portable.CONFIG_NAME:
                 _read_config(state)
             elif path.name == portable.RUNTIME_NAME:
                 if config is None:
                     raise MaintenanceError("Runtime metadata cannot be identified without its configuration; it was retained.")
                 portable.read_runtime(state, config["token"])
+            elif path.name == portable.CHART_CACHE_NAME:
+                try:
+                    portable.validate_chart_cache(portable._parse_json(raw))
+                except (ValueError, portable.PortableError) as exc:
+                    raise MaintenanceError("The chart cache has an unknown format; it was retained.") from exc
             else:
                 _validate_page(raw, config)
             files.append((path, _identity(path, False), hashlib.sha256(raw).digest()))
@@ -436,12 +451,18 @@ def _pin_document(path):
         kernel.CloseHandle(handle)
 
 
+def _digest_limit(path):
+    temporary = TEMP_NAME.fullmatch(path.name)
+    return portable.MAX_CHART_CACHE_BYTES if path.name == portable.CHART_CACHE_NAME or temporary and temporary[1] == portable.CHART_CACHE_NAME else MAX_PAGE_BYTES
+
+
 def _delete_entry(path, identity, directory=False, digest=None):
+    limit = _digest_limit(path)
     with portable._directory_guard(path.parent):
         if os.name != "nt":
             if _identity(path, directory) != identity:
                 raise MaintenanceError("An application data entry changed during cleanup; it was retained.")
-            if digest is not None and hashlib.sha256(portable._read_bytes(path, limit=MAX_PAGE_BYTES)).digest() != digest:
+            if digest is not None and hashlib.sha256(portable._read_bytes(path, limit=limit)).digest() != digest:
                 raise MaintenanceError("An application data file changed during cleanup; it was retained.")
             path.rmdir() if directory else path.unlink()
             return
@@ -469,8 +490,8 @@ def _delete_entry(path, identity, directory=False, digest=None):
                     [info.st_dev, info.st_ino] != identity):
                 raise MaintenanceError("An application data entry changed during cleanup; it was retained.")
             if digest is not None:
-                raw = os.read(descriptor, MAX_PAGE_BYTES + 1)
-                if len(raw) > MAX_PAGE_BYTES or hashlib.sha256(raw).digest() != digest:
+                raw = os.read(descriptor, limit + 1)
+                if len(raw) > limit or hashlib.sha256(raw).digest() != digest:
                     raise MaintenanceError("An application data file changed during cleanup; it was retained.")
             disposition = ctypes.c_ubyte(1)
             if not kernel.SetFileInformationByHandle(handle, 4, ctypes.byref(disposition), ctypes.sizeof(disposition)):
@@ -497,7 +518,7 @@ def cleanup_state(state_dir, install_dir):
                         if path in temporary:
                             pinned.enter_context(_pin_document(path))
                             if (_identity(path, False) != identity or
-                                    hashlib.sha256(portable._read_bytes(path, limit=MAX_PAGE_BYTES)).digest() != digest):
+                                    hashlib.sha256(portable._read_bytes(path, limit=_digest_limit(path))).digest() != digest):
                                 raise MaintenanceError("A temporary application file changed during maintenance; it was retained.")
                     components = {path: identity for path, identity in directories if path.parent == state}
                     markers = {}
