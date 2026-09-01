@@ -47,11 +47,13 @@ function createChartCard(row){
 
   const info=element('div',undefined,'song-info');
   const copy=element('div',undefined,'song-copy');
-  const link=element('a',row[1],'song-title');
-  link.id='song-title-'+row[0];
-  link.href='https://spinsha.re/song/'+row[0];
-  link.target='_blank';link.rel='noopener noreferrer';
-  copy.append(link);
+  const titleRow=element('div',undefined,'song-title-row');
+  const songTitle=element('h2',row[1],'song-title');
+  const official=element('a',undefined,'chart-official-link');
+  songTitle.id='song-title-'+row[0];
+  official.href='https://spinsha.re/song/'+row[0];official.target='_blank';official.rel='noopener noreferrer';
+  uiAttr(official,'aria-label',m('Open on SpinShare: ')+row[1]);uiAttr(official,'title',m('Open on SpinShare: ')+row[1]);official.append(icon('external'));
+  titleRow.append(songTitle,official);copy.append(titleRow);
   if(row[2])copy.append(element('p',row[2],'subtitle'));
   copy.append(element('p',row[3]||m('Unknown artist'),'artist'));
 

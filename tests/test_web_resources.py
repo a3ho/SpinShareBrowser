@@ -99,7 +99,7 @@ class WebResourceTests(unittest.TestCase):
         spec.loader.exec_module(build)
         resources = {"web/index.html", "web/interface.css", "web/chart-card.js", "web/app.js", "web/locales.json"}
         self.assertEqual(set(build.WEB_FILES), resources)
-        self.assertTrue(resources | {"tests/read_web_template.cjs", "tests/test_web_resources.py"}
+        self.assertTrue(resources | {"tests/read_web_template.cjs", "tests/test_web_resources.py", "tests/test_audio_player.cjs"}
                         <= set(build.SOURCE_FILES))
         self.assertEqual(len(build.SOURCE_FILES), len(set(build.SOURCE_FILES)))
         for name in resources:
@@ -109,6 +109,23 @@ class WebResourceTests(unittest.TestCase):
         self.assertRegex(page, r"<script>\s*'use strict';")
         for placeholder in ("__SPINSHARE_RUNTIME_CONFIG__", "__SPINSHARE_CONNECT_ORIGIN__", "__SPINSHARE_UI_CATALOG__"):
             self.assertEqual(page.count(placeholder), 1, placeholder)
+
+    def test_live_csp_allows_only_the_preview_cdn_for_media(self):
+        template = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        tag = re.search(r'<meta\b[^>]*http-equiv="Content-Security-Policy"[^>]*>', template, re.I)
+        self.assertIsNotNone(tag)
+        content = re.search(r'\bcontent="([^"]*)"', tag.group(0), re.I)
+        self.assertIsNotNone(content)
+        directives = {}
+        for raw in content.group(1).split(";"):
+            fields = raw.split()
+            if fields:
+                self.assertNotIn(fields[0], directives)
+                directives[fields[0]] = fields[1:]
+        self.assertEqual(directives.get("default-src"), ["'none'"])
+        self.assertEqual(directives.get("media-src"), ["https://spinshare.b-cdn.net"])
+        self.assertNotIn("blob:", directives["media-src"])
+        self.assertNotIn("data:", directives["media-src"])
 
 
 if __name__ == "__main__":

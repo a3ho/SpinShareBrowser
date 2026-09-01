@@ -13,6 +13,7 @@ A third-party Windows app for browsing and installing [SpinShare](https://spinsh
 - Combine independent tag filters, with result counts for each suggestion and a sticky selected-tag bar.
 - Show all charts, only installed charts, or only uninstalled charts using locally verified installation status.
 - Sort by upload date, difficulty rating, views, downloads, or title.
+- Preview up to 25 seconds of a chart's music in one global header player.
 - Browse cover art, author notes and tags, optionally show full comments, install charts, and check their installation status.
 - English and Simplified Chinese interface.
 
@@ -42,6 +43,10 @@ Pages contain **10, 20, or 30** charts. **Unlimited** adds more as you scroll. Y
 The result toolbar shows all installation states by default. After the first filter, you can choose only installed or only uninstalled charts. This combines with difficulty, date, keyword search scopes, AND tags, and sorting without resetting those choices. It checks the entire candidate set, not just the current page, through the local `/v1/installations/check` API and does not trigger another full refresh from SpinShare. Unknown or failed checks remain unconfirmed and are not treated as uninstalled.
 
 Use **Add tag** to choose a suggestion or enter a complete tag and press Enter. Clicking a chart's tag also adds it. Tags are case-insensitive and must all match; changing other search criteria keeps them selected. Use a tag's ×, **Clear tags**, or **Reset filters** to remove them. Tag search becomes available after the first filter.
+
+Hover or focus a chart cover to reveal its play control; clicking it starts that chart in the single header player. The song title remains selectable, copyable text. A separate subdued external-link icon beside it opens the official chart page. The header player shows a larger cover, song and artist, elapsed and total time, and a draggable progress bar without difficulty badges. Space toggles the current preview except while editing or using a control with its own Space action. With no current song, Space keeps its normal behavior and never starts the hovered chart.
+
+Each preview is limited to 25 seconds. The app constructs only the fixed SpinShare CDN audio path from a strictly validated `fileReference`; previewing does not call chart-detail, download, or counting APIs. It tries OGG, falls back to MP3 once, and gives each format a 15-second loading limit. Filtering, tags, sorting and paging keep the current song. A catalog update discards it if the media identity changed. Hiding or minimizing the app pauses without resuming automatically; quitting releases the media. Player changes use short motion and two cover layers for a clean crossfade, while reduced-motion settings remove spatial effects.
 
 Author notes are not searched and no longer scroll inside the card. Short notes appear in full, keep their normal links and have no glow or expand action. Long previews keep half of an actual text line fully visible, then use 3px of extra space for the ending fade. Hovering, keyboard focus or an open panel raises the text and solid preview surface by 2px over soft background light; the hit area stays still. Hover does not add a bright outline, and keyboard focus keeps an edge cue. Reduced motion removes the movement. Hover never opens the text: click, Enter or Space opens the full notes. Long previews are inert: select, copy and follow links in the full-text panel instead.
 

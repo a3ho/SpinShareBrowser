@@ -431,8 +431,8 @@ test('an asynchronous zero closes open content, cancels motion and uses preventS
     assert.equal(request.options.signal.aborted, false);
     if (input === 'external-focus') assert.strictEqual(h.document.activeElement, outside);
     else {
-      const title = cell.card.querySelector('.song-title');
-      assert.strictEqual(h.document.activeElement, title); assert.equal(title.focusOptions.preventScroll, true);
+      const officialLink = cell.card.querySelector('.chart-official-link');
+      assert.strictEqual(h.document.activeElement, officialLink); assert.equal(officialLink.focusOptions.preventScroll, true);
     }
     assert.equal(h.requests.length, 1); assert.equal(h.timers.size, 0);
   }
@@ -448,7 +448,7 @@ test('refreshing a positive count to zero clears old content and disclosure stat
   assertKnownZero(h, first); assert.equal(h.api.reviewCache.get(1).items.length, 0);
   assert.equal(h.api.reviewCache.get(1).total, 0); assert.equal(h.nextRefresh(), started + 60000);
   assert.equal(h.refreshOwner(), null); assert.equal(second.refresh.disabled, true);
-  assert.strictEqual(h.document.activeElement, first.card.querySelector('.song-title'));
+  assert.strictEqual(h.document.activeElement, first.card.querySelector('.chart-official-link'));
   assert.equal(h.document.activeElement.focusOptions.preventScroll, true);
   h.global(true); await settle(() => second.reviewLoaded && !second.pending);
   assertKnownZero(h, first); assert.equal(second.target.hidden, false);
