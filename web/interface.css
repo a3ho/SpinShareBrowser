@@ -222,10 +222,10 @@ body:has(#app-activity:not([hidden])) { --content-bottom: 120px; }
 .tool-field-label { color: var(--text-quiet); font-size: var(--type-meta); font-weight: var(--weight-regular); line-height: var(--leading-tight); }
 .tool-field .choice-trigger { width: 100%; min-height: 34px; padding: 7px 9px 7px 10px; background: #1a1b20; color: var(--text); font-size: var(--type-control); font-weight: var(--weight-medium); }
 .tool-field .choice-trigger:hover:not(:disabled), .tool-field .choice-trigger.is-open { background: var(--surface); }
-.installation-filter-control { width: 132px; }
+.installation-filter-control { width: 170px; }
 .sort-tools { display: flex; align-items: flex-end; gap: 9px; padding-left: 16px; margin-left: 5px; border-left: 1px solid var(--line); }
-.sort-field { width: 142px; }
-.direction-field { width: 92px; }
+.sort-field { width: 150px; }
+.direction-field { width: 124px; }
 .installation-filter-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; color: var(--muted); font-size: var(--type-control); }
 .installation-filter-feedback > span { min-width: 0; overflow-wrap: anywhere; }
 .installation-filter-feedback button { padding: 5px 9px; background: var(--surface); color: var(--text); font-size: inherit; }
@@ -276,7 +276,7 @@ body:has(#app-activity:not([hidden])) { --content-bottom: 120px; }
 /* A card is a song, an author note, an action row, and complete reviews.
    No shared grid row makes another chart inherit a long review's height. */
 .chart-grid { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; }
-.chart-card { container: chart-card / inline-size; min-width: 0; border-radius: var(--radius); background: var(--card); transition: background var(--motion-feedback); }
+.chart-card { container: chart-card / inline-size; min-width: 0; border-radius: var(--radius); background: var(--card); transition: background var(--motion-feedback); user-select: text; }
 .chart-card.is-description-expanded { position: relative; z-index: 20; }
 .chart-card:hover { background: var(--card-hover); }
 .chart-heading { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1fr); gap: 28px; align-items: start; padding: 20px 24px 18px; }
@@ -299,7 +299,8 @@ body:has(#app-activity:not([hidden])) { --content-bottom: 120px; }
 .cover-retry:hover, html[data-input-modality=keyboard] .cover-retry:focus-visible { color: #fff; opacity: 1; background: #282a33; }
 .cover-retry .icon { width: 15px; height: 15px; }
 .cover-missing { font-size: var(--type-meta); line-height: var(--leading-ui); }
-.song-copy { grid-column: 2; min-width: 0; }
+.song-copy { position: relative; grid-column: 2; min-width: 0; }
+.song-copy.is-description-expanded { z-index: 4; }
 .song-title-row { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
 .song-title { min-width: 0; max-width: 100%; color: var(--text); font-family: var(--font-display); font-size: var(--type-title); font-weight: var(--weight-display); line-height: 1.3; letter-spacing: normal; overflow-wrap: anywhere; user-select: text; }
 .chart-official-link { display: grid; place-items: center; flex: none; width: 30px; height: 30px; margin-top: -1px; border-radius: 7px; color: #c7cad5; opacity: .28; transform: translateY(1px); transition: opacity var(--motion-feedback), color var(--motion-feedback), background var(--motion-feedback), transform var(--motion-standard) var(--ease-out); }
@@ -308,6 +309,7 @@ body:has(#app-activity:not([hidden])) { --content-bottom: 120px; }
 .chart-official-link:hover, html[data-input-modality=keyboard] .chart-official-link:focus-visible { color: #fff; opacity: 1; background: #ffffff0d; }
 .subtitle { margin-top: 3px; color: var(--text-secondary); font-size: var(--type-control); font-weight: var(--weight-medium); line-height: 1.45; overflow-wrap: anywhere; }
 .artist { margin-top: 5px; color: var(--muted); font-size: var(--type-body); line-height: 1.45; overflow-wrap: anywhere; }
+.song-credit { max-height: 2.9em; }
 .dlc-requirement { display: inline-flex; align-items: center; gap: 5px; width: fit-content; max-width: 100%; margin-top: 7px; padding: 3px 7px; border-radius: 6px; background: var(--surface); color: var(--text-secondary); font-size: var(--type-meta); font-weight: var(--weight-medium); line-height: var(--leading-ui); overflow-wrap: anywhere; white-space: normal; }
 .dlc-requirement > span { min-width: 0; overflow-wrap: anywhere; }
 a.dlc-requirement { transition: background var(--motion-feedback), color var(--motion-feedback); }
@@ -334,26 +336,30 @@ a.dlc-requirement:hover, html[data-input-modality=keyboard] a.dlc-requirement:fo
 .chart-notes { display: flex; position: relative; flex-direction: column; gap: 12px; min-width: 0; max-height: 164px; padding: 0 0 0 26px; border-left: 1px solid var(--line); }
 .chart-notes.is-description-expanded { z-index: 4; }
 .chart-notes.is-tags-only { align-self: center; }
-.chart-description { position: relative; isolation: isolate; min-height: 0; max-height: 8.5em; border-radius: 8px; color: var(--text-secondary); font-size: var(--type-body); line-height: var(--leading-reading); }
-.chart-description-text { max-height: inherit; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; transition: transform var(--motion-standard) var(--ease-out), opacity var(--motion-feedback) ease; }
-.chart-description.has-overflow { max-height: calc(var(--description-preview-height, 9.35em) + 3px); cursor: pointer; }
-.chart-description.has-overflow .chart-description-text { mask-image: linear-gradient(#000 0, #000 calc(100% - .56em), transparent 100%); pointer-events: none; user-select: none; }
-.chart-description.has-overflow::before, .chart-description.has-overflow::after { content: ''; position: absolute; pointer-events: none; opacity: 0; transform: translateY(0) scale(.995); transition: opacity var(--motion-standard) var(--ease-out), transform var(--motion-standard) var(--ease-out); }
-.chart-description.has-overflow::before { inset: -8px -10px; z-index: -1; border: 1px solid #d4c5ee15; border-radius: 11px; background: linear-gradient(148deg, #2c2b37 0%, #24252d 58%, #22232a 100%); box-shadow: 0 11px 24px #0007, 0 2px 7px #0005, inset 0 1px 0 #ffffff08; }
-.chart-description.has-overflow::after { inset: -13px -15px; z-index: -2; border-radius: 15px; background: radial-gradient(ellipse at 50% 44%, #a784d32b 0%, #8d7ed51c 47%, transparent 75%); box-shadow: 0 0 24px 1px #a881da24, 0 13px 32px #5854a21f; }
-.chart-description.has-overflow:is(:hover, .is-expanded)::before, html[data-input-modality=keyboard] .chart-description.has-overflow:focus-visible::before { opacity: 1; transform: translateY(-2px) scale(1); }
-.chart-description.has-overflow:is(:hover, .is-expanded)::after, html[data-input-modality=keyboard] .chart-description.has-overflow:focus-visible::after { opacity: .9; transform: translateY(0) scale(1); }
-.chart-description.has-overflow:is(:hover, .is-expanded) .chart-description-text, html[data-input-modality=keyboard] .chart-description.has-overflow:focus-visible .chart-description-text { transform: translateY(-2px); }
-.chart-description.has-overflow.is-floating { position: absolute; z-index: 12; top: var(--description-float-top); left: var(--description-float-left); width: var(--description-float-width); height: var(--description-expanded-height); max-height: none; cursor: default; }
-.chart-description.has-overflow.is-floating::before { opacity: 1; transform: none; }
-.chart-description.has-overflow.is-floating::after { opacity: .7; transform: none; }
-.chart-description.has-overflow.is-floating .chart-description-text { height: 100%; max-height: 100%; overflow: hidden auto; overscroll-behavior: contain; scrollbar-gutter: stable; mask-image: none; transform: none; }
-.chart-description.has-overflow.is-floating.is-expanded .chart-description-text { pointer-events: auto; user-select: text; }
-.chart-description.has-overflow.is-floating.is-collapsing .chart-description-text { pointer-events: none; user-select: none; }
-.chart-description.has-overflow:focus-visible { outline: 2px solid transparent; outline-offset: 5px; }
-html[data-input-modality=keyboard] .chart-description.has-overflow:focus-visible::before { border-color: #c7b1edb3; }
+.chart-disclosure { position: relative; isolation: isolate; min-height: 0; border-radius: 8px; }
+.chart-description { max-height: 8.5em; color: var(--text-secondary); font-size: var(--type-body); line-height: var(--leading-reading); }
+.chart-disclosure-text { display: block; max-height: inherit; overflow: hidden; overflow-wrap: anywhere; transition: transform var(--motion-standard) var(--ease-out), opacity var(--motion-feedback) ease; }
+.chart-description-text { white-space: pre-wrap; }
+.chart-disclosure.has-overflow { max-height: calc(var(--description-preview-height, 9.35em) + 3px); cursor: pointer; }
+.chart-disclosure.has-overflow .chart-disclosure-text { mask-image: linear-gradient(#000 0, #000 calc(100% - .56em), transparent 100%); pointer-events: none; user-select: none; }
+.chart-disclosure.has-overflow::before, .chart-disclosure.has-overflow::after { content: ''; position: absolute; pointer-events: none; opacity: 0; transform: translateY(0) scale(.995); transition: opacity var(--motion-standard) var(--ease-out), transform var(--motion-standard) var(--ease-out); }
+.chart-disclosure.has-overflow::before { inset: -8px -10px; z-index: -1; border: 1px solid #d4c5ee15; border-radius: 11px; background: linear-gradient(148deg, #2c2b37 0%, #24252d 58%, #22232a 100%); box-shadow: 0 11px 24px #0007, 0 2px 7px #0005, inset 0 1px 0 #ffffff08; }
+.chart-disclosure.has-overflow::after { inset: -13px -15px; z-index: -2; border-radius: 15px; background: radial-gradient(ellipse at 50% 44%, #a784d32b 0%, #8d7ed51c 47%, transparent 75%); box-shadow: 0 0 24px 1px #a881da24, 0 13px 32px #5854a21f; }
+.chart-disclosure.has-overflow:is(:hover, .is-expanded)::before, html[data-input-modality=keyboard] .chart-disclosure.has-overflow:focus-visible::before { opacity: 1; transform: translateY(-2px) scale(1); }
+.chart-disclosure.has-overflow:is(:hover, .is-expanded)::after, html[data-input-modality=keyboard] .chart-disclosure.has-overflow:focus-visible::after { opacity: .9; transform: translateY(0) scale(1); }
+.chart-disclosure.has-overflow:is(:hover, .is-expanded) .chart-disclosure-text, html[data-input-modality=keyboard] .chart-disclosure.has-overflow:focus-visible .chart-disclosure-text { transform: translateY(-2px); }
+.chart-disclosure.has-overflow.is-floating { position: absolute; z-index: 12; top: var(--description-float-top); left: var(--description-float-left); width: var(--description-float-width); height: var(--description-expanded-height); max-height: none; cursor: default; }
+.song-credit.is-floating { margin-top: 0; }
+.chart-disclosure.has-overflow.is-floating::before { opacity: 1; transform: none; }
+.chart-disclosure.has-overflow.is-floating::after { opacity: .7; transform: none; }
+.chart-disclosure.has-overflow.is-floating .chart-disclosure-text { height: 100%; max-height: 100%; overflow: hidden auto; overscroll-behavior: contain; scrollbar-gutter: stable; mask-image: none; transform: none; }
+.chart-disclosure.has-overflow.is-floating.is-expanded .chart-disclosure-text { pointer-events: auto; user-select: text; }
+.chart-disclosure.has-overflow.is-floating.is-collapsing .chart-disclosure-text { pointer-events: none; user-select: none; }
+.chart-disclosure.has-overflow:focus-visible { outline: 2px solid transparent; outline-offset: 5px; }
+html[data-input-modality=keyboard] .chart-disclosure.has-overflow:focus-visible::before { border-color: #c7b1edb3; }
 .chart-description a { color: #f299c1; text-decoration: underline; text-decoration-color: #f299c15c; text-underline-offset: 3px; }
 .chart-description a:hover { color: #ffc3e0; text-decoration-color: currentColor; }
+.chart-card :is(a, button, [role=button]) { user-select: none; }
 .chart-tags { display: flex; align-items: center; gap: 6px; flex: none; min-width: 0; height: 28px; overflow: hidden; }
 .chart-tag-button { display: inline-flex; align-items: center; justify-content: center; flex: none; min-height: 26px; padding: 4px 9px; border: 1px solid transparent; border-radius: 6px; background: #ffffff07; color: #c3c6d1; font-size: var(--type-meta); font-weight: var(--weight-medium); line-height: 1.4; }
 .chart-tag-button:hover { color: var(--text); background: #ffffff12; }
@@ -808,10 +814,10 @@ html, .settings-panel { --scroll-thumb: #484a57; }
   .content-header { align-items: flex-start; }
   .tools { width: 100%; gap: 8px; flex-wrap: wrap; margin-left: 0; }
   .tool-field .choice-trigger { font-size: var(--type-meta); }
-  .installation-filter-control { width: 124px; }
-  .sort-tools { gap: 8px; padding-left: 10px; margin-left: 0; }
-  .sort-field { width: 132px; }
-  .direction-field { width: 88px; }
+  .installation-filter-control { width: 170px; }
+  .sort-tools { flex: 1 1 280px; min-width: 0; gap: 8px; padding-left: 0; margin-left: 0; border-left: 0; }
+  .sort-field { flex: 1 1 148px; width: auto; min-width: 148px; }
+  .direction-field { flex: 1 1 124px; width: auto; min-width: 124px; }
   .tools .review-display-toggle { font-size: var(--type-meta); }
   .refresh-data-control { margin-left: 0; }
   .pager { grid-template-columns: 1fr; gap: 9px; }
@@ -868,7 +874,7 @@ html, .settings-panel { --scroll-thumb: #484a57; }
   .preview-spinner { animation: none; }
   .global-player-cover.is-shortcut-feedback .preview-glyphs::before { animation: none; }
   .settings-panel::backdrop { transition: none; }
-  .chart-description.has-overflow::before, .chart-description.has-overflow::after, .chart-description.has-overflow .chart-description-text { transform: none !important; }
+  .chart-disclosure.has-overflow::before, .chart-disclosure.has-overflow::after, .chart-disclosure.has-overflow .chart-disclosure-text { transform: none !important; }
 }
 @media (forced-colors: active) {
   html, body, .settings-panel, .choice-menu, .chart-tags-popover, .reading-popover[popover] .reading-content { scrollbar-color: auto; }
@@ -881,9 +887,9 @@ html, .settings-panel { --scroll-thumb: #484a57; }
   #preview-player-progress::-moz-range-track { height: 3px; background: CanvasText; }
   #preview-player-progress::-moz-range-progress { height: 3px; background: Highlight; }
   #preview-player-progress::-moz-range-thumb { background: Highlight; box-shadow: none; }
-  .chart-description.has-overflow:is(:hover, .is-expanded, .is-floating)::before, html[data-input-modality=keyboard] .chart-description.has-overflow:focus-visible::before { border-color: Highlight; box-shadow: none; }
-  .chart-description.has-overflow::after { box-shadow: none; }
-  html[data-input-modality=keyboard] .chart-description.has-overflow:focus-visible { outline-color: Highlight; }
+  .chart-disclosure.has-overflow:is(:hover, .is-expanded, .is-floating)::before, html[data-input-modality=keyboard] .chart-disclosure.has-overflow:focus-visible::before { border-color: Highlight; box-shadow: none; }
+  .chart-disclosure.has-overflow::after { box-shadow: none; }
+  html[data-input-modality=keyboard] .chart-disclosure.has-overflow:focus-visible { outline-color: Highlight; }
   .chart-tag-button[aria-pressed=true], .selected-tag, .search-scope[aria-pressed=true], .settings-close-options label:has(:checked), .choice-option.is-selected { border: 1px solid Highlight; }
   .difficulty-options input, .review-display-toggle input { border: 1px solid ButtonText; }
   .difficulty-options input:checked, .review-display-toggle input:checked { background: Highlight; }

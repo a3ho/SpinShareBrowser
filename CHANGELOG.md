@@ -12,6 +12,13 @@ This maintenance reissue replaces the September 1 release assets with the instal
 
 ### English
 
+#### Interface and chart cards
+
+- Result-toolbar controls now show complete English and Chinese values and options. On narrower windows, whole fields wrap instead of truncating labels such as sort direction.
+- Song titles remain complete. Subtitles and artists that exceed two lines now use the same anchored disclosure language as long author notes: a one-and-a-half-line preview opens into a floating full-text card without increasing the chart card's height.
+- Selection behavior is now consistent: ordinary content text can be copied, while any text that performs an action is click-only. Collapsed long-content previews are click-only; their expanded non-link text is selectable, while links and controls remain click-only.
+- Fully closing a floating content card now resets its internal scroll position, so the next opening starts at the top instead of leaving a scrolled preview over tags or actions.
+
 #### Installation status checks
 
 - Each full installation-status refresh now enumerates the actual `.srtb` files once and returns a hash inventory that the interface matches against the current catalog in memory, instead of probing each catalog candidate. Returning the window to the foreground still refreshes this local inventory automatically.
@@ -34,6 +41,13 @@ This maintenance reissue replaces the September 1 release assets with the instal
 ---
 
 ### 简体中文
+
+#### 界面与谱面卡片
+
+- 结果工具栏现在完整显示中英文当前值和所有选项；窄窗口按完整字段换行，不再把“排序方向”等内容截断为省略号。
+- 歌曲标题继续完整显示；超过两行的副标题和艺人改为复用长作者说明的锚定披露语言，以一行半预览打开不增高谱面卡片的浮动全文卡片。
+- 文字选择行为统一为：普通内容文字可复制，任何承担操作的文字只可点击。折叠的长内容预览只可点击，展开后的非链接正文可选择，链接与控件仍只可点击。
+- 浮动内容卡片完整收起时会重置内部滚动位置，下次从顶部打开，不再让滚到底部后的旧位置在预览中覆盖标签或操作。
 
 #### 安装状态核对
 

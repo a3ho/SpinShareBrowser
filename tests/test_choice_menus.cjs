@@ -7,6 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8');
+const styles = fs.readFileSync(path.join(__dirname, '../web/interface.css'), 'utf8');
 const start = source.indexOf('function element(');
 const end = source.indexOf('function countValue(', start);
 assert(start >= 0 && end > start, 'The production choice-menu controller must exist');
@@ -202,5 +203,17 @@ view.button.rect = {left: 100, top: 80, bottom: 116, width: 160, height: 36}; ap
 assert.equal(view.menu.style.left, '100px'); assert.equal(view.menu.style.top, '123px'); assert.equal(view.menu.style.width, '220px');
 view.button.rect = {left: 100, top: 500, bottom: 536, width: 160, height: 36}; api.positionChoiceMenu(view);
 assert.equal(view.menu.style.top, '361px', 'The menu must flip above its trigger instead of crossing the viewport edge');
+
+// Every responsive rule keeps enough inline space for its longest English value;
+// the detached menu already grows to max-content in positionChoiceMenu().
+for (const [selector, minimum] of [['installation-filter-control', 160], ['sort-field', 148], ['direction-field', 120]]) {
+  const rules = [...styles.matchAll(new RegExp(`\\.${selector}\\s*\\{([^}]*)\\}`, 'g'))];
+  assert(rules.length, `Missing ${selector} sizing rule`);
+  for (const [, declarations] of rules) {
+    const widths = [...declarations.matchAll(/(?:^|;)\s*(?:min-)?width:\s*(\d+)px/g)].map(match => Number(match[1]));
+    assert(widths.some(width => width >= minimum), `${selector} can truncate its longest English choice: ${declarations.trim()}`);
+  }
+}
+assert.match(source, /menu\.style\.width='max-content'/, 'Open choice menus must measure their complete option labels');
 
 console.log('choice menus: PASS');

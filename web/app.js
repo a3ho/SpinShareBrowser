@@ -1372,6 +1372,11 @@ function setupAudioPreview(){
   progress.addEventListener('input',()=>{if(!previewTrack||!previewReady)return;const limit=previewLimit();if(!(limit>0))return;const value=Math.max(0,Math.min(Number(progress.value)||0,limit));try{audio.currentTime=value;}catch{}if(value>=limit-.015){if(previewState==='ended')updatePreviewProgress(limit,true);else finishPreview();return;}if(previewState==='ended'){previewState='paused';previewWantsPlay=false;}updatePreviewProgress(value,true);syncPreviewInterface();});
   document.addEventListener('keydown',handlePreviewSpace);document.addEventListener('keydown',handlePreviewSeekKey);document.addEventListener('visibilitychange',()=>{if(document.hidden)pausePreview();});globalThis.addEventListener?.('pagehide',disposePreview);syncPreviewInterface();
 }
+const CHART_DISCLOSURE_CONFIG={
+  description:{budgetLines:5,previewLines:4.5,idPrefix:'chart-description-',label:'Chart description',read:'Read the full note for ',collapse:'Collapse the note for ',readHelp:'Click or press Enter to read the full note.',collapseHelp:'Click or press Enter to collapse the note.',shortRole:'region'},
+  subtitle:{budgetLines:2,previewLines:1.5,idPrefix:'chart-subtitle-',label:'Subtitle',read:'Read the full subtitle for ',collapse:'Collapse the subtitle for ',readHelp:'Click or press Enter to read the full subtitle.',collapseHelp:'Click or press Enter to collapse the subtitle.',shortRole:''},
+  artist:{budgetLines:2,previewLines:1.5,idPrefix:'chart-artist-',label:'Artist',read:'Read the full artist credit for ',collapse:'Collapse the artist credit for ',readHelp:'Click or press Enter to read the full artist credit.',collapseHelp:'Click or press Enter to collapse the artist credit.',shortRole:''}
+};
 const chartDescriptionViews=new Map();
 let chartDescriptionOwner=null,chartDescriptionObserver=null,chartDescriptionFrame=0,chartDescriptionControlsReady=false;
 function cancelChartDescriptionMotion(view){
@@ -1379,13 +1384,14 @@ function cancelChartDescriptionMotion(view){
   if(view?.preview){view.preview.style.height='';view.preview.style.willChange='';}
 }
 function releaseChartDescriptionGeometry(view){
-  if(!view)return;const {preview,notes,card}=view;
+  if(!view)return;const {preview,content,notes,card}=view;
   preview?.classList.remove('is-floating','is-collapsing');
   card?.classList.remove('is-description-expanded');notes?.classList.remove('is-description-expanded');
   if(preview){
     preview.style.height='';preview.style.willChange='';
     for(const name of ['--description-float-top','--description-float-left','--description-float-width','--description-expanded-height'])preview.style.removeProperty(name);
   }
+  if(content)content.scrollTop=0;
   if(notes){notes.style.height='';notes.style.minHeight='';}
 }
 function chartDescriptionGeometry(view){
@@ -1408,12 +1414,12 @@ function prepareChartDescriptionGeometry(view,geometry){
   card?.classList.add('is-description-expanded');preview.classList.add('is-floating');
 }
 function syncChartDescriptionAccessibility(view,expanded){
-  const {preview,content}=view;content.inert=!expanded;preview.tabIndex=view.overflow?0:-1;
+  const {preview,content,config}=view;content.inert=!expanded;preview.tabIndex=view.overflow?0:-1;
   preview.setAttribute('role',expanded?'region':'button');
   if(expanded){preview.removeAttribute('aria-expanded');preview.removeAttribute('aria-controls');}
   else{preview.setAttribute('aria-expanded','false');preview.setAttribute('aria-controls',content.id);}
-  uiAttr(preview,'aria-label',m(expanded?'Collapse the note for ':'Read the full note for ')+view.row[1]);
-  uiAttr(preview,'aria-description',m(expanded?'Click or press Enter to collapse the note.':'Click or press Enter to read the full note.'));
+  uiAttr(preview,'aria-label',m(expanded?config.collapse:config.read)+view.row[1]);
+  uiAttr(preview,'aria-description',m(expanded?config.collapseHelp:config.readHelp));
 }
 function setChartDescriptionExpanded(view,expanded,animate=true){
   if(!view?.preview.isConnected||expanded&&!view.overflow)return false;
@@ -1447,9 +1453,9 @@ function refreshChartDescriptions(){
       chartDescriptionObserver?.unobserve(preview);chartDescriptionViews.delete(preview);continue;
     }
     if(view.expanded||preview.classList.contains('is-floating'))continue;
-    const content=view.content,line=parseFloat(getComputedStyle(content).lineHeight)||22.1,budget=line*5;
+    const content=view.content,line=parseFloat(getComputedStyle(content).lineHeight)||22.1,budget=line*view.config.budgetLines;
     const overflow=preview.clientWidth>0&&content.scrollHeight>budget+1;
-    let cut=line*4.5;
+    let cut=line*view.config.previewLines;
     if(overflow&&typeof document.createRange==='function'){
       // Clip through actual lettering, not an empty paragraph line; all reads precede writes.
       const top=content.getBoundingClientRect().top,range=document.createRange();range.selectNodeContents(content);
@@ -1462,12 +1468,12 @@ function refreshChartDescriptions(){
   for(const {view,overflow,cut} of measured){
     const {preview,content}=view;view.overflow=overflow;view.cut=cut;
     preview.classList.toggle('has-overflow',overflow);content.inert=overflow;preview.tabIndex=overflow?0:-1;
-    preview.setAttribute('role',overflow?'button':'region');
-    uiAttr(preview,'aria-label',overflow?m('Read the full note for ')+view.row[1]:m('Chart description'));
+    if(overflow||view.config.shortRole)preview.setAttribute('role',overflow?'button':view.config.shortRole);else preview.removeAttribute('role');
+    if(overflow||view.config.shortRole)uiAttr(preview,'aria-label',overflow?m(view.config.read)+view.row[1]:m(view.config.label));else{uiAttr(preview,'aria-label','');preview.removeAttribute('aria-label');}
     if(overflow){
       preview.style.setProperty('--description-preview-height',cut+'px');
       preview.setAttribute('aria-expanded','false');preview.setAttribute('aria-controls',content.id);
-      uiAttr(preview,'aria-description',m('Click or press Enter to read the full note.'));
+      uiAttr(preview,'aria-description',m(view.config.readHelp));
     }else{
       preview.style.removeProperty('--description-preview-height');
       preview.removeAttribute('aria-expanded');preview.removeAttribute('aria-controls');
@@ -1490,13 +1496,13 @@ function showChartDescription(view,input='mouse'){
   if(!view?.overflow||!view.preview.isConnected||!view.card||!hostVisible||document.hidden||appExiting||phase!=='ready')return false;
   if($('tag-picker').matches(':popover-open')||$('selected-tag-popover').matches(':popover-open'))return false;
   view.input=input;if(chartDescriptionOwner===view)return setChartDescriptionExpanded(view,false);
-  if(chartDescriptionOwner)dismissChartDescription(false);
+  if(chartDescriptionOwner)dismissChartDescription(false,chartDescriptionOwner.card!==view.card);
   closeTemporaryReviews(reviewPopoverOwner,false,false);dismissChartTags();
   return setChartDescriptionExpanded(view,true);
 }
-function bindChartDescription(row,preview,content){
-  const view={row,preview,content,card:null,notes:preview.parentElement,overflow:false,expanded:false,cut:0,input:'mouse',motion:null};chartDescriptionViews.set(preview,view);
-  content.id='chart-description-'+row[0];preview.tabIndex=-1;preview.setAttribute('role','region');preview.setAttribute('aria-controls',content.id);uiAttr(preview,'aria-label',m('Chart description'));content.inert=true;
+function bindChartDescription(row,preview,content,kind='description'){
+  const config=CHART_DISCLOSURE_CONFIG[kind]||CHART_DISCLOSURE_CONFIG.description,view={row,preview,content,config,card:null,notes:preview.parentElement,overflow:false,expanded:false,cut:0,input:'mouse',motion:null};chartDescriptionViews.set(preview,view);
+  content.id=config.idPrefix+row[0];preview.tabIndex=-1;if(config.shortRole){preview.setAttribute('role',config.shortRole);uiAttr(preview,'aria-label',m(config.label));}content.inert=false;
   preview.addEventListener('pointerdown',event=>{view.pointerType=event.pointerType;});
   preview.addEventListener('click',event=>{
     if(!view.overflow)return;if(view.expanded&&event.target.closest?.('a'))return;
@@ -1524,7 +1530,7 @@ function bindChartDescription(row,preview,content){
   scheduleChartDescriptions();return view;
 }
 function bindChartDescriptionCard(card){
-  const view=chartDescriptionViews.get(card.querySelector('.chart-description'));if(!view)return;view.card=card;view.notes=view.preview.parentElement;
+  for(const preview of card.querySelectorAll('.chart-disclosure')){const view=chartDescriptionViews.get(preview);if(view){view.card=card;view.notes=preview.parentElement;}}
 }
 let chartTagsPopover=null,chartTagsOwner=null,chartTagsTimer=null,chartTagsFrame=0,chartTagsIgnoreFocus=false;
 function chartTagsOverflow(strip){return strip.clientWidth>0&&strip.scrollWidth>strip.clientWidth+1;}

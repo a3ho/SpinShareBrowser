@@ -11,6 +11,7 @@ const {test} = require('node:test');
 const web = path.join(__dirname, '..', 'web');
 const app = fs.readFileSync(path.join(web, 'app.js'), 'utf8');
 const cards = fs.readFileSync(path.join(web, 'chart-card.js'), 'utf8');
+const styles = fs.readFileSync(path.join(web, 'interface.css'), 'utf8');
 function extract(source, start, end) {
   const from = source.indexOf(start), to = end ? source.indexOf(end, from) : source.length;
   assert(from >= 0 && to > from, 'Missing production function: ' + start);
@@ -214,7 +215,7 @@ function harness({now = Date.UTC(2026, 8, 1), storage = new Map(), storageAvaila
     extract(app, 'function playMotion(', 'function rememberEntry('),
     extract(app, 'function remember(', 'function canSearchUsers('),
     extract(app, 'function tagKey(', 'function cleanTags('),
-    extract(app, 'const chartDescriptionViews=new Map()', 'function installationRequestId('),
+    extract(app, 'const CHART_DISCLOSURE_CONFIG=', 'function installationRequestId('),
     extract(app, 'function reviewsOpen(', 'function setupScrolling('),
     extract(app, 'async function readJSONResponse(', 'async function readSharedUser('),
     extract(app, 'function prunePageDetails(', 'async function apply('),
@@ -223,8 +224,8 @@ function harness({now = Date.UTC(2026, 8, 1), storage = new Map(), storageAvaila
   node('sort').value = 'date';
   node('topbar').bounds = {top: 0, bottom: 64};
   api.setupPageControls();
-  function card(id = api.cardViews.size + 1, uploader = '', metadata = {}) {
-    const row = [id, 'Chart ' + id, '', 'Artist', 'Charter', '2026-08-31', [[4, 40]], 40,
+  function card(id = api.cardViews.size + 1, uploader = '', metadata = {}, identity = {}) {
+    const row = [id, identity.title || 'Chart ' + id, identity.subtitle || '', identity.artist || 'Artist', 'Charter', '2026-08-31', [[4, 40]], 40,
       {views: null, downloads: null, uploader, ...metadata}];
     const view = api.createChartCard(row); api.cardViews.set(id, view); document.body.append(view.card);
     api.syncReviewVisibility(false, [view.cell]); return view.cell;
@@ -258,6 +259,7 @@ function harness({now = Date.UTC(2026, 8, 1), storage = new Map(), storageAvaila
     refreshOwner: () => vm.runInContext('reviewRefreshOwner', api), refreshTimer: () => vm.runInContext('reviewRefreshTimer', api),
     storageKey: vm.runInContext('REVIEW_REFRESH_STORAGE_KEY', api),
     owner: () => vm.runInContext('reviewPopoverOwner', api), animate: () => { allowMotion = true; },
+    reviewObserver: () => observers.find(observer => [...observer.targets].some(target => target.classList?.contains('chart-card'))),
     descriptionViews: () => vm.runInContext('chartDescriptionViews', api),
     descriptionOwner: () => vm.runInContext('chartDescriptionOwner', api),
     selection,
@@ -306,17 +308,36 @@ function described(h, id = 1, text = 'A complete chart note', lines = 7, tags = 
   view.notes.bounds = {top: 130, bottom: 130 + notesHeight, left: 674, right: 1220, width: 546, height: notesHeight};
   return {cell, view, preview, content};
 }
+function songCredits(h, id, subtitle, artist, subtitleLines, artistLines) {
+  const cell = h.card(id, '', {}, {subtitle, artist});
+  const measure = (selector, lines) => {
+    const preview = cell.card.querySelector(selector), content = preview.querySelector('.song-credit-text');
+    content.computed = {lineHeight: '20px'}; content.scrollHeight = lines * 20;
+    content.bounds = {top: 100, bottom: 100 + lines * 20, left: 0, right: 300, width: 300, height: lines * 20};
+    content.textRects = Array.from({length: lines}, (_, index) => ({top: 102 + index * 20, bottom: 116 + index * 20, width: 300, height: 14}));
+    preview.clientWidth = 300;
+    return {cell, preview, content};
+  };
+  const subtitleView = subtitle ? measure('.subtitle', subtitleLines) : null;
+  const artistView = measure('.artist', artistLines);
+  h.runFrames();
+  for (const item of [subtitleView, artistView].filter(Boolean)) item.view = h.descriptionViews().get(item.preview);
+  return {cell, subtitle: subtitleView, artist: artistView};
+}
 function clickDescription(item, input = 'mouse') {
   if (input !== 'keyboard') item.preview.emit('pointerdown', {pointerType: input});
   return item.preview.emit('click', {detail: input === 'keyboard' ? 0 : 1});
 }
-function assertDescriptionClosed(h, item) {
-  assert.equal(h.descriptionOwner(), null);
+function assertDisclosureCollapsed(item, cardExpanded = false) {
   if (!item) return;
   assert.equal(item.view.expanded, false); assert.equal(item.preview.getAttribute('aria-expanded'), 'false');
   assert.equal(item.preview.classList.contains('is-expanded'), false); assert.equal(item.content.inert, true);
   assert.equal(item.preview.classList.contains('is-floating'), false);
-  assert.equal(item.cell.card.classList.contains('is-description-expanded'), false);
+  assert.equal(item.cell.card.classList.contains('is-description-expanded'), cardExpanded);
+  assert.equal(item.content.scrollTop, 0, 'A fully collapsed disclosure must reset its reading position');
+}
+function assertDescriptionClosed(h, item) {
+  assert.equal(h.descriptionOwner(), null); assertDisclosureCollapsed(item);
 }
 
 test('collapsed cards load positive and zero counts without mounting reviews, and still discover uploaders', async () => {
@@ -326,7 +347,7 @@ test('collapsed cards load positive and zero counts without mounting reviews, an
   assert.equal(positive.toggle.getAttribute('aria-controls'), positive.target.id);
   assert.equal(positive.toggle.getAttribute('aria-haspopup'), 'dialog');
   assert.equal(positive.commentValue.textContent, '…', 'Unknown counts must not look like zero');
-  h.api.watchPageReviews([positive, empty]); h.observers[0].show(positive.card, empty.card);
+  h.api.watchPageReviews([positive, empty]); h.reviewObserver().show(positive.card, empty.card);
   assert.equal(h.requests.length, 2); assert.equal(h.state().active, 2);
   assert.equal(h.profiles.length, 0, 'Profiles share the two-worker budget');
   assert(h.requests.every(request => request.options.priority === 'low'));
@@ -530,7 +551,7 @@ test('all rendered counts use two workers, with open cards, visible counts and p
   h.api.watchPageReviews(cells);
   assert.equal(h.requests.length, 2); assert.equal(h.state().active, 2);
   assert.equal(h.state().jobs.filter(job => job.kind === 'reviews').length, 4);
-  h.observers[0].show(cells[5].card); h.click(cells[3]);
+  h.reviewObserver().show(cells[5].card); h.click(cells[3]);
   h.reply(h.requests[0], [review()]); await settle(() => h.requests.length === 3);
   assert.match(h.requests[2].url, /\/4\/reviews$/); assert.equal(h.requests[2].options.priority, 'high');
   assert.equal(h.state().active, 2);
@@ -783,6 +804,79 @@ test('description overflow keeps the five-line budget and exposes a real half li
   assert.equal(h.requests.length, 0);
 });
 
+test('card selection CSS keeps collapsed disclosures and every clickable label action-only', () => {
+  assert.match(styles, /\.chart-card\s*\{[^}]*user-select:\s*text;/s, 'Ordinary card information stays selectable');
+  assert.match(styles, /\.chart-disclosure\.has-overflow \.chart-disclosure-text\s*\{[^}]*pointer-events:\s*none;[^}]*user-select:\s*none;/s);
+  assert.match(styles, /\.chart-disclosure\.has-overflow\.is-floating\.is-expanded \.chart-disclosure-text\s*\{[^}]*pointer-events:\s*auto;[^}]*user-select:\s*text;/s);
+  assert.match(styles, /\.chart-card\s+:is\(a,\s*button,\s*\[role=button\]\)[^{]*\{[^}]*user-select:\s*none;/s,
+    'Links, buttons, and disclosure triggers must be clickable instead of text-selectable');
+});
+
+test('subtitle and artist independently use a two-line budget, half-line preview, and ordinary short text', () => {
+  const h = harness();
+  const short = songCredits(h, 1, 'Short subtitle', 'Short artist', 1, 1);
+  for (const item of [short.subtitle, short.artist]) {
+    assert.equal(item.view.overflow, false); assert.equal(item.content.inert, false);
+    assert.equal(item.preview.classList.contains('has-overflow'), false);
+    assert.equal(item.preview.getAttribute('role'), null); assert.equal(item.preview.tabIndex, -1);
+    assert.equal(item.preview.hasAttribute('aria-expanded'), false);
+    assert.equal(item.preview.style.getPropertyValue('--description-preview-height'), '');
+  }
+
+  const longSubtitle = songCredits(h, 2, 'A subtitle long enough to wrap across three complete lines', 'Short artist', 3, 1);
+  const longArtist = songCredits(h, 3, 'Short subtitle', 'An artist credit long enough to wrap independently across four lines', 1, 4);
+  for (const [item, kind] of [[longSubtitle.subtitle, 'subtitle'], [longArtist.artist, 'artist']]) {
+    assert.equal(item.view.config, vm.runInContext(`CHART_DISCLOSURE_CONFIG.${kind}`, h.api));
+    assert.equal(item.view.overflow, true); assert.equal(item.view.cut, 29);
+    assert.equal(item.preview.style.getPropertyValue('--description-preview-height'), '29px');
+    assert.equal(item.preview.classList.contains('has-overflow'), true);
+    assert.equal(item.preview.getAttribute('role'), 'button'); assert.equal(item.preview.tabIndex, 0);
+    assert.equal(item.preview.getAttribute('aria-expanded'), 'false'); assert.equal(item.content.inert, true);
+  }
+  assert.equal(longSubtitle.artist.view.overflow, false, 'A long subtitle must not turn a short artist into a disclosure');
+  assert.equal(longArtist.subtitle.view.overflow, false, 'A long artist must not turn a short subtitle into a disclosure');
+
+  clickDescription(longSubtitle.subtitle);
+  assert.strictEqual(h.descriptionOwner(), longSubtitle.subtitle.view);
+  assert.equal(longSubtitle.subtitle.preview.classList.contains('is-floating'), true);
+  assert.equal(longSubtitle.subtitle.content.inert, false);
+  clickDescription(longSubtitle.subtitle); assertDescriptionClosed(h, longSubtitle.subtitle);
+});
+
+test('credit disclosures share keyboard, touch, reduced-motion, cleanup, and exclusive ownership behavior', () => {
+  const h = harness(), credits = songCredits(h, 1, 'Long subtitle '.repeat(8), 'Long artist '.repeat(8), 4, 4);
+  const note = described(h, 2, 'Long description '.repeat(20), 7, ['tag']);
+  const strip = note.cell.card.querySelector('.chart-tags'); strip.clientWidth = 80; strip.scrollWidth = 180;
+
+  let event = credits.subtitle.preview.emit('keydown', {target: credits.subtitle.preview, key: 'Enter'});
+  assert.equal(event.defaultPrevented, true); assert.strictEqual(h.descriptionOwner(), credits.subtitle.view);
+  event = credits.subtitle.preview.emit('keydown', {target: credits.subtitle.preview, key: ' '});
+  assert.equal(event.defaultPrevented, true); assertDescriptionClosed(h, credits.subtitle);
+
+  clickDescription(credits.subtitle, 'touch');
+  credits.subtitle.preview.emit('pointerleave', {pointerType: 'touch', relatedTarget: null});
+  assert.strictEqual(h.descriptionOwner(), credits.subtitle.view);
+  clickDescription(credits.artist);
+  assertDisclosureCollapsed(credits.subtitle, true); assert.strictEqual(h.descriptionOwner(), credits.artist.view);
+  clickDescription(note);
+  assertDisclosureCollapsed(credits.artist); assert.strictEqual(h.descriptionOwner(), note.view);
+  assert.equal(h.api.showChartTags(strip), true); assertDisclosureCollapsed(note); assert.strictEqual(h.tagsOwner(), strip);
+  clickDescription(credits.artist); assert.equal(h.tagsOwner(), null); assert.strictEqual(h.descriptionOwner(), credits.artist.view);
+  h.click(note.cell); assertDisclosureCollapsed(credits.artist); assert.strictEqual(h.owner(), note.cell);
+
+  h.click(note.cell); const before = h.motions.length;
+  clickDescription(credits.subtitle, 'keyboard'); assert.strictEqual(h.descriptionOwner(), credits.subtitle.view);
+  clickDescription(credits.subtitle, 'keyboard'); assertDescriptionClosed(h, credits.subtitle);
+  assert.equal(h.motions.length, before, 'Reduced motion changes credit disclosure state without animations');
+
+  const observer = h.observers.find(candidate => candidate.targets.has(credits.artist.preview)); assert(observer);
+  credits.cell.card.remove(); h.api.cardViews.delete(credits.cell.row[0]); h.api.refreshChartDescriptions();
+  assert.equal(h.descriptionViews().has(credits.subtitle.preview), false);
+  assert.equal(h.descriptionViews().has(credits.artist.preview), false);
+  assert.equal(observer.targets.has(credits.subtitle.preview), false); assert.equal(observer.targets.has(credits.artist.preview), false);
+  assert.equal(h.requests.length, 0, 'Disclosure ownership changes do not create network work');
+});
+
 test('description grows downward from its original region as one floating surface without moving card layout', () => {
   const h = harness(), text = '完整说明\n' + 'Read every line 😀\n'.repeat(8) + 'Guide: https://example.com/guide?q=1#part.\nFinal line';
   const item = described(h, 1, text, 11), originalContent = item.content, replacements = item.content.replacements;
@@ -835,6 +929,7 @@ test('description grows downward from its original region as one floating surfac
   item.preview.emit('pointerleave', {pointerType: 'mouse', relatedTarget: null}); assertDescriptionClosed(h, item);
 
   clickDescription(item, 'touch');
+  assert.equal(item.content.scrollTop, 0, 'Reopening starts at the beginning after a complete collapse');
   item.preview.emit('pointerleave', {pointerType: 'touch', relatedTarget: null});
   assert.strictEqual(h.descriptionOwner(), item.view, 'Touch has no hover-leave concept and closes by a second tap');
   clickDescription(item, 'touch'); assertDescriptionClosed(h, item);
@@ -866,19 +961,23 @@ test('description removal, replacement, rapid reversal and reduced motion leave 
   const h = harness(), item = described(h), observer = h.observers.find(candidate => candidate.targets.has(item.preview)); assert(observer);
   h.animate(); clickDescription(item);
   const opening = item.view.motion; assert(opening); assert.equal(opening.options.duration, 220);
+  item.content.clientHeight = 80; item.content.scrollHeight = 240; item.content.scrollTop = 120;
   item.preview.bounds.height = 118;
   clickDescription(item); const closing = item.view.motion;
   assert(opening.cancelled); assert(closing); assert.equal(closing.options.duration, 180); assert.notStrictEqual(closing, opening);
+  assert.equal(item.content.scrollTop, 120, 'An in-flight collapse need not reset before it settles');
   assert.equal(item.preview.classList.contains('is-floating'), true, 'The reverse animation keeps the floating geometry until it reaches the source');
   assert.equal(item.preview.classList.contains('is-collapsing'), true);
   item.preview.bounds.height = 104;
   clickDescription(item); const reopening = item.view.motion;
   assert(closing.cancelled); assert(reopening); assert.strictEqual(h.descriptionOwner(), item.view);
+  assert.equal(item.content.scrollTop, 120, 'Rapid reversal preserves the active reading position');
   assert.equal(item.preview.classList.contains('is-collapsing'), false);
   h.reduceMotion(); await settle();
   assert.equal(item.view.motion, null); assert.equal(h.api.activeMotions.size, 0);
   const beforeReduced = h.motions.length;
   clickDescription(item); assertDescriptionClosed(h, item);
+  assert.equal(item.content.scrollTop, 0, 'The eventual complete collapse resets after rapid reversal');
   clickDescription(item); assert.strictEqual(h.descriptionOwner(), item.view);
   assert.equal(h.motions.length, beforeReduced, 'Reduced motion changes state without creating WAAPI work');
 
@@ -1140,13 +1239,13 @@ test('timeout retry, catalog generations and page shutdown do not publish stale 
   h.api.cacheGeneration++; h.reply(h.requests[2], [review(2)]);
   await settle(() => !stale.pending);
   assert.equal(h.api.reviewCounts.has(2), false); assert.equal(h.api.reviewCache.has(2), false);
-  const active = h.card(3, '333'); h.api.watchPageReviews([active]); h.observers[0].show(active.card);
+  const active = h.card(3, '333'); h.api.watchPageReviews([active]); const reviewObserver = h.reviewObserver(); reviewObserver.show(active.card);
   assert.equal(h.state().active, 2); assert.equal(h.profiles.length, 1);
   const state = h.state(), pending = h.requests[3], profile = h.profiles[0];
   h.click(active); h.api.stopPageDetails();
   assert.equal(h.state(), null); assert.equal(state.stopped, true); assert.equal(h.owner(), null);
   assert.equal(pending.options.signal.aborted, true); assert.equal(profile.signal.aborted, true);
-  assert(h.observers[0].disconnected); assert.equal(state.jobs.length, 0);
+  assert(reviewObserver.disconnected); assert.equal(state.jobs.length, 0);
   h.reply(pending, [review(3, 'After shutdown')]); profile.resolve({id: '333', name: 'Late uploader', avatar: ''});
   await settle(() => state.active === 0);
   assert.equal(h.api.reviewCounts.has(3), false); assert.equal(active.profile, undefined);

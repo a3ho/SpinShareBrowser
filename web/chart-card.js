@@ -33,13 +33,17 @@ function makeDLCRequirement(row){
   if(url){requirement.href=url;requirement.target='_blank';requirement.rel='noopener noreferrer';requirement.append(icon('external'));}
   return requirement;
 }
+function makeSongCredit(row,text,className,kind){
+  const preview=element('p',undefined,className+' song-credit chart-disclosure'),content=element('span',text,'song-credit-text chart-disclosure-text');
+  preview.append(content);bindChartDescription(row,preview,content,kind);return preview;
+}
 function makeChartNotes(row){
   const meta=row[8]||{},description=typeof meta.description==='string'?meta.description:'',tags=Array.isArray(meta.tags)?meta.tags.filter(tag=>typeof tag==='string'&&tagKey(tag)):[];
   if(!description.trim()&&!tags.length)return null;
   const notes=element('div',undefined,'chart-notes'+(description.trim()?'':' is-tags-only'));
   if(description.trim()){
-    const preview=element('div',undefined,'chart-description'),content=element('div',undefined,'chart-description-text');
-    appendChartDescription(content,description);preview.append(content);notes.append(preview);bindChartDescription(row,preview,content);
+    const preview=element('div',undefined,'chart-description chart-disclosure'),content=element('div',undefined,'chart-description-text chart-disclosure-text');
+    appendChartDescription(content,description);preview.append(content);notes.append(preview);bindChartDescription(row,preview,content,'description');
   }
   if(tags.length){
     ensureChartTagsPopover();const strip=element('div',undefined,'chart-tags');strip.setAttribute('role','group');uiAttr(strip,'aria-label',m('Chart tags'));
@@ -71,8 +75,8 @@ function createChartCard(row){
   official.href='https://spinsha.re/song/'+row[0];official.target='_blank';official.rel='noopener noreferrer';
   uiAttr(official,'aria-label',m('Open on SpinShare: ')+row[1]);official.append(icon('external'));
   titleRow.append(songTitle,official);copy.append(titleRow);
-  if(row[2])copy.append(element('p',row[2],'subtitle'));
-  copy.append(element('p',row[3]||m('Unknown artist'),'artist'));
+  if(row[2])copy.append(makeSongCredit(row,row[2],'subtitle','subtitle'));
+  copy.append(makeSongCredit(row,row[3]||m('Unknown artist'),'artist','artist'));
   const dlcRequirement=makeDLCRequirement(row);if(dlcRequirement)copy.append(dlcRequirement);
 
   const levels=element('div',undefined,'levels');
