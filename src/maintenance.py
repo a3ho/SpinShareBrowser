@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import threading
 import time
 
 import installer
@@ -21,6 +22,7 @@ MARKER_NAME = ".spinshare-owner.json"
 COMPONENTS = {"WebView2": "webview2", "Temp": "temp"}
 MAX_PAGE_BYTES = 4 * 1024 * 1024
 MAX_COMPONENT_ENTRIES = 100000
+MAINTENANCE_TIMEOUT_SECONDS = 120
 TEMP_NAME = re.compile(r"\.spinshare-(?:(config\.json|runtime\.json|browser\.html|charts-cache\.json)-)?[a-z0-9_]{8}\.tmp")
 
 
@@ -28,6 +30,61 @@ class MaintenanceError(portable.PortableError):
     def __init__(self, message, exit_code=11):
         super().__init__(message)
         self.exit_code = exit_code
+
+
+@contextlib.contextmanager
+def watchdog(parent_pid=None, *, timeout=MAINTENANCE_TIMEOUT_SECONDS, terminate=os._exit):
+    """Bound maintenance and stop it if the setup process disappears."""
+    if (parent_pid is not None and (type(parent_pid) is not int or not 0 < parent_pid <= 0xFFFFFFFF) or
+            not isinstance(timeout, (int, float)) or timeout <= 0):
+        raise MaintenanceError("The maintenance process received invalid lifetime information.")
+    stop = threading.Event()
+    parent = kernel = None
+    if os.name == "nt" and parent_pid is not None:
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        parent = kernel.OpenProcess(0x00100000, False, parent_pid)  # SYNCHRONIZE
+        if not parent:
+            raise MaintenanceError("The setup process could not be identified. Run Setup again.", 10)
+
+    def monitor():
+        deadline = time.monotonic() + timeout
+        exit_code = None
+        try:
+            while not stop.is_set():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    exit_code = 13
+                    break
+                milliseconds = max(1, min(250, int(remaining * 1000)))
+                if parent:
+                    result = kernel.WaitForSingleObject(parent, milliseconds)
+                    if result == 0:  # WAIT_OBJECT_0: Setup exited.
+                        exit_code = 14
+                        break
+                    if result != 0x102:  # WAIT_TIMEOUT
+                        exit_code = 13
+                        break
+                else:
+                    stop.wait(milliseconds / 1000)
+        finally:
+            if parent:
+                kernel.CloseHandle(parent)
+        if exit_code is not None and not stop.is_set():
+            terminate(exit_code)
+
+    thread = threading.Thread(target=monitor, name="SpinShareMaintenanceWatchdog", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(1)
 
 
 def gate_name(state_dir):
@@ -235,9 +292,13 @@ def _idle_state(state_dir, install_dir, *, cleanup=False):
             with _process(runtime["pid"]) as exited:
                 _shutdown(runtime, config["token"])
                 deadline = time.monotonic() + 15
-                while not (lock.try_acquire() and exited()):
+                while not exited():
                     if time.monotonic() >= deadline:
                         raise MaintenanceError("The application has not finished closing. Retry after it exits.", 10)
+                    time.sleep(0.05)
+                while not lock.try_acquire():
+                    if time.monotonic() >= deadline:
+                        raise MaintenanceError("The application lock has not been released. Retry after it exits.", 10)
                     time.sleep(0.05)
         config = _read_config(state) if state.exists() else None
         _, _, protected = _locations(state, install, config, cleanup=cleanup)

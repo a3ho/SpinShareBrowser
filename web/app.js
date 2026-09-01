@@ -56,7 +56,8 @@ const APP_CONFIG=validateRuntimeConfig(__SPINSHARE_RUNTIME_CONFIG__);
 uiLanguage=APP_CONFIG.language;
 const INSTALL_KEY=APP_CONFIG.key,INSTALL_ORIGIN=APP_CONFIG.origin;
 let INSTALL_DIRECTORY=APP_CONFIG.targetDirectory,DEFAULT_INSTALL_DIRECTORY=APP_CONFIG.defaultDirectory,settingsRevision=APP_CONFIG.settingsRevision;
-const installationStates=new Map(),installationViews=new Map();
+const installationStates=new Map(),installationViews=new Map(),deletionStates=new Map(),deletionQueue=[];
+let deletionBusy=false;
 let settingsBusy='',settingsLoaded=false,settingsStale=false,closeBehavior=APP_CONFIG.closeBehavior,installDirectoryConfirmed=APP_CONFIG.installDirectoryConfirmed;
 let installDirectoryConfirmation=null,installDirectoryConfirmBusy=false;
 let appDialogState=null,appDialogBusy=false,appDialogFocus=null;
@@ -77,7 +78,8 @@ let visibleCount=scrollBatchSize,renderedCount=0,moreObserver=null;
 const reviewCounts=new Map(),cardViews=new Map(),installedCharts=new Map(),presenceQueue=new Map();
 const reviewCache=new Map(),profileCache=new Map(),profileRequests=new Map();
 let catalog=null,cacheGeneration=0,presenceBusy=false,presenceGeneration=0;
-let installationCandidates=[],installationFilterPending=false,installationFilterRemaining=0,presenceRefreshQueued=false,installationActivityIds=new Map();
+let installationCandidates=[],installationFilterPending=false,installationFilterRemaining=0,installationFilterTotal=0,presenceRefreshQueued=false,installationActivityIds=new Map();
+let installationIndex=null,presenceProblem=false,installationMutationGeneration=0;
 const CHART_ENDPOINTS=Object.freeze({cache:'/v1/charts',manual:'/v1/charts/manual',automatic:'/v1/charts/automatic',status:'/v1/charts/status'});
 const CATALOG_STALE_MS=12*60*60*1000,CATALOG_STATUS_POLL_MS=500;
 let catalogNextAllowedAt=0,catalogAutomaticNextAllowedAt=0,catalogFetchedAt=null;
@@ -167,7 +169,7 @@ function setStatus(message,error=false){
   uiText(status,message);status.classList.toggle('error',error);loadingIndicator(status,false);
 }
 const INSTALLER_MESSAGE_REPLACEMENTS=Object.keys(UI_CATALOG.en).filter(key=>key.startsWith("engine.")).map(key=>[UI_CATALOG.en[key],key]).sort((a,b)=>b[0].length-a[0].length);
-const INSTALLER_ERROR_TEXT=Object.freeze({invalid_installations:m("Installation status could not be read."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_confirmation_required:m("Confirm the chart installation directory before downloading."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
+const INSTALLER_ERROR_TEXT=Object.freeze({invalid_installations:m("Installation status could not be read."),invalid_deletion:m("Could not delete this chart. Refresh its installation status and try again."),installation_changed:m("The installed chart files changed. Refresh the installation status before trying again."),delete_failed:m("Could not delete local chart files. Close the game and try again."),delete_partial:m("Some local chart files could not be restored. Check the install folder before trying again."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_confirmation_required:m("Confirm the chart installation directory before downloading."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
 const CHART_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not connect to the chart server'),charts_request_timeout:m('The chart server did not respond in time'),charts_access_denied:m('The chart server denied access'),charts_rate_limited:m('The chart server is temporarily limiting updates'),charts_server_error:m('The chart server is temporarily unavailable'),charts_request_rejected:m('The chart server rejected this update'),charts_remote_timeout:m('Chart data transfer timed out'),charts_response_incomplete:m('Chart data transfer was interrupted'),charts_response_too_large:m('Chart data exceeded the safe size limit'),charts_invalid_response:m('The chart server returned invalid data')});
 const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not connect to the chart server'),charts_request_timeout:m('The chart server did not respond in time'),charts_access_denied:m('The chart server denied access'),charts_rate_limited:m('The chart server is temporarily limiting updates'),charts_server_error:m('The chart server is temporarily unavailable'),charts_request_rejected:m('The chart server rejected this update'),charts_remote_timeout:m('Chart data transfer timed out'),charts_response_incomplete:m('Chart data transfer was interrupted'),charts_response_too_large:m('Chart data exceeded the safe size limit'),charts_invalid_response:m('The chart server returned invalid data'),charts_cache_error:m('Local chart data could not be read or saved'),charts_cooldown:m('Manual update is not available yet')});
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
@@ -184,7 +186,7 @@ function validateRuntimeConfig(config){
   return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed});
 }
 function settingsMessage(message,error=false){uiText($('settings-message'),message);$('settings-message').classList.toggle('is-error',error);loadingIndicator($('settings-message'),Boolean(message)&&Boolean(settingsBusy)&&!error);}
-function hasActiveInstallations(){return activityJobs.length>0||[...installationStates.values()].some(state=>state.running||state.requesting);}
+function hasActiveInstallations(){return installationWorkActive()||deletionWorkActive();}
 function refreshSettingsControls(){
   const locked=Boolean(settingsBusy)||appExiting,active=hasActiveInstallations();
   $('settings-default').disabled=locked||!settingsLoaded||active||INSTALL_DIRECTORY===DEFAULT_INSTALL_DIRECTORY;
@@ -206,7 +208,7 @@ function readSettings(payload){
 }
 function applySettings(settings){
   const changed=settingsStale||settingsRevision!==settings.revision||INSTALL_DIRECTORY!==settings.targetDirectory;
-  if(changed){installedCharts.clear();presenceQueue.clear();presenceGeneration++;for(const [id,state] of installationStates)if(!state.running&&!state.requesting)installationStates.delete(id);}
+  if(changed){installedCharts.clear();presenceQueue.clear();installationIndex=null;presenceProblem=false;presenceGeneration++;clearDeletionErrors();for(const [id,state] of installationStates)if(!state.running&&!state.requesting)installationStates.delete(id);}
   INSTALL_DIRECTORY=settings.targetDirectory;DEFAULT_INSTALL_DIRECTORY=settings.defaultDirectory;settingsRevision=settings.revision;settingsLoaded=true;settingsStale=false;
   if(typeof settings.installDirectoryConfirmed==='boolean')installDirectoryConfirmed=settings.installDirectoryConfirmed;
   uiText($('install-directory'),INSTALL_DIRECTORY);
@@ -347,7 +349,7 @@ function closeInstallDirectoryConfirmation(){
 }
 function requestInstallation(row,focus=document.activeElement){
   if(installDirectoryConfirmed)return startInstallation(row);
-  if(row[8].dlc||appExiting||settingsBusy||settingsStale)return;
+  if(appExiting||settingsBusy||settingsStale)return;
   if(installDirectoryConfirmation){openDialogPanel($('install-directory-dialog'));return;}
   installDirectoryConfirmation={row,focus,revision:settingsRevision};
   refreshInstallDirectoryConfirmation();installDirectoryConfirmMessage('');setInstallDirectoryConfirmBusy(false);
@@ -529,7 +531,10 @@ function syncFilters(){
   $('reset-filters').disabled=busy||appExiting;
   for(const id of ['local-search','search-submit','search-clear'])$(id).disabled=!ready;
   $('installation-filter').disabled=!ready||appExiting;
-  uiText($('filter-dirty'),!busy&&filtersChanged()?m('Filters changed. Select Filter charts to apply them.'):'');
+  const dirty=!busy&&filtersChanged(),applyButton=$('apply-filters');
+  uiText(applyButton,dirty?m('Apply changes'):m('Filter charts'));applyButton.classList.toggle('has-pending-changes',dirty);
+  const dirtyStatus=$('filter-dirty'),dirtyMessage=dirty?m('Filters changed. Select Apply changes to update the results.'):'';
+  if(dirtyStatus.textContent!==renderUI(dirtyMessage))uiText(dirtyStatus,dirtyMessage);
   syncResultTools(ready,previousFocus);
   syncTagControls();
   if(typeof syncChoiceMenus==='function')syncChoiceMenus();
@@ -1044,6 +1049,11 @@ function setupChoiceMenus(){
   globalThis.addEventListener?.('resize',reposition);globalThis.addEventListener?.('scroll',reposition,{capture:true,passive:true});
 }
 function countValue(value){return typeof value==='number'&&Number.isSafeInteger(value)&&value>=0?value:null;}
+function compactDLC(value){
+  if(!value)return null;
+  if(typeof value!=='object'||Array.isArray(value))return {};
+  return {id:Number.isSafeInteger(value.id)&&value.id>0?value.id:null,identifier:typeof value.identifier==='string'?value.identifier:'',title:typeof value['title']==='string'?value['title']:'',storeLink:typeof value.storeLink==='string'?value.storeLink:''};
+}
 function coverURL(value){
   try{const url=new URL(String(value));if(url.username||url.password||url.search||url.hash)return '';
     if(['https://spinsha.re','https://spinshare.b-cdn.net'].includes(url.origin)&&/^\/uploads\/(cover|thumbnail)\/[a-zA-Z0-9_-]+\.(png|jpg|jpeg|webp|gif|avif)$/i.test(url.pathname))return 'https://spinshare.b-cdn.net'+url.pathname;
@@ -1621,7 +1631,7 @@ function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIREC
   return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
 }
 async function installerRequest(method,path,body,revision=''){
-  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
   if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
   if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
   const request=new AbortController();let timedOut=false;
@@ -1630,7 +1640,8 @@ async function installerRequest(method,path,body,revision=''){
   if(path==='/v1/install')headers['X-SpinShare-Settings']=revision;
   try{
     const response=await fetch(INSTALL_ORIGIN+path,{method,mode:'same-origin',credentials:'omit',cache:'no-store',redirect:'error',targetAddressSpace:'loopback',headers,...(body?{body:JSON.stringify(body)}:{}),signal:request.signal});
-    let result;try{result=await readJSONResponse({ok:true,headers:response.headers,body:response.body},64*1024);}catch(error){if(request.signal.aborted)throw error;throw uiError(m("Could not confirm installation. Check its status before trying again."));}
+    const limit=path==='/v1/installations/index'?8*1024*1024:64*1024;
+    let result;try{result=await readJSONResponse({ok:true,headers:response.headers,body:response.body},limit);}catch(error){if(request.signal.aborted)throw error;throw uiError(path==='/v1/installations/delete'?m("Could not confirm deletion. Refresh the installation status before trying again."):m("Could not confirm installation. Check its status before trying again."));}
     if(!response.ok){
       const code=typeof result?.code==='string'?result.code:'',detail=typeof result?.error==='string'?localizeInstallerMessage(result.error):'',localized=code==='queue_full'?m('The install queue is full. Wait for a task to finish, then try again.'):Object.hasOwn(INSTALLER_ERROR_TEXT,code)?INSTALLER_ERROR_TEXT[code]:'';
       const error=uiError(localized||detail||m("The installer returned HTTP ")+response.status);error.httpStatus=response.status;error.code=code;
@@ -1648,47 +1659,91 @@ async function installerRequest(method,path,body,revision=''){
       if(path==='/v1/settings')throw uiError(method==='POST'?m("Saving settings timed out. Reopen Settings to check the result."):m("Loading settings timed out. Reopen Settings and try again."));
       if(path==='/v1/directory/select')throw uiError(m("Choosing a folder timed out. Close the folder dialog before retrying."));
       if(path==='/v1/shutdown')throw uiError(m("Exit timed out. Check whether the app is still running."));
+      if(path==='/v1/installations/delete')throw uiError(m("Deletion timed out. Refresh the installation status before trying again."));
       throw uiError(m("Installer response timed out. The task may still be running; check its progress."));
     }
     if(error instanceof TypeError)throw uiError(m("Cannot reach the installer. Reopen SpinShareBrowser.exe and allow local network access if asked."));
     throw error;
   }finally{clearTimeout(timer);}
 }
+function installationStatePending(state,activeId){return Boolean(state?.running||state?.requesting||state?.requestId&&!state.rejected&&!state.expired&&!['complete','error'].includes(state.job?.state)||activeId&&activeId!==state?.job?.id);}
 function installationPending(songId){
-  const saved=installationStates.get(songId),state=saved?.targetDirectory===INSTALL_DIRECTORY?saved:null,activeId=installationActivityIds.get(songId);
-  return Boolean(state?.running||state?.requestId&&!state.rejected&&!state.expired&&!['complete','error'].includes(state.job?.state)||activeId&&activeId!==state?.job?.id);
+  const saved=installationStates.get(songId),state=saved?.targetDirectory===INSTALL_DIRECTORY?saved:null;
+  return installationStatePending(state,installationActivityIds.get(songId));
 }
+function deletionState(songId){return typeof deletionStates==='undefined'?null:deletionStates.get(songId)||null;}
+function deletionPending(songId){return ['queued','deleting','leaving'].includes(deletionState(songId)?.phase);}
+function installationWorkActive(){
+  const songIds=new Set([...installationStates.keys(),...installationActivityIds.keys()]);
+  return activityJobs.length>0||[...songIds].some(songId=>installationStatePending(installationStates.get(songId),installationActivityIds.get(songId)));
+}
+function deletionWorkActive(){return typeof deletionStates!=='undefined'&&[...deletionStates.values()].some(state=>['queued','deleting','leaving'].includes(state.phase));}
+function clearDeletionErrors(){if(typeof deletionStates!=='undefined')for(const [songId,state] of deletionStates)if(state.phase==='error')deletionStates.delete(songId);}
+function syncInstallationInterlocks(){for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();}
 function installationFilterMode(){const value=$('installation-filter').value;return ['installed','uninstalled'].includes(value)?value:'all';}
 function installationKey(row){return settingsRevision+':'+row[8].fileReference+':'+row[8].updateHash;}
-function canCheckInstallation(row){return !row[8].dlc&&/^spinshare_[a-f0-9]{1,64}$/i.test(row[8].fileReference||'')&&/^[a-f0-9]{32}$/i.test(row[8].updateHash||'');}
+function canCheckInstallation(row){return /^spinshare_[a-f0-9]{1,64}$/i.test(row[8].fileReference||'')&&/^[a-f0-9]{32}$/i.test(row[8].updateHash||'');}
 function installationPresence(row){
-  if(settingsStale||!canCheckInstallation(row)||installationPending(row[0]))return null;
+  if(!canCheckInstallation(row))return null;
+  if(settingsStale||installationPending(row[0]))return null;
   const record=installedCharts.get(row[0]);return record?.key===installationKey(row)?record.value:undefined;
+}
+function installationIndexValue(row,index=installationIndex){
+  if(!index||index.revision!==settingsRevision)return undefined;
+  return index.entries.get(String(row[8].fileReference).toLowerCase())===String(row[8].updateHash).toLowerCase();
+}
+function readInstallationIndex(payload,revision){
+  if(payload?.settingsRevision!==revision||!Array.isArray(payload.installations))throw new Error('Invalid installation index response');
+  const entries=new Map();
+  for(const item of payload.installations){
+    if(!item||typeof item!=='object'||Object.keys(item).length!==2||typeof item.fileReference!=='string'||!/^spinshare_[a-f0-9]{1,64}$/i.test(item.fileReference)||typeof item.updateHash!=='string'||!/^[a-f0-9]{32}$/i.test(item.updateHash))throw new Error('Invalid installation index entry');
+    const reference=item.fileReference.toLowerCase(),hash=item.updateHash.toLowerCase();if(entries.has(reference))throw new Error('Duplicate installation index entry');entries.set(reference,hash);
+  }
+  return {revision,entries};
+}
+function readInstallationCheck(payload,row,revision){
+  const result=payload?.installations?.[0];
+  if(payload?.settingsRevision!==revision||!Array.isArray(payload.installations)||payload.installations.length!==1||!result||typeof result!=='object'||Object.keys(result).length!==2||result.songId!==row[0]||typeof result.installed!=='boolean')throw new Error('Invalid installation check response');
+  return result.installed;
+}
+function noteInstallationMutation(row,installed){
+  installationMutationGeneration++;
+  if(!installationIndex||installationIndex.revision!==settingsRevision||!canCheckInstallation(row)||typeof installed!=='boolean')return;
+  const reference=String(row[8].fileReference).toLowerCase();
+  if(installed)installationIndex.entries.set(reference,String(row[8].updateHash).toLowerCase());else installationIndex.entries.delete(reference);
 }
 function trimPresenceQueue(rows=[]){
   const keep=new Set(rows.map(row=>row[0]));
   for(const [id,{record}] of presenceQueue)if(!keep.has(id)){
-    if(installedCharts.get(id)===record)installedCharts.delete(id);
+    record.pending=false;if(record.value===undefined&&installedCharts.get(id)===record)installedCharts.delete(id);
     presenceQueue.delete(id);
   }
 }
-function installationProgressText(pending){return m('Checking installation status: ')+number(installationCandidates.length-pending)+' / '+number(installationCandidates.length);}
+function installationProgressText(pending,total=installationFilterTotal){return m('Checking installation status: ')+number(Math.max(0,total-pending))+' / '+number(total);}
 function syncInstallationFilter(){
-  const active=Boolean(applied)&&phase==='ready'&&installationFilterMode()!=='all';let pending=0,unknown=0,retry=false;
+  const active=Boolean(applied)&&phase==='ready'&&installationFilterMode()!=='all';let pending=0,unknown=0,retry=false,checkable=0;
   if(active)for(const row of installationCandidates){
     const value=installationPresence(row);
+    if(!canCheckInstallation(row)){unknown++;continue;}
+    checkable++;
     if(value===undefined)pending++;
     else if(value===null){unknown++;if(canCheckInstallation(row)&&!installationPending(row[0]))retry=true;}
   }
   installationFilterPending=pending>0;
   installationFilterRemaining=pending;
+  installationFilterTotal=checkable;
+  const refreshing=active&&(presenceBusy||presenceQueue.size>0)&&pending===0;
   const stageOwnsProgress=pending>0&&filtered.length===0;
-  $('installation-filter-feedback').hidden=!active||!pending&&!unknown||stageOwnsProgress;
-  $('installation-filter-retry').hidden=!active||!retry||settingsStale;
-  $('installation-filter-retry').disabled=appExiting||pending>0;
-  $('installation-filter').setAttribute('aria-busy',String(pending>0));
-  uiText($('installation-filter-message'),settingsStale?m('Open Settings to confirm the changed install directory.'):pending?installationProgressText(pending):unknown?m('Installation status unknown: ')+number(unknown)+m(' charts excluded.'):'');
-  loadingIndicator($('installation-filter-message'),pending>0);return pending;
+  const relevantProblem=presenceProblem&&checkable>0,notices=[];
+  if(relevantProblem)notices.push(m('Installation status could not be updated. Current results remain visible.'));
+  if(unknown)notices.push(m('Installation status unknown: ')+number(unknown)+m(' charts excluded.'));
+  const message=settingsStale?m('Open Settings to confirm the changed install directory.'):pending?installationProgressText(pending,checkable):refreshing?m('Updating installation status... Current results remain visible.'):notices.join(m(' | '));
+  $('installation-filter-feedback').hidden=!active||!message||stageOwnsProgress;
+  $('installation-filter-retry').hidden=!active||!relevantProblem&&!retry||settingsStale||pending>0||refreshing;
+  $('installation-filter-retry').disabled=appExiting||pending>0||refreshing;
+  $('installation-filter').setAttribute('aria-busy',String(pending>0||refreshing));
+  uiText($('installation-filter-message'),message);
+  loadingIndicator($('installation-filter-message'),pending>0||refreshing);return pending;
 }
 function refreshInstallationResults(){
   if(!applied||phase!=='ready'||installationFilterMode()==='all'||presenceRefreshQueued)return;
@@ -1700,62 +1755,92 @@ function refreshInstallationResults(){
 function refreshInstallationChecks(failedOnly=false){
   if(!applied||phase!=='ready'||appExiting||settingsStale)return;
   let rows=installationFilterMode()==='all'?[...installationViews.values()].map(view=>view.row):installationCandidates;
-  if(failedOnly)rows=rows.filter(row=>installationPresence(row)===null);
+  if(failedOnly&&!presenceProblem)rows=rows.filter(row=>installationPresence(row)===null);
   queueInstallationChecks(rows,true);syncInstallationFilter();
 }
 function refreshInstallationActivity(){
   const active=new Map(activityJobs.map(job=>[job.songId,job.id])),changed=new Set([...installationActivityIds.keys(),...active.keys()]);
   for(const id of changed)if(installationActivityIds.get(id)===active.get(id))changed.delete(id);
+  for(const id of changed){
+    const previous=installationActivityIds.get(id),state=installationStates.get(id),record=installedCharts.get(id),currentRow=currentRows.find(row=>row[0]===id);
+    if(previous&&!active.has(id)&&state?.job?.id===previous&&state.job.state==='complete'&&record?.key===installationKey(currentRow||state.row)&&typeof record.value==='boolean'&&!record.pending)changed.delete(id);
+  }
   installationActivityIds=active;
   if(!changed.size)return;
+  installationMutationGeneration++;
   for(const id of changed){installedCharts.delete(id);presenceQueue.delete(id);}
-  queueInstallationChecks(currentRows.filter(row=>changed.has(row[0])));refreshInstallationResults();
+  queueInstallationChecks(currentRows.filter(row=>changed.has(row[0])),true);refreshInstallationResults();
 }
 function queueInstallationChecks(rows,force=false){
   if(settingsStale||appExiting)return;
+  let queued=false;
   for(const row of rows){
-    if(!row||!canCheckInstallation(row)||installationPending(row[0]))continue;
+    if(!row||!canCheckInstallation(row)||installationPending(row[0])||deletionPending(row[0]))continue;
     const key=installationKey(row);let record=installedCharts.get(row[0]);
-    if(record?.key!==key||force&&!record.pending){record={key,value:undefined,pending:false};installedCharts.set(row[0],record);}
-    if(record.pending||record.value!==undefined)continue;
-    record.pending=true;presenceQueue.set(row[0],{row,record});updateInstallationView(row[0]);
+    if(record?.key!==key){record={key,value:undefined,pending:false};installedCharts.set(row[0],record);}
+    if(record.pending||!force&&record.value!==undefined)continue;
+    if(!force&&!presenceBusy&&!presenceQueue.size){const value=installationIndexValue(row);if(value!==undefined){record.value=value;updateInstallationView(row[0]);continue;}}
+    if(force&&record.value===null)record.value=undefined;
+    record.pending=true;presenceQueue.set(row[0],{row,record});queued=true;updateInstallationView(row[0]);
   }
+  if(queued)presenceProblem=false;
   return readInstallationPresence();
+}
+function publishInstallationIndex(index,batch){
+  installationIndex=index;presenceProblem=false;
+  const rows=new Map(currentRows.map(row=>[row[0],row]));
+  for(const {row} of batch)if(!rows.has(row[0]))rows.set(row[0],row);
+  const wanted=new Set(installationCandidates.map(row=>row[0]));let changed=false;
+  for(const row of rows.values()){
+    if(!canCheckInstallation(row))continue;
+    const record=installedCharts.get(row[0]);if(!record||record.key!==installationKey(row))continue;
+    if(installationPending(row[0])||deletionPending(row[0])){
+      record.pending=false;if(presenceQueue.get(row[0])?.record===record)presenceQueue.delete(row[0]);continue;
+    }
+    const before=record.value,wasPending=record.pending;record.value=installationIndexValue(row,index);record.pending=false;
+    if(presenceQueue.get(row[0])?.record===record)presenceQueue.delete(row[0]);
+    updateInstallationView(row[0]);if(wanted.has(row[0])&&(wasPending||before!==record.value))changed=true;
+  }
+  return changed;
 }
 async function readInstallationPresence(){
   if(presenceBusy||settingsStale||appExiting)return;
-  presenceBusy=true;
+  presenceBusy=true;let publishResults=false;
   try{
     while(presenceQueue.size&&!settingsStale&&!appExiting){
-      const batch=[...presenceQueue.values()].slice(0,30),revision=settingsRevision,generation=presenceGeneration,values=new Map(batch.map(({row})=>[row[0],null]));
-      for(const {row} of batch)presenceQueue.delete(row[0]);
+      const batch=[...presenceQueue.values()],revision=settingsRevision,generation=presenceGeneration,mutationGeneration=installationMutationGeneration;
+      presenceQueue.clear();let index=null,failed=false;
       try{
-        const charts=batch.map(({row})=>({songId:row[0],fileReference:row[8].fileReference,updateHash:row[8].updateHash}));
-        const result=await installerRequest('POST','/v1/installations/check',{expectedRevision:revision,charts});
-        const seen=new Set();
-        if(result?.settingsRevision!==revision||!Array.isArray(result.installations)||result.installations.length!==batch.length)throw new Error('Invalid installation status response');
-        for(const item of result.installations){
-          if(!item||!values.has(item.songId)||seen.has(item.songId)||typeof item.installed!=='boolean')throw new Error('Invalid installation status entry');
-          seen.add(item.songId);
-        }
-        for(const item of result.installations)values.set(item.songId,item.installed);
-      }catch{}
+        index=readInstallationIndex(await installerRequest('POST','/v1/installations/index',{expectedRevision:revision}),revision);
+      }catch{failed=true;}
       if(generation!==presenceGeneration||revision!==settingsRevision)continue;
+      if(mutationGeneration!==installationMutationGeneration){
+        for(const {row,record} of batch){
+          if(installedCharts.get(row[0])!==record)continue;
+          if(installationPending(row[0])||deletionPending(row[0]))record.pending=false;
+          else{record.pending=true;presenceQueue.set(row[0],{row,record});}
+        }
+        syncInstallationFilter();continue;
+      }
+      if(!failed&&!settingsStale){publishResults=publishInstallationIndex(index,batch)||publishResults;syncInstallationFilter();continue;}
+      presenceProblem=true;
       const wanted=new Set(installationCandidates.map(row=>row[0]));let changed=false;
       for(const {row,record} of batch){
         // A completed install or new directory can replace a record while this batch is in flight.
         if(installedCharts.get(row[0])!==record)continue;
-        record.pending=false;record.value=settingsStale||installationPending(row[0])?null:values.get(row[0]);
+        record.pending=false;
+        if(settingsStale||installationPending(row[0])||deletionPending(row[0])){if(record.value===undefined)record.value=null;}
+        else if(record.value===undefined)record.value=null;
         updateInstallationView(row[0]);
         if(wanted.has(row[0]))changed=true;
       }
-      const pending=syncInstallationFilter();if(changed&&!pending)refreshInstallationResults();
+      syncInstallationFilter();publishResults=publishResults||changed;
     }
-  }finally{presenceBusy=false;}
+  }finally{presenceBusy=false;syncInstallationFilter();if(publishResults)refreshInstallationResults();}
 }
 function updateInstallationView(songId){
   const view=installationViews.get(songId);if(!view)return;
-  const saved=installationStates.get(songId),state=saved?.targetDirectory===INSTALL_DIRECTORY?saved:null,job=state?.job,presence=installationPresence(view.row),installed=presence===true;
+  const saved=installationStates.get(songId),state=saved?.targetDirectory===INSTALL_DIRECTORY?saved:null,deletion=deletionState(songId),job=state?.job,presence=installationPresence(view.row),installed=presence===true;
   let label=installed?m("Install again"):m("Download and install"),message='';
   if(state?.problem){
     label=state.expired?m("Download and install again"):job?m("Check progress"):state.rejected?m("Try installing again"):m("Check installation");message=state.problem+(state.expired?m("\nDownloading again will replace files with the same name."):'');
@@ -1771,38 +1856,125 @@ function updateInstallationView(songId){
     else{label=m("Install failed; retry");message=job.message?localizeInstallerMessage(job.message):m("Installation failed.");}
   }
   if(!state&&settingsStale){label=m("Confirm directory");message=m("Open Settings to confirm the changed install directory.");}
-  const error=Boolean(state?.problem)||job?.state==='error'||job?.state==='complete'&&!job.zipRemoved;
+  if(deletion?.phase==='queued')message=m('Waiting to delete local files.');
+  else if(['deleting','leaving'].includes(deletion?.phase))message=m('Deleting local chart files...');
+  else if(deletion?.phase==='error')message=deletion.problem;
+  const error=deletion?.phase==='error'||Boolean(state?.problem)||job?.state==='error'||job?.state==='complete'&&!job.zipRemoved;
   const needsSubmit=!job||state?.rejected||state?.expired||['complete','error'].includes(job.state);
   uiText(view.presence,installed?m("Installed"):presence===false?m("Not installed"):presence===undefined?m('Checking installation status...'):m('Installation status unknown'));view.presence.classList.toggle('is-installed',installed);
-  uiText(view.label,label);uiAttr(view.button,"aria-label",label+' '+view.songTitle);view.button.disabled=Boolean(state?.running)||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown'||settingsStale&&needsSubmit;view.button.classList.toggle('is-complete',installed);
+  uiText(view.label,label);uiAttr(view.button,"aria-label",label+' '+view.songTitle);view.button.disabled=Boolean(state?.running)||deletionWorkActive()||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown'||settingsStale&&needsSubmit;view.button.classList.toggle('is-complete',installed);
+  const deleteLabel=deletion?.phase==='queued'?m('Queued'):['deleting','leaving'].includes(deletion?.phase)?m('Deleting...'):m('Delete');
+  uiText(view.deleteLabel,deleteLabel);uiAttr(view.deleteButton,'aria-label',deleteLabel+' '+view.songTitle);view.deleteButton.hidden=!installed;view.deleteButton.disabled=deletionPending(songId)||installationWorkActive()||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown'||settingsStale;view.deleteButton.classList.toggle('is-error',deletion?.phase==='error');
+  loadingIndicator(view.deleteLabel,deletionPending(songId),deletion?.phase==='queued');view.deleteButton.setAttribute('aria-busy',String(deletionPending(songId)));
   uiText(view.note,message);view.note.hidden=!message;view.note.classList.toggle('is-error',error);
   const active=Boolean(state?.running)&&!error;
   loadingIndicator(view.label,active,job?.state==='queued');view.button.setAttribute('aria-busy',String(active));
   updateTaskProgress(view.progress,job,active,label+' '+view.songTitle);
 }
+function deletionResult(payload,state){
+  if(!payload||payload.settingsRevision!==state.settingsRevision||payload.songId!==state.songId||payload.deleted!==true||!Number.isSafeInteger(payload.filesDeleted)||payload.filesDeleted<1)throw uiError(m('Could not confirm deletion. Refresh the installation status before trying again.'));
+  return payload;
+}
+function currentDeletionContext(state){
+  const rows=typeof currentRows==='undefined'?[]:currentRows,currentRow=rows.find(row=>row[0]===state.songId)||null;
+  return {currentRow,sameContext:!settingsStale&&settingsRevision===state.settingsRevision&&currentRow&&currentRow[8].fileReference===state.row[8].fileReference&&currentRow[8].updateHash===state.row[8].updateHash};
+}
+function settleDeletion(state){
+  if(deletionState(state.songId)!==state)return;
+  const view=installationViews.get(state.songId),card=view?.card,focused=document.activeElement,focusInside=Boolean(card?.contains(focused)),deleteFocused=focused===view?.deleteButton,mode=installationFilterMode();
+  const cards=card?.parentElement===$('rows')?[...$('rows').children]:[],nextCard=cards[cards.indexOf(card)+1]||null;
+  const {currentRow,sameContext}=currentDeletionContext(state);
+  deletionStates.delete(state.songId);
+  if(sameContext){installedCharts.set(state.songId,{key:installationKey(currentRow),value:false,pending:false});presenceQueue.delete(state.songId);if(installationIndex?.revision===settingsRevision)installationIndex.entries.delete(String(currentRow[8].fileReference).toLowerCase());}
+  syncInstallationInterlocks();
+  if(!sameContext&&currentRow)queueInstallationChecks([currentRow],true);
+  if(mode!=='all')rebuild(false,true);
+  uiText($('installation-announcement'),m('Deleted local chart: ')+state.row[1]);
+  if(mode==='installed'?!focusInside:mode!=='all'||!deleteFocused)return;
+  queueMicrotask(()=>{
+    if(mode==='installed')(nextCard?.isConnected&&nextCard.querySelector('.song-title')||$('results-start')).focus({preventScroll:true});
+    else if(view?.button?.isConnected&&!view.button.disabled)view.button.focus({preventScroll:true});
+    else (card?.isConnected&&card.querySelector('.song-title')||$('results-start')).focus({preventScroll:true});
+  });
+}
+function completeDeletion(state){
+  if(deletionState(state.songId)!==state)return;
+  const view=installationViews.get(state.songId),card=view?.card;
+  if(installationFilterMode()!=='installed'||!card?.isConnected){settleDeletion(state);return;}
+  state.phase='leaving';updateInstallationView(state.songId);
+  let finished=false,motion;
+  const finish=()=>{if(finished)return;finished=true;motion?.cancel();settleDeletion(state);};
+  motion=playMotion(card,[{opacity:1,transform:'translateY(0) scale(1)'},{opacity:0,transform:'translateY(-4px) scale(.995)'}],{duration:MOTION_MS.standard,easing:'cubic-bezier(.4,0,1,1)',fill:'forwards'});
+  if(motion)motion.finished.then(finish,finish);else finish();
+}
+function failDeletion(state,error){
+  if(deletionState(state.songId)!==state)return;
+  const {currentRow,sameContext}=currentDeletionContext(state);
+  state.phase='error';state.problem=errorText(error)||m('Could not delete local chart files. Close the game and try again.');
+  noteInstallationMutation(state.row);
+  if(error?.code==='delete_partial')uiText($('installation-announcement'),state.problem);
+  if(!sameContext)deletionStates.delete(state.songId);
+  installedCharts.delete(state.songId);presenceQueue.delete(state.songId);if(currentRow)queueInstallationChecks([currentRow],true);syncInstallationFilter();
+  syncInstallationInterlocks();
+}
+async function drainDeletionQueue(){
+  if(deletionBusy)return;deletionBusy=true;
+  try{
+    while(deletionQueue.length){
+      const state=deletionQueue.shift();if(deletionState(state.songId)!==state)continue;
+      state.phase='deleting';updateInstallationView(state.songId);
+      try{
+        const result=await installerRequest('POST','/v1/installations/delete',{expectedRevision:state.settingsRevision,songId:state.songId,fileReference:state.row[8].fileReference,updateHash:state.row[8].updateHash});
+        deletionResult(result,state);noteInstallationMutation(state.row,false);completeDeletion(state);
+      }catch(error){failDeletion(state,error);}
+    }
+  }finally{deletionBusy=false;refreshSettingsControls();}
+}
+function startDeletion(row){
+  if(!canCheckInstallation(row)||installationPresence(row)!==true||installationWorkActive()||deletionPending(row[0])||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown'||settingsStale)return;
+  const state={songId:row[0],row,phase:'queued',problem:'',settingsRevision};deletionStates.set(state.songId,state);deletionQueue.push(state);syncInstallationInterlocks();void drainDeletionQueue();
+}
+async function settleInstallationPresence(state){
+  if(!state.row)return;
+  if(state.job?.state!=='complete'){
+    queueInstallationChecks([state.row],true);refreshInstallationResults();return;
+  }
+  try{
+    const row=currentRows.find(item=>item[0]===state.songId)||state.row,revision=state.settingsRevision,installed=readInstallationCheck(await installerRequest('POST','/v1/installations/check',{expectedRevision:revision,charts:[{songId:state.songId,fileReference:row[8].fileReference,updateHash:row[8].updateHash}]}),row,revision);
+    if(installationStates.get(state.songId)!==state||settingsStale||settingsRevision!==revision||installationPending(state.songId))return;
+    const currentRow=currentRows.find(item=>item[0]===state.songId);if(currentRow&&installationKey(currentRow)!==installationKey(row)){queueInstallationChecks([currentRow],true);refreshInstallationResults();return;}
+    if(installed)noteInstallationMutation(row,true);else{installationMutationGeneration++;installationIndex=null;}
+    installedCharts.set(state.songId,{key:installationKey(row),value:installed,pending:false});presenceQueue.delete(state.songId);updateInstallationView(state.songId);syncInstallationFilter();refreshInstallationResults();
+  }catch{
+    if(installationStates.get(state.songId)===state&&!installationPending(state.songId)){queueInstallationChecks([state.row],true);refreshInstallationResults();}
+  }
+}
 function scheduleInstallationPoll(state){
   clearTimeout(state.timer);state.timer=setTimeout(()=>{state.timer=null;pollInstallation(state);},700);
 }
 function receiveInstallationJob(state,payload){
-  state.job=installerJob(payload,state.songId,state.job?.id||'',state.targetDirectory);state.problem='';
-  state.running=!['complete','error'].includes(state.job.state);updateInstallationView(state.songId);
-  refreshSettingsControls();renderActivity();refreshActivity();
-  if(state.running)scheduleInstallationPoll(state);else if(state.row){installedCharts.delete(state.songId);queueInstallationChecks([state.row]);refreshInstallationResults();}
+  const previous=state.job?.state;state.job=installerJob(payload,state.songId,state.job?.id||'',state.targetDirectory);state.problem='';
+  if(state.job.state==='complete'&&previous!=='complete'&&state.row)noteInstallationMutation(state.row,true);
+  state.running=!['complete','error'].includes(state.job.state);syncInstallationInterlocks();
+  renderActivity();refreshActivity();
+  if(state.running)scheduleInstallationPoll(state);else if(state.row){installedCharts.delete(state.songId);refreshInstallationResults();}
 }
 async function pollInstallation(state){
   if(!state.job||state.requesting)return;state.requesting=true;
   try{receiveInstallationJob(state,await installerRequest('GET','/v1/jobs/'+state.job.id));}
   catch(error){state.running=false;state.expired=error.httpStatus===410&&error.code==='request_expired';state.problem=errorText(error);updateInstallationView(state.songId);}
-  finally{state.requesting=false;refreshSettingsControls();renderActivity();refreshActivity();if(state.expired&&state.row){queueInstallationChecks([state.row]);refreshInstallationResults();}}
+  finally{state.requesting=false;syncInstallationInterlocks();renderActivity();refreshActivity();if(state.row&&!installationPending(state.songId))await settleInstallationPresence(state);}
 }
 async function startInstallation(row){
-  if(row[8].dlc||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown')return;
+  if(appExiting||settingsBusy==='saving'||settingsBusy==='shutdown')return;
+  if(deletionWorkActive())return;
+  if(deletionState(row[0])?.phase==='error')deletionStates.delete(row[0]);
   let state=installationStates.get(row[0]);if(state?.running||state?.requesting)return;
   if(settingsStale&&(!state?.job||state.rejected||state.expired||['complete','error'].includes(state.job.state))){updateInstallationView(row[0]);return;}
   if(!state||state.rejected||state.expired||state.job&&['complete','error'].includes(state.job.state)){
     state={songId:row[0],row,requestId:'',job:null,running:false,requesting:false,rejected:false,expired:false,problem:'',timer:null,targetDirectory:INSTALL_DIRECTORY,settingsRevision};installationStates.set(row[0],state);
   }
-  installedCharts.delete(row[0]);presenceQueue.delete(row[0]);state.running=true;state.problem='';refreshSettingsControls();renderActivity();refreshInstallationResults();
+  installedCharts.delete(row[0]);presenceQueue.delete(row[0]);state.running=true;state.problem='';syncInstallationInterlocks();renderActivity();refreshInstallationResults();
   queueInstallationChecks([...installationViews.values()].map(view=>view.row));
   if(state.job){updateInstallationView(state.songId);await pollInstallation(state);return;}
   updateInstallationView(state.songId);state.requesting=true;
@@ -1815,7 +1987,7 @@ async function startInstallation(row){
     state.running=false;state.expired=lostConfirmation||error.httpStatus===410&&error.code==='request_expired';state.rejected=!state.expired&&error.httpStatus>=400&&error.httpStatus<500;
     state.problem=lostConfirmation?m("Installation could not be confirmed. Check the folder in Settings before downloading again."):errorText(error);updateInstallationView(state.songId);
   }
-  finally{state.requesting=false;refreshSettingsControls();renderActivity();refreshActivity();if(!installationPending(state.songId)){queueInstallationChecks([state.row]);refreshInstallationResults();}}
+  finally{state.requesting=false;syncInstallationInterlocks();renderActivity();refreshActivity();if(!installationPending(state.songId))await settleInstallationPresence(state);}
 }
 function applyActivity(data){
   if(!data||typeof data.exiting!=='boolean'||!Number.isInteger(data.activeCount)||data.activeCount<0||data.activeCount>128||!Array.isArray(data.jobs)||data.jobs.length!==data.activeCount)throw uiError(m('Task status is unavailable. Please retry.'));
@@ -2130,14 +2302,11 @@ function setupScrolling(){
 }
 function installationControl(row,stats,card){
   const actions=element('div',undefined,'card-actions');stats.append(actions);
-  if(row[8].dlc){
-    const link=element('a',undefined,'download-button');link.href='https://spinsha.re/song/'+row[0];link.target='_blank';link.rel='noopener noreferrer';
-    uiAttr(link,'aria-label',m('Download on SpinShare: ')+row[1]);uiAttr(link,'aria-description',m('DLC chart: authorize and download on SpinShare.'));link.append(icon('downloads'),element('span',m('Download on official site')));actions.append(link);card.append(stats);return;
-  }
-  const button=element('button',undefined,'download-button'),label=element('span',m("Download and install")),note=element('p','','install-note'),presence=element('span',m('Installation status unknown'),'install-presence'),progress=element('progress',undefined,'task-progress');
+  const button=element('button',undefined,'download-button'),label=element('span',m("Download and install")),deleteButton=element('button',undefined,'delete-button'),deleteLabel=element('span',m('Delete')),buttonGroup=element('div',undefined,'card-action-buttons'),note=element('p','','install-note'),presence=element('span',m('Installation status unknown'),'install-presence'),progress=element('progress',undefined,'task-progress');
   button.type='button';uiAttr(button,'aria-label',m('Download and install ')+row[1]);uiAttr(button,'aria-description',m('Install all difficulties and replace matching files.'));button.append(icon('downloads'),label);button.addEventListener('click',()=>requestInstallation(row,button));
-  note.setAttribute('role','status');note.setAttribute('aria-live','polite');note.hidden=true;progress.hidden=true;actions.append(presence,button);card.append(stats,progress,note);
-  installationViews.set(row[0],{button,label,note,presence,progress,row,songTitle:row[1]});updateInstallationView(row[0]);
+  deleteButton.type='button';deleteButton.hidden=true;uiAttr(deleteButton,'aria-label',m('Delete')+' '+row[1]);uiAttr(deleteButton,'aria-description',m('Delete this chart, its cover, and its audio from the install directory.'));deleteButton.append(deleteLabel);deleteButton.addEventListener('click',()=>startDeletion(row));
+  note.setAttribute('role','status');note.setAttribute('aria-live','polite');note.hidden=true;progress.hidden=true;buttonGroup.append(deleteButton,button);actions.append(presence,buttonGroup);card.append(stats,progress,note);
+  installationViews.set(row[0],{button,label,deleteButton,deleteLabel,note,presence,progress,row,card,songTitle:row[1]});updateInstallationView(row[0]);
 }
 function isContinuous(){return $('page-size').value==='all';}
 function pageSize(){const size=Number($('page-size').value);return [10,20,30].includes(size)?size:20;}
@@ -2261,7 +2430,7 @@ function compact(data,criteria){
     const diffs=[];keys.forEach(([flag,key],index)=>{const rating=song[key];if(criteria.diffs.includes(index)&&song[flag]&&typeof rating==='number'&&Number.isFinite(rating)&&rating>=criteria.min&&rating<=criteria.max)diffs.push([index,rating]);});
     if(!diffs.length)continue;
     const cover=coverURL(song.cover),reference=String(song.fileReference||''),previewReference=/^spinshare_[a-f0-9]{1,64}$/i.test(reference)?reference:'',thumbnail=coverURL(song.thumbnail)||(previewReference?'https://spinshare.b-cdn.net/uploads/thumbnail/'+previewReference+'.jpg':'');
-    found.set(id,[id,String(song.title||''),String(song.subtitle||''),String(song.artist||''),String(song.charter||''),String(song.uploadDate?.date||''),diffs,Math.min(...diffs.map(pair=>pair[1])),{cover,thumbnail,fileReference:reference,previewReference,updateHash:/^[a-f0-9]{32}$/i.test(song.updateHash||'')?song.updateHash:'',views:countValue(song.views),downloads:countValue(song.downloads),uploader:Number.isSafeInteger(song.uploader)&&song.uploader>0?song.uploader:null,dlc:song.dlc!==undefined&&song.dlc!==null&&song.dlc!==false,tags:cleanTags(song.tags),description:typeof song.description==='string'?song.description:''}]);
+    found.set(id,[id,String(song.title||''),String(song.subtitle||''),String(song.artist||''),String(song.charter||''),String(song.uploadDate?.date||''),diffs,Math.min(...diffs.map(pair=>pair[1])),{cover,thumbnail,fileReference:reference,previewReference,updateHash:/^[a-f0-9]{32}$/i.test(song.updateHash||'')?song.updateHash:'',views:countValue(song.views),downloads:countValue(song.downloads),uploader:Number.isSafeInteger(song.uploader)&&song.uploader>0?song.uploader:null,dlc:compactDLC(song.dlc),tags:cleanTags(song.tags),description:typeof song.description==='string'?song.description:''}]);
   }
   return [...found.values()];
 }
@@ -2324,7 +2493,7 @@ async function timedCatalogRequest(kind,onProgress){
 function catalogResultAvailable(result){return Array.isArray(result?.data)&&(result.data.length>0||Number.isFinite(result.fetchedAt)||result.cached===true||result.stale===false);}
 function invalidateCatalogDerived(){
   if(typeof reconcilePreviewCatalog==='function')reconcilePreviewCatalog(catalog);
-  cacheGeneration++;reviewCounts.clear();reviewCache.clear();profileCache.clear();userSearchCache.clear();installedCharts.clear();presenceGeneration++;presenceQueue.clear();
+  cacheGeneration++;reviewCounts.clear();reviewCache.clear();profileCache.clear();userSearchCache.clear();installedCharts.clear();presenceProblem=false;presenceGeneration++;presenceQueue.clear();clearDeletionErrors();
 }
 function publishCatalogResult(result){
   if(!catalogResultAvailable(result))return {available:Array.isArray(catalog),changed:false};

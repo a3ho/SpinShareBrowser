@@ -902,4 +902,24 @@ test('chart titles are text and one separate external link owns official navigat
   assert.equal(official.getAttribute('aria-label'), 'Open on SpinShare: Plain title');
   assert.equal(official.contains(card.querySelector('.cover-play')), false, 'Interactive controls must not be nested');
   assert.equal(card.getAttribute('aria-labelledby'), title.id);
+
+  const steam = 'https://store.steampowered.com/app/1058830/Spin_Rhythm_XD__Monstercat_DLC/';
+  const dlcRow = [...row.slice(0, 8), {...row[8], dlc: {id: 1, identifier: 'monstercat', title: 'Monstercat DLC', storeLink: steam}}];
+  context.__row = dlcRow; const dlcCard = vm.runInContext('createChartCard(__row)', context).card, requirement = dlcCard.querySelector('.dlc-requirement');
+  assert.equal(requirement.tagName, 'a'); assert.equal(requirement.href, steam); assert.equal(requirement.target, '_blank'); assert.equal(requirement.rel, 'noopener noreferrer');
+  assert.equal(requirement.textContent, 'Requires Monstercat DLC'); assert.equal(requirement.getAttribute('aria-label'), 'Open required DLC on Steam: Monstercat DLC');
+  assert.strictEqual(requirement.parentElement, dlcCard.querySelector('.song-copy'), 'The DLC requirement stays with song identity below the artist');
+
+  for (const [title, storeLink] of [
+    ['', steam], ['Monstercat\u202e DLC', steam], ['Monstercat DLC', 'http://store.steampowered.com/app/1058830/Test/'],
+    ['Monstercat DLC', 'https://store.steampowered.com.evil.example/app/1058830/Test/'],
+    ['Monstercat DLC', 'https://store.steampowered.com/app/1058830/Test/?ref=chart'],
+    ['Monstercat DLC', 'https://store.steampowered.com/app/1058830/Test%2FMore/'],
+    ['Monstercat DLC', 'https://store.steampowered.com/sub/1058830/'],
+  ]) {
+    context.__row = [...row.slice(0, 8), {...row[8], dlc: {title, storeLink}}];
+    const fallback = vm.runInContext('createChartCard(__row)', context).card.querySelector('.dlc-requirement');
+    assert.equal(fallback.tagName, 'span'); assert.equal(fallback.textContent, 'Requires DLC'); assert.equal(fallback.href, undefined);
+    assert.equal(fallback.getAttribute('aria-label'), 'Requires DLC');
+  }
 });

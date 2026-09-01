@@ -161,12 +161,12 @@ async function run() {
       async readJSONResponse() { return {code: 'settings_changed', error: 'The install directory changed'}; },
     });
     vm.runInContext(extract('async function installerRequest(', 'function installationPending('), api);
-    await assert.rejects(api.installerRequest('POST', '/v1/installations/check', {expectedRevision: 'a'.repeat(32), charts: []}), error => error.code === 'settings_changed');
+    await assert.rejects(api.installerRequest('POST', '/v1/installations/index', {expectedRevision: 'a'.repeat(32)}), error => error.code === 'settings_changed');
     assert.equal(api.settingsStale, false, 'A late response for the previous directory cannot poison current settings');
     assert.equal(viewRefreshes, 0);
     await assert.rejects(api.installerRequest('POST', '/v1/install', {songId: 1}, 'a'.repeat(32)), error => error.code === 'settings_changed');
     assert.equal(api.settingsStale, false, 'A late install response with an old header revision is also obsolete');
-    await assert.rejects(api.installerRequest('POST', '/v1/installations/check', {expectedRevision: 'b'.repeat(32), charts: []}), error => error.code === 'settings_changed');
+    await assert.rejects(api.installerRequest('POST', '/v1/installations/index', {expectedRevision: 'b'.repeat(32)}), error => error.code === 'settings_changed');
     assert.equal(api.settingsStale, true, 'A mismatch for the current revision still enters the guarded stale state');
     assert.equal(viewRefreshes, 1);
   }

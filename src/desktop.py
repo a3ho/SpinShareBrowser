@@ -1533,9 +1533,19 @@ class Desktop:
             if self.security_ready and self.window_size is not None:
                 with contextlib.suppress(Exception):
                     self.manager.update_window_size(dict(self.window_size))
-            self.application.close()
             self.finished.set()
-            self.post(self._destroy)
+            if not self.post(self._destroy):
+                # BeginInvoke can fail while WinForms is already unwinding.  A
+                # native close keeps the UI loop from outliving its local API.
+                self.final_close = True
+                user = ctypes.WinDLL("user32", use_last_error=True)
+                user.PostMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
+                user.PostMessageW.restype = ctypes.c_int
+                handle = self.form.Handle.ToInt64() if self.form is not None else 0
+                if not handle or not user.PostMessageW(handle, 0x10, 0, 0):  # WM_CLOSE
+                    self.final_close = False
+                    self.finished.clear()
+                    raise ctypes.WinError(ctypes.get_last_error())
         except Exception:
             with self.exit_lock:
                 self.exit_thread = None
@@ -1546,12 +1556,14 @@ class Desktop:
     def _destroy(self):
         self.final_close = True
         self.toast_pending = None
-        self._dispose_toast()
-        for component in (self.toast_timer, self.timer, self.tray, self.menu):
-            if component is not None:
-                with contextlib.suppress(Exception):
-                    component.Dispose()
-        self.form.Close()
+        try:
+            self._dispose_toast()
+            for component in (self.toast_timer, self.timer, self.tray, self.menu):
+                if component is not None:
+                    with contextlib.suppress(Exception):
+                        component.Dispose()
+        finally:
+            self.form.Close()
 
     def _startup_failed(self):
         self.error = "The app window could not be opened."
@@ -1594,7 +1606,10 @@ def run(application):
         desktop.exiting = True
         application.manager.begin_exit()
         application.manager.work.join()
+        exit_thread = desktop.exit_thread
+        if exit_thread is not None and exit_thread is not threading.current_thread():
+            exit_thread.join()
         application.close()
-        desktop.server_thread.join(5)
+        desktop.server_thread.join()
     if desktop.error:
         raise RuntimeError(desktop.text(desktop.error))

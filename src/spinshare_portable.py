@@ -40,6 +40,10 @@ RE_HEX64 = re.compile(r"[a-f0-9]{64}")
 MAX_SETTINGS_BYTES = 16384
 MAX_REQUEST_HISTORY = 65536
 MAX_CHART_BYTES = 32 * 1024 * 1024
+INSTALLATION_INDEX_MAX_DIRECTORY_ENTRIES = 65536
+INSTALLATION_INDEX_MAX_ENTRIES = 4096
+INSTALLATION_INDEX_MAX_BYTES = 512 * 1024 * 1024
+INSTALLATION_INDEX_TIMEOUT_SECONDS = 8
 CHART_CACHE_NAME = "charts-cache.json"
 MAX_CHART_CACHE_BYTES = MAX_CHART_BYTES + MAX_SETTINGS_BYTES
 CHART_REFRESH_INTERVAL_MS = 10 * 60 * 1000
@@ -332,30 +336,42 @@ def _directory_guard(directory, *, create=False):
             kernel.CloseHandle(handle)
 
 
+def _read_guarded_bytes(path, *, limit):
+    """Read one file safely while its parent directory guard is already held."""
+    path = Path(path)
+    _safe_info(path, directory=False)
+    if os.name == "nt":
+        import msvcrt
+        handle, kernel = _windows_open(path, directory=False)
+        try:
+            descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+        except BaseException:
+            kernel.CloseHandle(handle)
+            raise
+    else:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise PortableError("The settings or page file has an unsafe type or hard links.")
+        if info.st_size > limit:
+            raise PortableError("The settings or page file exceeds the size limit.")
+        parts, remaining = [], limit + 1
+        while remaining:
+            block = stream.read(min(256 * 1024, remaining))
+            if not block:
+                break
+            parts.append(block)
+            remaining -= len(block)
+        if not remaining:
+            raise PortableError("The settings or page file exceeds the size limit.")
+        return b"".join(parts)
+
+
 def _read_bytes(path, *, limit):
     path = Path(path)
     with _directory_guard(path.parent):
-        _safe_info(path, directory=False)
-        if os.name == "nt":
-            import msvcrt
-            handle, kernel = _windows_open(path, directory=False)
-            try:
-                descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
-            except BaseException:
-                kernel.CloseHandle(handle)
-                raise
-        else:
-            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(descriptor, "rb") as stream:
-            info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                raise PortableError("The settings or page file has an unsafe type or hard links.")
-            if info.st_size > limit:
-                raise PortableError("The settings or page file exceeds the size limit.")
-            data = stream.read(limit + 1)
-            if len(data) > limit:
-                raise PortableError("The settings or page file exceeds the size limit.")
-            return data
+        return _read_guarded_bytes(path, limit=limit)
 
 
 def _atomic_write(path, data):
@@ -1133,6 +1149,98 @@ class PortableManager(installer.JobManager):
                 results.append({"songId": chart["songId"], "installed": installed})
             return {"settingsRevision": self.revision, "installations": results}
 
+    def index_installations(self, expected_revision):
+        if not isinstance(expected_revision, str) or not RE_HEX32.fullmatch(expected_revision):
+            raise APIError(400, "invalid_installations", "Provide a settings revision.")
+        with self.lock:
+            if expected_revision != self.revision:
+                raise APIError(409, "settings_changed", "Settings changed in another page. Refresh settings before retrying.")
+            if self.active_count():
+                raise APIError(409, "installer_busy", "Wait for installs to finish before checking the installation index.")
+            if self.closed or self.exiting:
+                raise APIError(409, "shutting_down", "The app is exiting. Reopen SpinShareBrowser.exe.")
+            installations, seen = {}, set()
+            scanned = total_bytes = 0
+            deadline = time.monotonic() + INSTALLATION_INDEX_TIMEOUT_SECONDS
+            try:
+                with _directory_guard(self.target_dir):
+                    for path in self.target_dir.iterdir():
+                        scanned += 1
+                        if scanned > INSTALLATION_INDEX_MAX_DIRECTORY_ENTRIES:
+                            raise APIError(413, "invalid_installations", "The installation directory contains too many entries to index safely.")
+                        if time.monotonic() > deadline:
+                            raise APIError(408, "invalid_installations", "Reading the installation index timed out.")
+                        match = re.fullmatch(r"(spinshare_[a-f0-9]{1,64})\.srtb", path.name, re.I)
+                        if not match:
+                            continue
+                        reference = match[1].lower()
+                        if reference in seen:
+                            installations.pop(reference, None)
+                            continue
+                        seen.add(reference)
+                        try:
+                            info = _safe_info(path, directory=False)
+                            if info.st_size > MAX_CHART_BYTES:
+                                continue
+                            if info.st_size > INSTALLATION_INDEX_MAX_BYTES - total_bytes:
+                                raise APIError(413, "invalid_installations", "The installation index exceeds the total chart-data limit.")
+                            raw = _read_guarded_bytes(path, limit=MAX_CHART_BYTES)
+                            total_bytes += len(raw)
+                            if total_bytes > INSTALLATION_INDEX_MAX_BYTES:
+                                raise APIError(413, "invalid_installations", "The installation index exceeds the total chart-data limit.")
+                            raw.decode("utf-8")
+                        except APIError:
+                            raise
+                        except (OSError, PortableError, UnicodeError):
+                            continue
+                        if len(installations) >= INSTALLATION_INDEX_MAX_ENTRIES:
+                            raise APIError(413, "invalid_installations", "The installation index contains too many charts.")
+                        installations[reference] = hashlib.md5(raw, usedforsecurity=False).hexdigest()
+                        if time.monotonic() > deadline:
+                            raise APIError(408, "invalid_installations", "Reading the installation index timed out.")
+                    if time.monotonic() > deadline:
+                        raise APIError(408, "invalid_installations", "Reading the installation index timed out.")
+            except APIError:
+                raise
+            except (OSError, PortableError) as exc:
+                raise APIError(500, "invalid_installations", "The installation directory could not be read safely.") from exc
+            return {"settingsRevision": self.revision, "installations": [
+                {"fileReference": reference, "updateHash": update_hash}
+                for reference, update_hash in sorted(installations.items())
+            ]}
+
+    def delete_installation(self, song_id, file_reference, update_hash, expected_revision):
+        if (type(song_id) is not int or not 0 < song_id <= 9007199254740991 or
+                not isinstance(file_reference, str) or
+                not re.fullmatch(r"spinshare_[a-fA-F0-9]{1,64}", file_reference) or
+                not isinstance(update_hash, str) or not re.fullmatch(r"[a-fA-F0-9]{32}", update_hash) or
+                not isinstance(expected_revision, str) or not RE_HEX32.fullmatch(expected_revision)):
+            raise APIError(400, "invalid_deletion", "Provide a settings revision, chart ID, official file reference and update hash.")
+        with self.lock:
+            if expected_revision != self.revision:
+                raise APIError(409, "settings_changed", "Settings changed in another page. Refresh settings before retrying.")
+            if self.active_count():
+                raise APIError(409, "installer_busy", "Wait for installs to finish before deleting a chart.")
+            if self.closed or self.exiting:
+                raise APIError(409, "shutting_down", "The app is exiting. Reopen SpinShareBrowser.exe.")
+            self.validate_target(self.target_dir)
+            try:
+                raw = _read_bytes(self.target_dir / (file_reference + ".srtb"), limit=MAX_CHART_BYTES)
+                raw.decode("utf-8")
+            except (OSError, PortableError, UnicodeError) as exc:
+                raise APIError(409, "installation_changed", "The installed chart no longer matches this version.") from exc
+            if not hmac.compare_digest(hashlib.md5(raw, usedforsecurity=False).hexdigest(), update_hash.lower()):
+                raise APIError(409, "installation_changed", "The installed chart no longer matches this version.")
+            try:
+                result = installer.delete_chart_files(
+                    self.target_dir, file_reference, update_hash, max_chart_bytes=MAX_CHART_BYTES)
+            except installer.ChartChangedError as exc:
+                raise APIError(409, "installation_changed", str(exc)) from exc
+            except (OSError, installer.InstallError) as exc:
+                raise APIError(500, getattr(exc, "code", "delete_failed"), str(exc)) from exc
+            return {"settingsRevision": self.revision, "songId": song_id,
+                    "deleted": True, "filesDeleted": result["filesDeleted"]}
+
     def _check_directory_update(self, expected_revision):
         if expected_revision != self.revision:
             raise APIError(409, "settings_changed", "Settings changed in another page. Refresh settings before retrying.")
@@ -1338,7 +1446,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check"} and
+        if (self.path not in {"/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"} and
                 not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
@@ -1431,7 +1539,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check"}:
+        if self.path not in {"/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
@@ -1523,6 +1631,17 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                 if set(data) != {"expectedRevision", "charts"}:
                     raise APIError(400, "invalid_installations", "Installation checks accept only expectedRevision and charts.")
                 self._respond(200, self.server.manager.check_installations(data["charts"], data["expectedRevision"]))
+                return
+            if self.path == "/v1/installations/index":
+                if set(data) != {"expectedRevision"}:
+                    raise APIError(400, "invalid_installations", "The installation index accepts only expectedRevision.")
+                self._respond(200, self.server.manager.index_installations(data["expectedRevision"]))
+                return
+            if self.path == "/v1/installations/delete":
+                if set(data) != {"expectedRevision", "songId", "fileReference", "updateHash"}:
+                    raise APIError(400, "invalid_deletion", "Chart deletion accepts only expectedRevision, songId, fileReference and updateHash.")
+                self._respond(200, self.server.manager.delete_installation(
+                    data["songId"], data["fileReference"], data["updateHash"], data["expectedRevision"]))
                 return
             if self.path == "/v1/directory/select":
                 if (set(data) != {"expectedRevision"} or not isinstance(data["expectedRevision"], str) or
@@ -1845,6 +1964,7 @@ def main(argv=None):
     parser.add_argument("--maintenance", choices=("prepare", "prepare-uninstall", "cleanup"), help=argparse.SUPPRESS)
     parser.add_argument("--install-dir", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--language", choices=("en", "zh-CN"), help=argparse.SUPPRESS)
+    parser.add_argument("--parent-pid", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     try:
         if args.maintenance:
@@ -1852,7 +1972,8 @@ def main(argv=None):
             operation = {"prepare": maintenance.prepare_upgrade,
                          "prepare-uninstall": maintenance.prepare_uninstall,
                          "cleanup": maintenance.cleanup_state}[args.maintenance]
-            operation(args.state_dir or default_state_directory(), args.install_dir or Path(sys.executable).parent)
+            with maintenance.watchdog(args.parent_pid):
+                operation(args.state_dir or default_state_directory(), args.install_dir or Path(sys.executable).parent)
             return 0
         return launch(args.state_dir, no_browser=args.no_browser)
     except (OSError, installer.InstallError, RuntimeError) as exc:
@@ -1875,7 +1996,7 @@ def main(argv=None):
         except (OSError, ValueError, PortableError):
             pass
         message = title + "\n\n" + detail
-        if os.name == "nt" and not args.no_browser:
+        if os.name == "nt" and not args.no_browser and not args.maintenance:
             from desktop import show_startup_error
             show_startup_error(message, button_text)
         elif sys.stderr is not None:

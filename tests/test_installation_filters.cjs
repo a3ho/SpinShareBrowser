@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8');
 const markup = fs.readFileSync(path.join(__dirname, '../web/index.html'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '../web/interface.css'), 'utf8');
 const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '../web/locales.json'), 'utf8'));
 function extract(start, end) {
   const from = source.indexOf(start), to = source.indexOf(end, from);
@@ -40,11 +41,14 @@ function song(id, changes = {}) {
   };
 }
 function harness(songs, installed = new Set()) {
-  const nodes = new Map(), calls = [], deferred = [], reviewWatches = []; let service, rendered = 0, retired = 0;
+  const nodes = new Map(), calls = [], deferred = [], reviewWatches = [], sourceSongs = new Map(songs.map(item => [Number(item.id), item])); let service, rendered = 0, retired = 0, dirty = false;
   const node = id => { if (!nodes.has(id)) nodes.set(id, new Element()); return nodes.get(id); };
   node('installation-filter').value = 'all'; node('page-size').value = '10'; node('sort').value = 'date'; node('sort-direction').value = 'desc';
-  const reply = (body, present = installed) => ({settingsRevision: body.expectedRevision, installations: Array.from(body.charts, chart => ({songId: chart.songId, installed: present.has(chart.songId)}))});
-  service = (method, route, body) => { assert.equal(method, 'POST'); assert.equal(route, '/v1/installations/check'); return reply(body); };
+  const reply = (body, present = installed) => ({settingsRevision: body.expectedRevision, installations: Array.from(present, id => {
+    const item = sourceSongs.get(id); assert(item, `Missing source song ${id}`); return {fileReference: item.fileReference.toLowerCase(), updateHash: item.updateHash.toLowerCase()};
+  })});
+  const checkReply = (body, present = installed) => ({settingsRevision: body.expectedRevision, installations: body.charts.map(chart => ({songId: chart.songId, installed: present.has(chart.songId)}))});
+  service = (method, route, body) => { assert.equal(method, 'POST'); assert.equal(route, '/v1/installations/index'); assert.deepEqual(Object.keys(body), ['expectedRevision']); return reply(body); };
   const api = vm.createContext({
     __SPINSHARE_UI_CATALOG__: catalog, URL, Date, AbortController, queueMicrotask, setTimeout, clearTimeout,
     $: node, document: {activeElement: null, hidden: false, createElement: tag => new Element(tag), querySelectorAll: () => []},
@@ -52,7 +56,8 @@ function harness(songs, installed = new Set()) {
     INSTALL_DIRECTORY: 'fixture-directory-a', DEFAULT_INSTALL_DIRECTORY: 'fixture-directory-a', settingsRevision: 'a'.repeat(32),
     settingsStale: false, settingsBusy: '', settingsLoaded: true, appExiting: false, activityJobs: [], installationActivityIds: new Map(),
     installationStates: new Map(), installationViews: new Map(), installedCharts: new Map(), presenceQueue: new Map(),
-    presenceBusy: false, presenceGeneration: 0, installationCandidates: [], installationFilterPending: false, installationFilterRemaining: 0, presenceRefreshQueued: false,
+    presenceBusy: false, presenceGeneration: 0, installationIndex: null, presenceProblem: false, installationMutationGeneration: 0,
+    installationCandidates: [], installationFilterPending: false, installationFilterRemaining: 0, installationFilterTotal: 0, presenceRefreshQueued: false,
     currentRows: [], applied: criteria, lastAppliedCriteria: criteria, filtered: [], appliedText: '', phase: 'ready', page: 1, visibleCount: 20, scrollBatchSize: 20, controller: null,
     renderedCount: 0, pageDetails: null, pendingTagAnchor: null, cardViews: new Map(), tagResultCounts: new Map(), selectedTags: new Map(),
     searchFields: {title: 1, subtitle: 2, artist: 3, creator: 4}, searchScopes: new Set(['title']), userSearchCache: new Map(), profileCache: new Map(),
@@ -62,7 +67,7 @@ function harness(songs, installed = new Set()) {
     startTextSearch: text => { assert.equal(text, '', 'A presence refresh must not start uploader lookup'); },
     stopTextSearch() {}, scopeSearchUsers() {}, needsUserSearch: () => false,
     loadingIndicator(node, active) { node.classList.toggle('is-loading', active); }, updateTaskProgress() {}, refreshSettingsControls() {}, syncCloseOptions() {}, renderActivity() {}, refreshActivity() {},
-    syncCatalogRefresh() {}, filtersChanged: () => false, syncResultTools() {}, syncTagControls() {}, syncSearchControls() {}, setStatus() {}, applyDatePreset() {},
+    syncCatalogRefresh() {}, filtersChanged: () => dirty, syncResultTools() {}, syncTagControls() {}, syncSearchControls() {}, setStatus() {}, applyDatePreset() {},
     prepareTagAnchor() {}, dismissChartTags() {}, dismissChartDescription() {}, scheduleChartDescriptions() {}, stopPageDetails() {}, prunePageDetails() {}, queueEntry() {}, pruneEntries() {},
     renderPageLinks() {}, syncReviewVisibility() {}, watchMore() {}, syncCovers() {}, restoreTagAnchor() {},
     watchPageReviews: cells => reviewWatches.push(Array.from(cells, cell => cell.row[0])),
@@ -80,7 +85,7 @@ function harness(songs, installed = new Set()) {
     extract('function updateAllInstallationViews(', 'function readSettings('),
     extract('function applySettings(', 'async function loadSettings('),
     extract('function installerJob(', 'async function installerRequest('),
-    extract('function installationPending(', 'function scheduleInstallationPoll('),
+    extract('function installationStatePending(', 'function scheduleInstallationPoll('),
     extract('function receiveInstallationJob(', 'async function pollInstallation('),
     extract('async function startInstallation(', 'function applyActivity('),
     extract('function applyActivity(', 'function showActivity('),
@@ -102,10 +107,11 @@ function harness(songs, installed = new Set()) {
   const render = api.render; api.render = (...args) => { rendered++; return render(...args); };
   api.currentRows = api.compact(songs, criteria);
   return {
-    api, node, calls, reply, deferred, reviewWatches, ids: () => Array.from(api.filtered, row => row[0]),
+    api, node, calls, reply, checkReply, deferred, reviewWatches, ids: () => Array.from(api.filtered, row => row[0]),
     get rendered() { return rendered; }, get retired() { return retired; },
     service: handler => { service = handler; },
-    hold: () => { service = (method, route, body) => { assert.equal(route, '/v1/installations/check'); return new Promise(resolve => deferred.push({body, resolve})); }; },
+    hold: () => { service = (method, route, body) => { assert.equal(route, '/v1/installations/index'); return new Promise(resolve => deferred.push({body, resolve})); }; },
+    dirty(value) { dirty = value; api.syncFilters(); },
     mode(value) { node('installation-filter').value = value; node('installation-filter').emit('change'); },
   };
 }
@@ -121,15 +127,15 @@ async function fullCandidateFilter() {
   h.node('installation-filter').value = 'all'; h.api.phase = 'ready'; h.api.applied = criteria;
   await h.api.rebuild(false); await idle(h);
   assert.equal(h.ids().length, 65, 'Default all includes unchecked and uninstalled charts');
-  assert.equal(h.calls.flatMap(call => Array.from(call.body.charts)).length, 10, 'Default all only checks visible cards');
+  assert.equal(h.calls.length, 1, 'The first visible page loads one local installation index');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls[0].body)), {expectedRevision: 'a'.repeat(32)});
   h.mode('installed'); await idle(h);
   assert.equal(h.node('installation-filter').disabled, false);
   assert.deepEqual(h.ids(), Array.from({length: 32}, (_, i) => 64 - i * 2));
   assert.equal(h.node('count').textContent, '32 charts'); assert.equal(h.api.pages(), 4);
   assert.equal(h.api.tagResultCounts.get('fast'), 32); assert.equal(h.api.tagResultCounts.has('slow'), false);
-  const checked = h.calls.flatMap(call => Array.from(call.body.charts, chart => chart.songId));
-  assert.equal(checked.length, 65); assert.equal(new Set(checked).size, 65, 'Every candidate, including off-page charts, is checked once');
-  for (const call of h.calls) { assert.equal(call.route, '/v1/installations/check'); assert(call.body.charts.length <= 30); }
+  assert.equal(h.calls.length, 1, 'The cached index classifies every off-page candidate without another request');
+  assert.equal(h.calls[0].route, '/v1/installations/index');
   const requests = h.calls.length;
   await h.api.rebuild(false); h.api.render(); await idle(h);
   assert.equal(h.calls.length, requests, 'Stable renders reuse validated statuses');
@@ -150,7 +156,7 @@ async function combinedFilters() {
   h.node('local-search').value = 'piano'; h.api.selectedTags.set('rock', 'Rock'); h.api.selectedTags.set('fast', 'Fast');
   h.mode('installed'); await idle(h);
   assert.deepEqual(h.ids(), [7, 1]); assert.equal(h.api.tagResultCounts.get('rock'), 2);
-  assert.deepEqual(h.calls.flatMap(call => Array.from(call.body.charts, chart => chart.songId)).sort((a, b) => a - b), [1, 2, 7]);
+  assert.equal(h.calls.length, 1); assert.equal(h.calls[0].route, '/v1/installations/index');
   h.node('sort').value = 'title'; h.node('sort-direction').value = 'asc'; await h.api.rebuild(false);
   assert.deepEqual(h.ids(), [1, 7]); assert.equal(h.node('installation-filter').value, 'installed');
   h.api.selectedTags.delete('fast'); h.node('local-search').value = 'other'; await h.api.rebuild(false); await idle(h);
@@ -161,23 +167,76 @@ async function combinedFilters() {
 
 async function unknownIsNotUninstalled() {
   const h = harness([song(1), song(2), song(3, {dlc: true}), song(4, {updateHash: ''})]);
-  h.service(() => { throw new Error('Fixture check failure'); }); h.mode('uninstalled'); await idle(h);
-  assert.deepEqual(h.ids(), []); assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 4 charts excluded');
+  h.service(() => { throw new Error('Fixture check failure'); }); h.mode('uninstalled');
+  assert.equal(h.node('empty').textContent, 'Checking installation status: 0 / 3', 'DLC uses the same pending work as every chart with valid metadata');
+  await idle(h);
+  assert.deepEqual(h.ids(), []); assert.equal(h.node('installation-filter-message').textContent, 'Installation status could not be updated. Current results remain visible | Installation status unknown: 4 charts excluded');
   assert.equal(h.node('installation-filter-retry').hidden, false);
   const calls = h.calls.length; await h.api.rebuild(false); h.api.render(); await idle(h);
   assert.equal(h.calls.length, calls, 'Failed checks are not automatically retried on every render');
   h.service((method, route, body) => h.reply(body, new Set([1])));
   h.node('installation-filter-retry').emit('click'); await idle(h);
-  assert.deepEqual(h.ids(), [2]); assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 2 charts excluded');
+  assert.deepEqual(h.ids(), [3, 2]); assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 1 charts excluded');
   assert.equal(h.node('installation-filter-retry').hidden, true, 'Unsupported metadata is not endlessly retried');
-  assert.deepEqual(h.calls.at(-1).body.charts.map(chart => chart.songId).join(','), '1,2');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.at(-1).body)), {expectedRevision: 'a'.repeat(32)});
   h.mode('all'); await idle(h); assert.equal(h.ids().length, 4, 'All remains available for charts whose presence cannot be verified');
   assert.equal(h.api.installationViews.get(4).presence.textContent, 'Installation status unknown');
-  for (const installations of [[{songId: 1, installed: false}], [{songId: 1, installed: false}, {songId: 1, installed: false}], [{songId: 1, installed: false}, {songId: 2, installed: 'false'}]]) {
+  const hash = 'a'.repeat(32);
+  for (const installations of [
+    [{fileReference: 'spinshare_1', updateHash: hash, extra: true}],
+    [{fileReference: 'spinshare_1', updateHash: hash}, {fileReference: 'SPINSHARE_1', updateHash: hash}],
+    [{fileReference: 'spinshare_1', updateHash: false}],
+  ]) {
     const invalid = harness([song(1), song(2)]);
     invalid.service((method, route, body) => ({settingsRevision: body.expectedRevision, installations}));
-    invalid.mode('uninstalled'); await idle(invalid); assert.deepEqual(invalid.ids(), [], 'A partial or malformed response cannot classify charts as uninstalled');
+    invalid.mode('uninstalled'); await idle(invalid); assert.deepEqual(invalid.ids(), [], 'A malformed index cannot classify charts as uninstalled');
   }
+}
+
+async function staleFailureExplainsCachedResultsWithoutDeadRetry() {
+  const h = harness([song(1), song(2, {updateHash: ''}), song(3, {dlc: true})], new Set([1]));
+  h.mode('installed'); await idle(h); assert.deepEqual(h.ids(), [1]);
+  h.service(() => { throw new Error('Foreground refresh failed'); }); h.api.refreshInstallationChecks(); await idle(h);
+  assert.deepEqual(h.ids(), [1], 'A failed refresh keeps the last successful installed result');
+  assert.equal(h.node('installation-filter-message').textContent, 'Installation status could not be updated. Current results remain visible | Installation status unknown: 1 charts excluded');
+  assert.equal(h.node('installation-filter-retry').hidden, false);
+
+  h.node('local-search').value = 'Piano 002'; await h.api.rebuild(false); await idle(h);
+  assert.equal(h.node('installation-filter-message').textContent, 'Installation status unknown: 1 charts excluded');
+  assert.equal(h.node('installation-filter-retry').hidden, true, 'Invalid metadata alone cannot expose a retry that queues no work');
+  const requests = h.calls.length; h.api.refreshInstallationChecks(true); await idle(h);
+  assert.equal(h.calls.length, requests, 'Retrying an invalid-only candidate set cannot issue an inventory request');
+
+  h.node('local-search').value = 'Piano 003'; await h.api.rebuild(false); await idle(h);
+  assert.equal(h.node('installation-filter-message').textContent, 'Installation status could not be updated. Current results remain visible', 'DLC receives only the ordinary stale-inventory warning');
+  assert.equal(h.node('installation-filter-retry').hidden, false);
+  const calls = h.calls.length; h.mode('uninstalled'); await idle(h);
+  assert.deepEqual(h.ids(), [3], 'DLC participates in the ordinary uninstalled filter');
+  assert.equal(h.calls.length, calls, 'Changing installation filters reuses the same validated inventory');
+}
+
+async function dlcMetadataAndOrdinaryPresence() {
+  const dlc = {id: 1, identifier: 'monstercat', title: 'Monstercat DLC', storeLink: 'https://store.steampowered.com/app/1058830/Spin_Rhythm_XD__Monstercat_DLC/'};
+  const h = harness([song(1, {dlc, tags: ['Rock', 'DLC']}), song(2, {dlc: true}), song(3)], new Set([1]));
+  assert.deepEqual(JSON.parse(JSON.stringify(h.api.currentRows[0][8].dlc)), dlc, 'All four DLC catalog fields survive compaction');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.api.currentRows[1][8].dlc)), {}, 'Legacy DLC markers degrade without blocking local actions');
+  h.mode('installed'); await idle(h);
+  assert.deepEqual(h.ids(), [1]); assert.equal(h.api.installationViews.get(1).deleteButton.hidden, false);
+  assert.equal(h.api.tagResultCounts.get('dlc'), 1, 'DLC results contribute to tag candidates and counts');
+  h.mode('uninstalled'); await idle(h);
+  assert.deepEqual(h.ids(), [3, 2]); assert.equal(h.api.pages(), 1);
+  assert.equal(h.calls.length, 1, 'One local index classifies DLC and ordinary charts together');
+}
+
+function filterChangeButtonState() {
+  const h = harness([song(1)]), button = h.node('apply-filters'), announcement = h.node('filter-dirty');
+  let announcementText = announcement.textContent, announcementWrites = 0;
+  Object.defineProperty(announcement, 'textContent', {configurable: true, get: () => announcementText, set: value => { announcementText = value; announcementWrites++; }});
+  h.dirty(false); assert.equal(button.textContent, 'Filter charts'); assert.equal(button.classList.contains('has-pending-changes'), false); assert.equal(announcement.textContent, '');
+  h.dirty(true); assert.equal(button.textContent, 'Apply changes'); assert.equal(button.classList.contains('has-pending-changes'), true);
+  assert.equal(announcement.textContent, 'Filters changed. Select Apply changes to update the results');
+  const writesAfterChange = announcementWrites; h.api.syncFilters(); assert.equal(announcementWrites, writesAfterChange, 'Unchanged dirty state must not repeat the live-region announcement');
+  h.dirty(false); assert.equal(button.textContent, 'Filter charts'); assert.equal(button.classList.contains('has-pending-changes'), false);
 }
 
 async function directoryAndMetadataRace() {
@@ -190,10 +249,10 @@ async function directoryAndMetadataRace() {
   while (h.deferred.length) { const body = resolveNext(h, new Set([2, 40])); assert.equal(body.expectedRevision, 'b'.repeat(32)); await tick(); }
   await idle(h); assert.deepEqual(h.ids(), [40, 2]); assert.equal(h.api.tagResultCounts.get('fast'), 2);
   const updated = h.api.compact([song(2, {updateHash: 'b'.repeat(32)})], criteria)[0];
+  const requests = h.calls.length;
   h.api.currentRows = [updated]; h.mode('uninstalled'); await tick();
-  assert.equal(h.deferred.length, 1, 'Changed chart fingerprints require a fresh local check');
-  assert.equal(h.deferred[0].body.charts[0].updateHash, 'b'.repeat(32));
-  resolveNext(h, new Set()); await idle(h); assert.deepEqual(h.ids(), [2]);
+  assert.equal(h.deferred.length, 0); assert.equal(h.calls.length, requests, 'The index can compare a changed catalog fingerprint without another filesystem request');
+  await idle(h); assert.deepEqual(h.ids(), [2]);
 }
 
 async function changingCandidatesDuringCheck() {
@@ -204,14 +263,13 @@ async function changingCandidatesDuringCheck() {
   assert.match(h.node('empty').textContent, /^Checking installation status: \d+ \/ \d+$/);
   assert.equal(h.node('empty').classList.contains('is-loading'), true);
   resolveNext(h, new Set(Array.from({length: 30}, (_, i) => i + 1))); await tick();
-  assert.deepEqual(h.ids(), [], 'The old broader result must not return when its request completes');
-  assert.equal(h.deferred.length, 1); assert.deepEqual(Array.from(h.deferred[0].body.charts, chart => chart.songId), [65]);
+  assert.deepEqual(h.ids(), [65], 'One global index also classifies a candidate selected while the request was running');
   let textSearchFired = false;
   h.api.textFilterTimer = setTimeout(() => { textSearchFired = true; }, 15);
-  resolveNext(h, new Set()); await idle(h); await new Promise(resolve => setTimeout(resolve, 20));
+  await idle(h); await new Promise(resolve => setTimeout(resolve, 20));
   assert.deepEqual(h.ids(), [65]); assert.equal(h.node('count').textContent, '1 charts');
   assert.equal(h.api.tagResultCounts.get('slow'), 1); assert.equal(h.api.tagResultCounts.has('fast'), false);
-  assert.equal(h.calls.length, 2, 'Obsolete queued candidates do not delay the new filter');
+  assert.equal(h.calls.length, 1, 'Candidate changes do not create another local request');
   assert.equal(textSearchFired, true, 'Finishing a local presence check must not cancel a pending text-search debounce');
   h.mode('all'); await idle(h); assert.deepEqual(h.ids(), [65]);
 }
@@ -223,35 +281,95 @@ async function backgroundChecksPreserveCards() {
   views[0].cell.reviewTemporaryOpen = true; h.hold(); h.api.refreshInstallationChecks(); await tick();
   assert.deepEqual(h.node('rows').children, before); assert.equal(h.rendered, renders); assert.equal(h.api.page, 3);
   assert.equal(h.node('installation-filter-feedback').hidden, false);
-  resolveNext(h, present); await tick();
-  assert.deepEqual(h.node('rows').children, before, 'An intermediate batch must not clear stable result cards');
-  assert.equal(h.rendered, renders); assert.equal(h.api.page, 3);
+  assert.equal(h.node('installation-filter-message').textContent, 'Updating installation status… Current results remain visible');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.at(-1).body)), {expectedRevision: 'a'.repeat(32)}, 'A focus refresh sends no catalog-sized chart list');
   resolveNext(h, present); await idle(h);
   assert.deepEqual(h.node('rows').children, before); assert.equal(h.retired, retired); assert.equal(h.api.page, 3);
   assert.equal(views[0].cell.reviewTemporaryOpen, true, 'A same-directory focus check preserves the temporary review drawer');
-  assert.equal(h.rendered, renders + 1, 'Refresh results once, after the complete candidate set is checked');
+  assert.equal(h.rendered, renders + 1, 'Refresh results once, after the single index request completes');
   assert.equal(h.node('installation-filter-feedback').hidden, true);
   h.api.page = 5; h.api.render(); h.api.refreshInstallationChecks();
   while (h.deferred.length) { resolveNext(h, new Set([2, 4])); await tick(); }
   await idle(h); assert.equal(h.api.page, 1); assert.equal(h.api.pages(), 1); assert.equal(h.node('count').textContent, '2 charts');
   assert.equal(h.api.tagResultCounts.get('fast'), 2, 'Background changes update tag candidates and clamp pagination');
+  h.service(() => { throw new Error('Foreground refresh failed'); }); h.api.refreshInstallationChecks(); await idle(h);
+  assert.deepEqual(h.ids(), [4, 2], 'A failed stale-while-revalidate refresh keeps the last complete result set');
+  assert.equal(h.node('installation-filter-message').textContent, 'Installation status could not be updated. Current results remain visible');
+  assert.equal(h.node('installation-filter-retry').hidden, false);
+}
+
+async function inventoryRefreshUpdatesOffscreenCache() {
+  const h = harness(Array.from({length: 25}, (_, i) => song(i + 1)), new Set([1]));
+  h.mode('installed'); await idle(h); assert.deepEqual(h.ids(), [1]);
+  h.mode('all'); await idle(h);
+  const requests = h.calls.length; h.hold(); h.api.refreshInstallationChecks(); await tick();
+  assert.equal(h.calls.length, requests + 1, 'All mode refreshes through one inventory request for visible cards');
+  resolveNext(h, new Set([2])); await idle(h);
+  assert.equal(h.api.installationPresence(h.api.currentRows.find(row => row[0] === 1)), false, 'A successful inventory refresh updates a cached offscreen row');
+  assert.equal(h.api.installationPresence(h.api.currentRows.find(row => row[0] === 2)), true);
+  h.mode('installed'); await idle(h);
+  assert.deepEqual(h.ids(), [2]); assert.equal(h.calls.length, requests + 1, 'Switching filters consumes the refreshed offscreen cache');
+}
+
+async function inventoryMutationRace() {
+  const h = harness([song(1), song(2), song(3)], new Set([1, 2]));
+  h.mode('installed'); await idle(h); h.hold(); h.api.refreshInstallationChecks(); await tick();
+  const deleted=h.api.currentRows.find(row=>row[0]===1),old=h.deferred.shift();assert(old);
+  h.api.noteInstallationMutation(deleted,false);
+  h.api.installedCharts.set(1,{key:h.api.installationKey(deleted),value:false,pending:false});h.api.presenceQueue.delete(1);
+  old.resolve(h.reply(old.body,new Set([1,2])));await tick();
+  assert.equal(h.deferred.length,1,'A local mutation makes an older inventory response trigger one fresh scan');
+  resolveNext(h,new Set([2]));await idle(h);
+  assert.equal(h.api.installationIndex.entries.has(deleted[8].fileReference),false,'The stale response cannot restore a deleted inventory entry');
+  assert.equal(h.api.installationPresence(deleted),false);
+  for(const record of h.api.installedCharts.values())assert.equal(record.pending,false,'Superseded batch records must not remain pending');
+  assert.deepEqual(h.ids(),[2]);
 }
 
 async function installationCompletionRace() {
-  const h = harness([song(1), song(2), song(3)]); h.mode('uninstalled'); await idle(h);
+  const dlc = {id: 3, identifier: 'chillhop', title: 'Chillhop DLC', storeLink: 'https://store.steampowered.com/app/1668791/Spin_Rhythm_XD__Chillhop_DLC/'};
+  const h = harness([song(1, {dlc}), song(2), song(3)]); h.mode('uninstalled'); await idle(h);
+  const unrelated = h.api.installedCharts.get(2);
   h.hold(); h.api.queueInstallationChecks([h.api.currentRows[0]], true); const old = h.deferred.shift(); assert(old);
   h.service((method, route, body) => {
     if (route === '/v1/install') return {job: {id: 'c'.repeat(32), songId: body.songId, state: 'complete', zipRemoved: true, targetDirectory: h.api.INSTALL_DIRECTORY}};
-    assert.equal(route, '/v1/installations/check'); return h.reply(body, new Set([1]));
+    if (route === '/v1/installations/check') return h.checkReply(body, new Set([1]));
+    assert.equal(route, '/v1/installations/index'); return h.reply(body, new Set([1]));
   });
   await h.api.startInstallation(h.api.currentRows[0]); await tick();
+  assert.equal(h.calls.some(call => call.route === '/v1/install' && call.body.songId === 1), true, 'DLC uses the ordinary local install endpoint');
+  const check = h.calls.find(call => call.route === '/v1/installations/check');
+  assert.deepEqual(JSON.parse(JSON.stringify(check.body)), {expectedRevision: 'a'.repeat(32), charts: [{songId: 1, fileReference: 'spinshare_1', updateHash: 'a'.repeat(32)}]}, 'A completed chart is verified locally without waiting for the whole queue');
+  assert.equal(h.api.installationPresence(h.api.currentRows[0]), true, 'The completed card updates as soon as its own hash is confirmed');
+  h.api.installationActivityIds = new Map([[1, 'c'.repeat(32)], [2, 'e'.repeat(32)]]); h.api.activityJobs = [{songId: 2, id: 'e'.repeat(32)}];
+  const callsBeforeActivityRetires = h.calls.length; h.api.refreshInstallationActivity();
+  assert.equal(h.api.installationPresence(h.api.currentRows[0]), true, 'Retiring the completed activity must not discard its exact local result while other jobs remain active');
+  assert.equal(h.calls.length, callsBeforeActivityRetires, 'Other active jobs do not force a full-directory rescan for the completed chart');
   assert.deepEqual(h.ids(), [3, 2], 'An unconfirmed/completing installation is not kept as uninstalled');
   old.resolve(h.reply(old.body, new Set())); await idle(h);
   assert.equal(h.api.installationPresence(h.api.currentRows[0]), true, 'The pre-install check cannot overwrite the post-install result');
   assert.deepEqual(h.ids(), [3, 2]); assert.equal(h.api.tagResultCounts.get('slow'), 1);
-  const afterStart = h.calls.slice(1).flatMap(call => call.route === '/v1/installations/check' ? Array.from(call.body.charts, chart => chart.songId) : []);
-  assert.deepEqual(afterStart, [1, 1], 'Only the installed row is rechecked; unrelated valid records remain cached');
+  assert.strictEqual(h.api.installedCharts.get(2), unrelated, 'Only the installed row is invalidated; unrelated valid records remain cached');
+  assert.equal(h.calls.filter(call => call.route === '/v1/installations/index').length, 2, 'The install completion avoids a third full-directory index request');
   h.mode('installed'); await idle(h); assert.deepEqual(h.ids(), [1]);
+  const changedRow = h.api.compact([song(1, {dlc, updateHash: 'b'.repeat(32)})], criteria)[0];
+  h.api.currentRows = h.api.currentRows.map(row => row[0] === 1 ? changedRow : row);
+  h.api.installationActivityIds = new Map([[1, 'c'.repeat(32)], [2, 'e'.repeat(32)]]); h.api.activityJobs = [{songId: 2, id: 'e'.repeat(32)}];
+  const callsBeforeCatalogChange = h.calls.length; h.api.refreshInstallationActivity(); await idle(h);
+  assert.equal(h.calls.length, callsBeforeCatalogChange + 1, 'A changed catalog fingerprint is rechecked when the completed activity retires');
+  assert.equal(h.api.installationPresence(changedRow), false, 'A completed result for the previous fingerprint cannot certify a newer catalog version');
+}
+
+async function installationHashMismatchIsNotInstalled() {
+  const h = harness([song(1)]); await h.api.rebuild(false); await idle(h);
+  h.service((method, route, body) => {
+    if (route === '/v1/install') return {job: {id: 'c'.repeat(32), songId: body.songId, state: 'complete', zipRemoved: true, targetDirectory: h.api.INSTALL_DIRECTORY}};
+    if (route === '/v1/installations/check') return h.checkReply(body, new Set());
+    return h.reply(body, new Set());
+  });
+  await h.api.startInstallation(h.api.currentRows[0]); await idle(h);
+  assert.equal(h.api.installationPresence(h.api.currentRows[0]), false, 'A completed job with a mismatched local hash is not reported as installed');
+  assert.equal(h.api.installationIndex, null, 'A mismatched targeted check invalidates the broader hash inventory instead of pretending the file is absent');
 }
 
 async function activityCompletionAndStaleSettings() {
@@ -342,15 +460,20 @@ async function main() {
   assert.match(markup, /<option value="all" data-ui-static="All installation states">All<\/option>/);
   assert.equal(catalog.en['All installation states'], 'All');
   assert.equal(catalog['zh-CN']['All installation states'], '全部');
+  assert.match(markup, /<p id="filter-dirty" class="sr-only" role="status" aria-live="polite" aria-atomic="true"><\/p>/);
+  assert.match(css, /\.filter-apply\s*\{[^}]*min-width:\s*132px/s);
+  assert.match(css, /@media \(max-width: 680px\)[\s\S]*?\.filter-actions \.button\s*\{[^}]*width:\s*100%/);
+  assert.doesNotMatch(source, /INSTALLATION_NOT_APPLICABLE|notApplicable|row\[8\]\.dlc\|\|appExiting/);
   const sortMarkup = markup.match(/<select id="sort"[^>]*>([\s\S]*?)<\/select>/);
   assert(sortMarkup, 'The result sort control remains available');
   assert.deepEqual(Array.from(sortMarkup[1].matchAll(/<option value="([^"]+)"/g), match => match[1]), ['date', 'views', 'downloads', 'level', 'title']);
   assert.doesNotMatch(markup, /id="(?:ranking-panel|ranking-status|cancel-ranking)"/);
   assert.doesNotMatch(markup, /id="results-note"/, 'The repeated installation explanation is not part of the result layout');
-  await fullCandidateFilter(); await combinedFilters(); await unknownIsNotUninstalled();
-  await directoryAndMetadataRace(); await changingCandidatesDuringCheck(); await backgroundChecksPreserveCards(); await installationCompletionRace();
+  filterChangeButtonState(); await fullCandidateFilter(); await combinedFilters(); await unknownIsNotUninstalled(); await staleFailureExplainsCachedResultsWithoutDeadRetry(); await dlcMetadataAndOrdinaryPresence();
+  await directoryAndMetadataRace(); await changingCandidatesDuringCheck(); await backgroundChecksPreserveCards();
+  await inventoryRefreshUpdatesOffscreenCache(); await inventoryMutationRace(); await installationCompletionRace(); await installationHashMismatchIsNotInstalled();
   await activityCompletionAndStaleSettings();
   await sortOptionsAndFallbacks(); await sortingOnlyLoadsRenderedCounts(); await paginationOnlyAppearsWhenUseful();
-  console.log('PASS: 11 scenarios covering installation filters, full-candidate presence checks, unknown/retry states, combined criteria, directory/install races, useful pagination, five sort modes, legacy fallback and rendered-page review counting.');
+  console.log('PASS: installation filters, ordinary DLC install state/actions, single-index refreshes, stable filter changes, offscreen cache updates, stale/unknown/retry states, inventory mutations, directory/install races, useful pagination, five sort modes, legacy fallback and rendered-page review counting.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

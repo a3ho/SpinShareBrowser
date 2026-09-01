@@ -16,6 +16,23 @@ function appendChartDescription(body,text){
   }
   body.append(text.slice(end));
 }
+function steamDLCURL(value){
+  try{
+    const url=new URL(value);
+    if(url.origin!=='https://store.steampowered.com'||url.username||url.password||url.search||url.hash)return '';
+    if(!/^\/app\/[1-9]\d{0,11}(?:\/[A-Za-z0-9_-]{1,200})?\/?$/.test(url.pathname))return '';
+    return url.href;
+  }catch{return '';}
+}
+function makeDLCRequirement(row){
+  const dlc=row[8]?.dlc;if(!dlc)return null;
+  const rawTitle=typeof dlc['title']==='string'?dlc['title'].trim():'',title=rawTitle&&rawTitle.length<=160&&!/[\p{Cc}\p{Cf}\p{Cs}]/u.test(rawTitle)?rawTitle:'',url=title?steamDLCURL(dlc.storeLink):'',valid=Boolean(title&&url);
+  const label=valid?m('Requires ')+title:m('Requires DLC'),requirement=element(valid?'a':'span',undefined,'dlc-requirement');
+  uiAttr(requirement,'aria-label',url?m('Open required DLC on Steam: ')+title:label);
+  requirement.append(element('span',label));
+  if(url){requirement.href=url;requirement.target='_blank';requirement.rel='noopener noreferrer';requirement.append(icon('external'));}
+  return requirement;
+}
 function makeChartNotes(row){
   const meta=row[8]||{},description=typeof meta.description==='string'?meta.description:'',tags=Array.isArray(meta.tags)?meta.tags.filter(tag=>typeof tag==='string'&&tagKey(tag)):[];
   if(!description.trim()&&!tags.length)return null;
@@ -56,6 +73,7 @@ function createChartCard(row){
   titleRow.append(songTitle,official);copy.append(titleRow);
   if(row[2])copy.append(element('p',row[2],'subtitle'));
   copy.append(element('p',row[3]||m('Unknown artist'),'artist'));
+  const dlcRequirement=makeDLCRequirement(row);if(dlcRequirement)copy.append(dlcRequirement);
 
   const levels=element('div',undefined,'levels');
   uiAttr(levels,'aria-label',m('Matching difficulties'));

@@ -797,6 +797,169 @@ class ChartCacheTests(unittest.TestCase):
                 self.assertEqual(chart.read_bytes(), b"protected chart archive")
         self.fetch.assert_not_called()
 
+    def test_maintenance_watchdog_has_a_deadline_and_tracks_the_setup_process(self):
+        timed_out = []
+        with maintenance.watchdog(timeout=0.02, terminate=timed_out.append):
+            threading.Event().wait(0.05)
+        self.assertEqual(timed_out, [13])
+
+        if os.name == "nt":
+            parent_exited = []
+            parent = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(.05)"],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            try:
+                with maintenance.watchdog(parent.pid, timeout=2, terminate=parent_exited.append):
+                    deadline = threading.Event()
+                    until = portable.time.monotonic() + 3
+                    while not parent_exited and portable.time.monotonic() < until:
+                        deadline.wait(0.01)
+                self.assertEqual(parent_exited, [14])
+            finally:
+                parent.wait(timeout=3)
+
+    @unittest.skipUnless(os.name == "nt", "Parent-process termination is Windows-specific")
+    def test_orphaned_maintenance_process_exits_when_setup_disappears(self):
+        parent = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(.2)"],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        child_script = (
+            "import sys,time; "
+            f"sys.path.insert(0, {str(ROOT / 'src')!r}); "
+            "import maintenance; "
+            f"watch=maintenance.watchdog({parent.pid}, timeout=5); "
+            "watch.__enter__(); time.sleep(30)"
+        )
+        child = subprocess.Popen([sys.executable, "-c", child_script], creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            parent.wait(timeout=3)
+            self.assertEqual(child.wait(timeout=3), 14)
+        finally:
+            if parent.poll() is None:
+                parent.terminate()
+                parent.wait(timeout=3)
+            if child.poll() is None:
+                child.terminate()
+                child.wait(timeout=3)
+
+    def test_maintenance_cli_never_opens_a_desktop_error_dialog(self):
+        import desktop
+
+        failure = maintenance.MaintenanceError("fixture maintenance failure", 13)
+        with (mock.patch.object(maintenance, "prepare_upgrade", side_effect=failure),
+              mock.patch.object(maintenance, "watchdog", return_value=contextlib.nullcontext()),
+              mock.patch.object(desktop, "show_startup_error") as dialog,
+              mock.patch.object(sys, "stderr", io.StringIO()) as errors):
+            result = portable.main([
+                "--maintenance", "prepare", "--state-dir", str(self.state),
+                "--install-dir", str(self.root / "program"), "--language", "en",
+                "--parent-pid", str(os.getpid()),
+            ])
+        self.assertEqual(result, 13)
+        dialog.assert_not_called()
+        self.assertIn("fixture maintenance failure", errors.getvalue())
+
+    def test_maintenance_waits_for_the_original_process_handle_before_reacquiring_the_lock(self):
+        events = []
+        runtime = {"pid": 123, "port": 456, "instanceId": "a" * 32}
+        config = {"token": "b" * 64}
+
+        class Lock:
+            def __init__(self):
+                self.calls = 0
+
+            def try_acquire(self):
+                self.calls += 1
+                events.append("lock")
+                return self.calls > 1
+
+            def close(self):
+                events.append("close")
+
+        @contextlib.contextmanager
+        def process(_pid):
+            events.append("process")
+            checks = iter((False, True))
+
+            def exited():
+                events.append("exited")
+                return next(checks)
+
+            yield exited
+
+        install = self.root / "program"
+        lock = Lock()
+        with (mock.patch.object(maintenance, "gate_name", return_value="gate"),
+              mock.patch.object(portable, "default_state_directory", return_value=self.state),
+              mock.patch.object(maintenance, "_read_config", return_value=config),
+              mock.patch.object(maintenance, "_locations", return_value=(self.state, install, [])),
+              mock.patch.object(portable, "InstanceLock", return_value=lock),
+              mock.patch.object(portable, "read_runtime", return_value=runtime),
+              mock.patch.object(maintenance, "_process", side_effect=process),
+              mock.patch.object(maintenance, "_shutdown", side_effect=lambda *_: events.append("shutdown")),
+              mock.patch.object(maintenance.time, "sleep", return_value=None)):
+            with maintenance._idle_state(self.state, install):
+                events.append("yield")
+        self.assertEqual(events, ["lock", "process", "shutdown", "exited", "exited", "lock", "yield", "close"])
+
+    @unittest.skipUnless(os.name == "nt", "The real process-handle lifecycle is Windows-specific")
+    def test_maintenance_gracefully_stops_a_real_idle_local_process(self):
+        state = self.root / "lifecycle-state"
+        target = self.root / "lifecycle-custom"
+        program = self.root / "lifecycle-program"
+        target.mkdir()
+        program.mkdir()
+        child = (
+            "import sys; from pathlib import Path; "
+            f"sys.path.insert(0, {str(ROOT / 'src')!r}); "
+            "import installer, spinshare_portable as portable; "
+            f"installer.default_target_directory=lambda: Path({str(target)!r}); "
+            f"raise SystemExit(portable.launch(Path({str(state)!r}), no_browser=True))"
+        )
+        process = subprocess.Popen([sys.executable, "-c", child], creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            until = portable.time.monotonic() + 10
+            while not (state / portable.RUNTIME_NAME).is_file():
+                if process.poll() is not None:
+                    self.fail(f"Idle lifecycle fixture exited early with {process.returncode}")
+                if portable.time.monotonic() >= until:
+                    self.fail("Idle lifecycle fixture did not publish runtime metadata")
+                threading.Event().wait(0.02)
+            with (mock.patch.object(portable, "default_state_directory", return_value=state),
+                  mock.patch.object(installer, "default_target_directory", return_value=target)):
+                self.assertEqual(maintenance.prepare_upgrade(state, program), {"removed": [], "retained": []})
+            self.assertEqual(process.wait(timeout=5), 0)
+            self.assertFalse((state / portable.RUNTIME_NAME).exists())
+            lock = portable.InstanceLock(state)
+            try:
+                self.assertTrue(lock.try_acquire())
+            finally:
+                lock.close()
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)
+
+    def test_maintenance_never_requests_shutdown_while_installations_are_active(self):
+        runtime = {"pid": 123, "port": 4567, "instanceId": "a" * 32}
+        response = mock.Mock(status=200)
+        response.read.return_value = portable._json_bytes({
+            "ok": True, "pid": runtime["pid"], "instanceId": runtime["instanceId"], "activeJobs": 1,
+        })
+        connection = mock.Mock()
+        connection.getresponse.return_value = response
+        with mock.patch.object(maintenance.http.client, "HTTPConnection", return_value=connection):
+            with self.assertRaises(maintenance.MaintenanceError) as error:
+                maintenance._shutdown(runtime, "b" * 64)
+        self.assertEqual(error.exception.exit_code, 10)
+        connection.request.assert_called_once_with(
+            "GET", "/v1/health", headers={
+                "Origin": "null", "X-SpinShare-Key": "b" * 64, "X-SpinShare-Native": "1",
+            },
+        )
+
     def test_remote_transport_only_posts_search_charts_and_rejects_redirects(self):
         def connection_for(raw, status=200, length=None, events=None):
             response = mock.Mock(status=status)

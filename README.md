@@ -8,13 +8,15 @@ A third-party Windows app for browsing and installing [SpinShare](https://spinsh
 
 ## Current release: 2.0.0
 
-**Released September 1, 2026**
+**Maintenance re-release: September 2, 2026**
 
 - A redesigned, responsive chart browser with clearer typography, denser cards, refined motion, and cohesive loading, empty, and footer states.
 - Local-first filtering, search, tags, sorting, and installation-status views backed by a durable catalog with 12-hour automatic synchronization.
 - A single full-song player with cover controls, a draggable timeline, and Space and arrow-key shortcuts.
 - Anchored floating descriptions and review panels that preserve page layout, contain scrolling, and keep review counts available.
-- Safer installation with a first-use folder check, bounded concurrency, staged validation, and overwrite upgrades that preserve settings and installed charts.
+- Fast local installation inventories plus targeted per-chart verification, so completed cards update immediately while other jobs continue.
+- Unified DLC installation behavior and one-click deletion of verified local charts, with multi-delete queuing and rollback on failure.
+- Safer overwrite updates that wait for the original idle process, never force active jobs, and offer retry/cancel when files remain locked.
 
 [Read the complete 2.0.0 changelog](CHANGELOG.md)
 
@@ -28,7 +30,7 @@ A third-party Windows app for browsing and installing [SpinShare](https://spinsh
 - Show all charts, only installed charts, or only uninstalled charts using locally verified installation status.
 - Sort by upload date, difficulty rating, views, downloads, or title.
 - Play a chart's complete song in one global header player.
-- Browse cover art, author notes and tags, optionally show full comments, install charts, and check their installation status.
+- Browse cover art, author notes and tags, optionally show full comments, install charts, check their installation status, and remove verified local charts.
 - English and Simplified Chinese interface.
 
 ## Install
@@ -72,7 +74,13 @@ Select the review count to read reviews in a floating panel. Turn on **Expand al
 
 Select **Download and install** on a chart card. Check that the displayed chart installation folder is correct, or select **Change directory**.
 
-Installed charts are marked **Installed**. Use **Install again** when you want to replace an installed chart with the listed version. DLC charts open SpinShare in your default browser for authorization and download.
+Installed charts are marked **Installed**. Use **Install again** when you want to replace an installed chart with the listed version. DLC charts use the same installation flow and show a compact requirement label linking to the corresponding Steam store page when the supplied address is valid.
+
+A chart, including a DLC chart, that exactly matches the installed version also shows **Delete**. Selecting it immediately and permanently removes that custom chart's `.srtb` file and matching optional cover and audio files, without a confirmation dialog. ZIP archives, unrelated temporary files, shared folders, and Steam's official DLC files are left untouched. You can queue multiple chart deletions; each card shows its own progress, while installation and deletion operations remain mutually exclusive, including while an installation request's result is still unknown. A successful deletion refreshes the installation views and counts automatically. A failed deletion attempts to restore staged files and keeps the `.srtb` installed when possible; an explicit error tells you to inspect the install folder if some resources could not be restored, and the app rechecks the actual installation state.
+
+Installation status is still rechecked automatically when the window returns to the foreground. Routine refreshes inventory the actual `.srtb` files once and return their hashes, then the interface matches the current catalog in memory instead of probing every catalog candidate. A completed install uses one targeted local hash check, so its card updates immediately while other jobs continue. A deletion invalidates the affected chart status; changing the install folder invalidates the previous folder's whole inventory. DLC charts participate in the same installed/not-installed filter, progress, count, paging, and retry behavior. If a real inventory check fails, the last successful result remains available and the check can be retried.
+
+During an overwrite update, Setup asks an idle running app to close and waits for its original process to exit before replacing files. Active downloads or installations are never force-terminated. If the app is still exiting or a program file remains locked, Setup offers **Retry** or **Cancel** so the update can continue in place after the lock is released.
 
 ### Data updates and background running
 

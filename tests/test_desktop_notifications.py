@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import inspect
 import threading
 import unittest
 from unittest.mock import patch
@@ -64,6 +65,82 @@ class CatalogNotificationTests(unittest.TestCase):
         self.assertEqual(desktop._clean_notice_text("Update complete."), "Update complete")
         self.assertEqual(desktop._clean_notice_text("更新完成。"), "更新完成")
         self.assertEqual(desktop._clean_notice_text("Working..."), "Working...")
+
+    def test_exit_worker_hands_window_destruction_back_to_ui_without_closing_runtime(self):
+        instance = object.__new__(desktop.Desktop)
+        events = []
+        instance.manager = type("Manager", (), {
+            "work": type("Work", (), {"join": lambda self: events.append("work")})(),
+        })()
+        instance.application = type("Application", (), {
+            "close": lambda self: events.append("runtime-close"),
+        })()
+        instance.security_ready = False
+        instance.window_size = None
+        instance.finished = threading.Event()
+        instance.exit_lock = threading.RLock()
+        instance.exit_thread = object()
+        instance.exit_failed = False
+        instance.post = lambda callback: events.append(("post", callback.__name__)) is None
+        instance.activity_changed = lambda: events.append("activity")
+
+        instance._finish_exit()
+
+        self.assertEqual(events, ["work", ("post", "_destroy")])
+        self.assertTrue(instance.finished.is_set())
+        self.assertNotIn("runtime-close", events)
+
+    def test_main_loop_waits_for_exit_and_server_threads_before_returning(self):
+        source = inspect.getsource(desktop.run)
+        self.assertLess(source.index("exit_thread.join()"), source.index("application.close()"))
+        self.assertLess(source.index("application.close()"), source.index("desktop.server_thread.join()"))
+        self.assertNotIn("desktop.server_thread.join(5)", source)
+
+    def test_exit_worker_uses_native_close_if_ui_dispatch_is_already_unavailable(self):
+        calls = []
+
+        class Function:
+            def __call__(self, *args):
+                calls.append(args)
+                return 1
+
+        instance = object.__new__(desktop.Desktop)
+        instance.manager = type("Manager", (), {
+            "work": type("Work", (), {"join": lambda self: None})(),
+        })()
+        instance.security_ready = False
+        instance.window_size = None
+        instance.finished = threading.Event()
+        instance.exit_lock = threading.RLock()
+        instance.exit_thread = object()
+        instance.exit_failed = instance.final_close = False
+        instance.form = type("Form", (), {
+            "Handle": type("Handle", (), {"ToInt64": lambda self: 123})(),
+        })()
+        instance.post = lambda callback: False
+        instance.activity_changed = lambda: None
+        user = type("User", (), {"PostMessageW": Function()})()
+
+        with patch.object(desktop.ctypes, "WinDLL", return_value=user):
+            instance._finish_exit()
+
+        self.assertTrue(instance.final_close)
+        self.assertEqual(calls, [(123, 0x10, 0, 0)])
+
+    def test_window_close_still_runs_when_ui_resource_disposal_fails(self):
+        instance = object.__new__(desktop.Desktop)
+        closed = []
+        instance.final_close = False
+        instance.toast_pending = object()
+        instance.toast_timer = instance.timer = instance.tray = instance.menu = None
+        instance.form = type("Form", (), {"Close": lambda self: closed.append(True)})()
+        instance._dispose_toast = lambda: (_ for _ in ()).throw(OSError("fixture disposal failure"))
+
+        with self.assertRaises(OSError):
+            instance._destroy()
+
+        self.assertTrue(instance.final_close)
+        self.assertEqual(closed, [True])
 
     def test_compact_geometry_tracks_each_monitor_working_area_and_dpi(self):
         class Work:

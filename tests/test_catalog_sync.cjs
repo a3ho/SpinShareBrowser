@@ -73,7 +73,7 @@ function harness({now = 2_000_000_000_000, visible = true, hidden = false, catal
     catalogFailureHasData: false, catalogStatusPoll: null, catalogHelpTimer: null, catalogDialogCloseTimer: null,
     catalogToastTimer: null, catalogToastMotion: null, catalogToastStartedAt: 0, catalogToastRemaining: 0, catalogPendingToast: null,
     appExiting: false, hostVisible: visible, phase: 'idle', applied: null,
-    cacheGeneration: 0, presenceGeneration: 0, reviewCounts: new Map(), reviewCache: new Map(), profileCache: new Map(), userSearchCache: new Map(), installedCharts: new Map(), presenceQueue: new Map(),
+    cacheGeneration: 0, presenceGeneration: 0, reviewCounts: new Map(), reviewCache: new Map(), profileCache: new Map(), userSearchCache: new Map(), installedCharts: new Map(), presenceQueue: new Map(), deletionStates: new Map(),
     document: {hidden, activeElement: null, documentElement: {clientWidth: 1200, clientHeight: 800}, addEventListener() {}},
     globalThis: null, $: dom.get,
     m: value => String(value), number: value => String(value),
@@ -81,7 +81,7 @@ function harness({now = 2_000_000_000_000, visible = true, hidden = false, catal
     uiError(value) { const error = new Error(String(value)); error.uiMessage = String(value); return error; },
     errorText(error) { return error?.uiMessage || error?.message || String(error); },
     loadingIndicator(node, active) { node.classList.toggle('is-loading', active); },
-    setStatus() {}, syncFilters() {}, indexCatalogTags(data) { context.indexed = data; },
+    setStatus() {}, syncFilters() {}, clearDeletionErrors() { for (const [songId, state] of context.deletionStates) if (state.phase === 'error') context.deletionStates.delete(songId); }, indexCatalogTags(data) { context.indexed = data; },
     reconcilePreviewCatalog(data) { context.reconciled = data; }, stopTextSearch() {}, compact() { return []; }, async rebuild() {},
     playMotion() { return null; }, motionAllowed() { return false; }, MOTION_MS: {feedback: 150, standard: 180, panel: 220, expressive: 280},
     async exitTool() { return true; },
@@ -277,12 +277,16 @@ async function checkEndpointContract() {
 function checkChangedAuthority() {
   const saved = [chart(1)], h = harness({catalog: saved, fetchedAt: 100}), names = ['reviewCounts', 'reviewCache', 'profileCache', 'userSearchCache', 'installedCharts', 'presenceQueue'];
   for (const name of names) h.api[name].set(17, name);
+  h.api.deletionStates.set(17, {phase: 'error'}); h.api.deletionStates.set(18, {phase: 'deleting'});
   let result = h.api.publishCatalogResult({data: saved, cached: true, stale: false, fetchedAt: 200, changed: false});
   assert.equal(result.changed, false); assert.equal(result.serverChanged, false); assert.equal(h.api.cacheGeneration, 0); assert.equal(h.api.presenceGeneration, 0);
   for (const name of names) assert.equal(h.api[name].get(17), name, `${name} survives changed=false`);
+  assert.equal(h.api.deletionStates.has(17), true, 'Unchanged catalog keeps a current deletion error');
   result = h.api.publishCatalogResult({data: [chart(2)], cached: false, stale: false, fetchedAt: 300, changed: true});
   assert.equal(result.changed, true); assert.equal(result.serverChanged, true); assert.equal(h.api.cacheGeneration, 1); assert.equal(h.api.presenceGeneration, 1);
   for (const name of names) assert.equal(h.api[name].size, 0, `${name} belongs to the old generation`);
+  assert.equal(h.api.deletionStates.has(17), false, 'Changed catalog removes an error belonging to its old row');
+  assert.equal(h.api.deletionStates.has(18), true, 'Changed catalog keeps in-flight deletion serialization intact');
 
   for (const name of names) h.api[name].set(18, name);
   result = h.api.publishCatalogResult({data: [chart(3)], cached: true, stale: false, fetchedAt: 400, changed: false, outcome: 'fresh'});

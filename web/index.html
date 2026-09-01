@@ -123,11 +123,12 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
             <p id="date-range-help" class="field-help" data-ui-static="Leave either date empty for an open-ended range.">Leave either date empty for an open-ended range</p>
           </div>
         </fieldset>
-        <div class="filter-actions"><p id="filter-dirty" class="field-help" role="status"></p><button id="apply-filters" class="button primary" type="submit" data-ui-static="Filter charts">Filter charts</button></div>
+        <div class="filter-actions"><p id="filter-dirty" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p><button id="apply-filters" class="button primary filter-apply" type="submit" data-ui-static="Filter charts">Filter charts</button></div>
       </form>
     </details>
     <div id="refresh-data-help-panel" class="catalog-help" popover="manual" role="tooltip" tabindex="-1"><strong data-ui-static="Data update guide">Data update guide</strong><dl class="catalog-help-rules"><div><dt data-ui-static="Automatic sync">Automatic sync</dt><dd data-ui-static="Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything.">Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything</dd></div><div><dt data-ui-static="Manual update">Manual update</dt><dd data-ui-static="At most one manual update can run every 10 minutes.">At most one manual update can run every 10 minutes</dd></div></dl></div>
     <p id="status" class="status" role="status" aria-live="polite"></p>
+    <p id="installation-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
     <div id="result-tools" class="result-tools" hidden inert>
     <div id="result-tools-content" class="result-tools-content">
     <section id="result-search" class="search-hub" aria-label="Search" data-ui-attr-aria-label="Search">

@@ -87,6 +87,10 @@ en.MaintenanceUnsafe=The app folders contain an unexpected path or file. Resolve
 zh_CN.MaintenanceUnsafe=工具目录中存在异常路径或文件。请处理提示中的目录问题后重试
 en.MaintenanceIO=Some app files are in use or cannot be accessed. Close programs using these files and check folder permissions, then try again
 zh_CN.MaintenanceIO=部分工具文件被占用或无法访问。请关闭占用文件的程序，检查目录权限后重试
+en.MaintenanceFilesBusy={#AppName} is still exiting or an app file is still in use. Wait a moment, close programs using these files, and try again
+zh_CN.MaintenanceFilesBusy={#AppName} 仍在退出，或工具文件仍被占用。请稍候，关闭占用文件的程序后重试
+en.MaintenanceTimeout=App maintenance timed out. The tool may still be exiting or a file may still be in use; wait a moment and try again
+zh_CN.MaintenanceTimeout=工具维护超时。工具可能仍在退出或文件仍被占用，请稍候后重试
 en.MaintenanceFailed=The app could not finish preparing its files. Try again, or cancel and run Setup again
 zh_CN.MaintenanceFailed=工具文件准备失败。请重试，或取消后重新运行安装程序
 en.MaintenanceStartFailed=The app maintenance process could not start
@@ -158,6 +162,7 @@ var
   PayloadReady: Boolean;
   ExistingInstall: Boolean;
   ExistingVersion: String;
+  MaintenanceCancelRequested: Boolean;
   ProgramDirectories: TStringList;
   ProgramDirectoryHandles: TProgramHandles;
 
@@ -169,6 +174,8 @@ function ReleaseMutex(Handle: THandle): BOOL;
   external 'ReleaseMutex@kernel32.dll stdcall';
 function CloseHandle(Handle: THandle): BOOL;
   external 'CloseHandle@kernel32.dll stdcall';
+function GetCurrentProcessId: DWORD;
+  external 'GetCurrentProcessId@kernel32.dll stdcall';
 function LCMapStringEx(LocaleName: String; Flags: DWORD; Source: String;
   SourceLength: Integer; Destination: String; DestinationLength: Integer;
   VersionInformation, Reserved: NativeUInt; SortHandle: LPARAM): Integer;
@@ -203,7 +210,7 @@ end;
 
 procedure ProgramFileError(const FileName: String; ErrorCode: Integer);
 begin
-  RaiseException(CustomMessage('MaintenanceIO') + #13#10 + FileName + #13#10 + SysErrorMessage(ErrorCode));
+  RaiseException(CustomMessage('MaintenanceFilesBusy') + #13#10 + FileName + #13#10 + SysErrorMessage(ErrorCode));
 end;
 
 function PinProgramDirectory(const Directory: String): Boolean;
@@ -392,6 +399,22 @@ begin
     Result := SuppressibleMsgBox(MessageText, mbError, MB_RETRYCANCEL, IDCANCEL) = IDRETRY;
 end;
 
+function RetryPreparation(const MessageText: String): Boolean;
+begin
+  Result := AskRetry(MessageText);
+  if not Result and not SilentOperation then
+  begin
+    MaintenanceCancelRequested := True;
+    WizardForm.Close;
+  end;
+end;
+
+procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
+begin
+  if MaintenanceCancelRequested then
+    Confirm := False;
+end;
+
 procedure ReleaseMaintenanceGate;
 begin
   if MaintenanceGate <> 0 then
@@ -530,6 +553,7 @@ begin
     10: Result := CustomMessage('MaintenanceBusy');
     11: Result := CustomMessage('MaintenanceUnsafe');
     12: Result := CustomMessage('MaintenanceIO');
+    13: Result := CustomMessage('MaintenanceTimeout');
   else
     Result := CustomMessage('MaintenanceFailed');
   end;
@@ -553,26 +577,25 @@ begin
   if ActiveLanguage = 'zh_CN' then
     Language := 'zh-CN';
   Parameters := '--maintenance ' + Mode + ' --state-dir ' + AddQuotes(StateDirectory) +
-    ' --install-dir ' + AddQuotes(ExpandConstant('{app}')) + ' --language ' + Language;
-  repeat
-    if RunChild(FileName, Parameters, ExtractFileDir(FileName), ExitCode) then
+    ' --install-dir ' + AddQuotes(ExpandConstant('{app}')) + ' --language ' + Language +
+    ' --parent-pid ' + IntToStr(GetCurrentProcessId);
+  if RunChild(FileName, Parameters, ExtractFileDir(FileName), ExitCode) then
+  begin
+    Log('Maintenance ' + Mode + ' returned ' + IntToStr(ExitCode) + '.');
+    if ExitCode = 0 then
     begin
-      Log('Maintenance ' + Mode + ' returned ' + IntToStr(ExitCode) + '.');
-      if ExitCode = 0 then
-      begin
-        Result := '';
-        Exit;
-      end;
-      Result := MaintenanceError(ExitCode);
-    end
-    else
-    begin
-      Log('Maintenance ' + Mode + ' could not start ' + ExtractFileName(FileName) +
-        ' (Windows error ' + IntToStr(ExitCode) + ').');
-      Result := MaintenanceStartError(ExitCode);
-      Log(Result);
+      Result := '';
+      Exit;
     end;
-  until not AskRetry(Result);
+    Result := MaintenanceError(ExitCode);
+  end
+  else
+  begin
+    Log('Maintenance ' + Mode + ' could not start ' + ExtractFileName(FileName) +
+      ' (Windows error ' + IntToStr(ExitCode) + ').');
+    Result := MaintenanceStartError(ExitCode);
+    Log(Result);
+  end;
 end;
 
 function InstallWebView2: String;
@@ -586,23 +609,21 @@ begin
   WizardForm.PreparingLabel.Caption := CustomMessage('InstallingWebView2');
   ExtractTemporaryFile('MicrosoftEdgeWebview2Setup.exe');
   Bootstrapper := ExpandConstant('{tmp}\MicrosoftEdgeWebview2Setup.exe');
-  repeat
+  if WebView2Available then
+  begin
+    Result := '';
+    Exit;
+  end;
+  if RunChild(Bootstrapper, '/silent /install', ExpandConstant('{tmp}'), ExitCode) then
+  begin
+    Log('WebView2 bootstrapper returned ' + IntToStr(ExitCode) + '.');
     if WebView2Available then
     begin
       Result := '';
       Exit;
     end;
-    if RunChild(Bootstrapper, '/silent /install', ExpandConstant('{tmp}'), ExitCode) then
-    begin
-      Log('WebView2 bootstrapper returned ' + IntToStr(ExitCode) + '.');
-      if WebView2Available then
-      begin
-        Result := '';
-        Exit;
-      end;
-    end;
-    Result := CustomMessage('WebView2Required');
-  until not AskRetry(Result);
+  end;
+  Result := CustomMessage('WebView2Required');
 end;
 
 function InitializeSetup: Boolean;
@@ -666,21 +687,33 @@ begin
     Result := CustomMessage('PayloadFailed');
     Exit;
   end;
-  try
-    Result := RunMaintenance(ExpandConstant('{tmp}\SpinShareBrowser\SpinShareBrowser.exe'), 'prepare');
-  except
-    Result := CustomMessage('MaintenanceFailed');
-  end;
-  if Result = '' then
-    Result := CheckProgramFiles;
-  if Result = '' then
-  begin
+  repeat
     try
-      Result := InstallWebView2;
+      Result := RunMaintenance(ExpandConstant('{tmp}\SpinShareBrowser\SpinShareBrowser.exe'), 'prepare');
     except
-      Result := CustomMessage('WebView2Required');
+      Result := CustomMessage('MaintenanceFailed');
     end;
-  end;
+    if Result = '' then
+      Result := CheckProgramFiles;
+    if Result = '' then
+    begin
+      try
+        Result := InstallWebView2;
+      except
+        Result := CustomMessage('WebView2Required');
+      end;
+    end;
+    if Result <> '' then
+    begin
+      ReleaseProgramDirectories;
+      if not RetryPreparation(Result) then
+      begin
+        if not SilentOperation then
+          Result := '';
+        Exit;
+      end;
+    end;
+  until Result = '';
 end;
 
 procedure DeinitializeSetup;
@@ -709,14 +742,18 @@ begin
     if not GateOwned then
       Abort;
     try
-      ErrorText := RunMaintenance(ExpandConstant('{app}\SpinShareBrowser.exe'), 'prepare-uninstall');
+      repeat
+        ErrorText := RunMaintenance(ExpandConstant('{app}\SpinShareBrowser.exe'), 'prepare-uninstall');
+      until (ErrorText = '') or not AskRetry(ErrorText);
       if ErrorText = '' then
       begin
         repeat
           ErrorText := CheckProgramFiles;
         until (ErrorText = '') or not AskRetry(ErrorText);
         if ErrorText = '' then
-          ErrorText := RunMaintenance(ExpandConstant('{app}\SpinShareBrowser.exe'), 'cleanup');
+          repeat
+            ErrorText := RunMaintenance(ExpandConstant('{app}\SpinShareBrowser.exe'), 'cleanup');
+          until (ErrorText = '') or not AskRetry(ErrorText);
       end;
     except
       ErrorText := CustomMessage('MaintenanceFailed');

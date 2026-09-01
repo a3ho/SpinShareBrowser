@@ -87,6 +87,37 @@ class WindowsInstallerTests(unittest.TestCase):
         self.assertNotIn("CurPageID = wpReady", body)
         self.assertNotIn("UpdateReady", body)
 
+    def test_maintenance_is_bounded_by_setup_and_transient_failures_are_retryable(self):
+        setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
+        runner = re.search(
+            r"function RunMaintenance\b(?P<body>.*?)function InstallWebView2\b",
+            setup,
+            re.S,
+        )
+        self.assertIsNotNone(runner)
+        self.assertIn("--parent-pid ' + IntToStr(GetCurrentProcessId)", runner.group("body"))
+        self.assertNotIn("AskRetry", runner.group("body"), "One child run must return so its caller owns retry/cancel")
+
+        preparation = re.search(
+            r"function PrepareToInstall\b(?P<body>.*?)procedure DeinitializeSetup\b",
+            setup,
+            re.S,
+        )
+        self.assertIsNotNone(preparation)
+        body = preparation.group("body")
+        self.assertIn("repeat", body)
+        self.assertIn("RunMaintenance", body)
+        self.assertIn("CheckProgramFiles", body)
+        self.assertIn("RetryPreparation(Result)", body)
+        self.assertLess(body.index("RunMaintenance"), body.index("CheckProgramFiles"))
+        self.assertIn("MB_RETRYCANCEL", setup)
+        self.assertIn("WizardForm.Close", setup)
+        self.assertIn("MaintenanceCancelRequested", setup)
+        self.assertIn("MaintenanceFilesBusy", setup)
+        self.assertIn("13: Result := CustomMessage('MaintenanceTimeout')", setup)
+        self.assertIn("GetProgramFiles(Files)", setup)
+        self.assertIn("ProbeProgramFile(FileName, True)", setup)
+
 
 if __name__ == "__main__":
     unittest.main()

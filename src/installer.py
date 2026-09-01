@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import email.message
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -69,6 +70,16 @@ class QueueFullError(InstallError):
     code = "queue_full"
 
 
+class ChartChangedError(InstallError):
+    """The chart stopped matching the version the caller authorized."""
+
+
+class DeletePartialError(InstallError):
+    """Deletion failed after at least one staged file could no longer be restored."""
+
+    code = "delete_partial"
+
+
 @dataclasses.dataclass(frozen=True)
 class InstallLimits:
     max_archive_bytes: int = 512 * 1024 * 1024
@@ -78,6 +89,7 @@ class InstallLimits:
 
 
 DEFAULT_LIMITS = InstallLimits()
+MAX_DELETE_AUDIO_FILES = DEFAULT_LIMITS.max_entries
 
 
 def _deadline(deadline):
@@ -260,6 +272,126 @@ def _rollback(root, records):
         except (OSError, InstallError) as exc:
             errors.append(str(exc))
     return errors
+
+
+def _staged_chart_digest(root, path, max_chart_bytes):
+    try:
+        path = _owned(root, path)
+        before = _no_link(path)
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) |
+                             getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(descriptor, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+                    (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino) or
+                    info.st_size > max_chart_bytes):
+                raise ChartChangedError("The installed chart no longer matches this version.")
+            digest = hashlib.md5(usedforsecurity=False)
+            remaining = max_chart_bytes + 1
+            while remaining:
+                block = stream.read(min(CHUNK_SIZE, remaining))
+                if not block:
+                    break
+                digest.update(block)
+                remaining -= len(block)
+        if not remaining:
+            raise ChartChangedError("The installed chart no longer matches this version.")
+        return digest.hexdigest()
+    except ChartChangedError:
+        raise
+    except (OSError, InstallError) as exc:
+        raise ChartChangedError("The installed chart no longer matches this version.") from exc
+
+
+def delete_chart_files(target_dir, file_reference, expected_hash, *, max_chart_bytes=32 * 1024 * 1024):
+    """Delete one installed official chart and its directly owned resources."""
+    if (not isinstance(file_reference, str) or
+            not re.fullmatch(r"spinshare_[a-fA-F0-9]{1,64}", file_reference) or
+            not isinstance(expected_hash, str) or not re.fullmatch(r"[a-fA-F0-9]{32}", expected_hash) or
+            type(max_chart_bytes) is not int or not 0 < max_chart_bytes <= DEFAULT_LIMITS.max_file_bytes):
+        raise InstallError("Invalid official chart file reference.")
+    root = _root(target_dir)
+    try:
+        chart = _owned(root, root / (file_reference + ".srtb"))
+        if not os.path.lexists(chart):
+            raise FileNotFoundError(str(chart))
+    except (OSError, InstallError) as exc:
+        raise ChartChangedError("The installed chart no longer exists.") from exc
+
+    # Move the chart first, then verify the staged bytes. This closes the gap
+    # between the API's presence check and the filesystem mutation: a chart
+    # edited after the click is restored instead of being deleted.
+    targets = [chart]
+    cover = root / "AlbumArt" / (file_reference + ".png")
+    if os.path.lexists(cover):
+        targets.append(_owned(root, cover))
+    audio_dir = root / "AudioClips"
+    if os.path.lexists(audio_dir):
+        audio_dir = _owned(root, audio_dir, directory=True)
+        pattern = re.compile(re.escape(file_reference) + r"_[0-9]+\.(?:ogg|mp3)", re.I)
+        audio = {}
+        for path in audio_dir.iterdir():
+            if not pattern.fullmatch(path.name):
+                continue
+            folded = path.name.casefold()
+            if folded in audio:
+                raise InstallError("Matching audio files collide by Windows filename rules.")
+            if len(audio) >= MAX_DELETE_AUDIO_FILES:
+                raise InstallError("The chart has too many matching audio files to delete safely.")
+            audio[folded] = _owned(root, path)
+        targets.extend(audio[name] for name in sorted(audio))
+
+    staged = []
+    try:
+        for index, target in enumerate(targets):
+            descriptor, backup = _temporary(root, target.parent, ".spinshare-delete-")
+            os.close(descriptor)
+            try:
+                _replace(root, target, backup)
+            except Exception as exc:
+                with contextlib.suppress(OSError, InstallError):
+                    _unlink(root, backup)
+                if index == 0 and isinstance(exc, (FileNotFoundError, InstallError)):
+                    raise ChartChangedError("The installed chart no longer matches this version.") from exc
+                raise
+            staged.append((target, backup))
+            if index == 0:
+                digest = _staged_chart_digest(root, backup, max_chart_bytes)
+                if not secrets.compare_digest(digest, expected_hash.lower()):
+                    raise ChartChangedError("The installed chart no longer matches this version.")
+    except Exception as exc:
+        rollback_errors = []
+        for target, backup in reversed(staged):
+            try:
+                _replace(root, backup, target)
+            except (OSError, InstallError) as rollback_exc:
+                rollback_errors.append(str(rollback_exc))
+        if rollback_errors:
+            raise DeletePartialError("Chart deletion failed and some files could not be restored; check for files locked by the game.") from exc
+        if isinstance(exc, ChartChangedError):
+            raise
+        raise InstallError("Chart deletion failed; original files were restored.") from exc
+
+    # Keep the chart backup until every resource is gone. If cleanup fails,
+    # the installation-status file is therefore the first thing restored.
+    cleanup = [*staged[1:], staged[0]]
+    for index, (_, backup) in enumerate(cleanup):
+        try:
+            _unlink(root, backup)
+        except (OSError, InstallError) as exc:
+            complete = index == 0
+            for target, remaining in reversed(cleanup[index:]):
+                if not os.path.lexists(remaining):
+                    complete = False
+                    continue
+                try:
+                    _replace(root, remaining, target)
+                except (OSError, InstallError):
+                    complete = False
+            if complete:
+                raise InstallError("Chart deletion cleanup failed; original files were restored.") from exc
+            raise DeletePartialError("Chart deletion cleanup failed and some files could not be restored.") from exc
+    return {"filesDeleted": len(staged)}
 
 
 def install_archive(zip_path, target_dir, report=lambda update: None, limits=DEFAULT_LIMITS, deadline=None):
