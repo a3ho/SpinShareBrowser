@@ -325,7 +325,8 @@ function setInstallDirectoryConfirmBusy(busy){
   installDirectoryConfirmBusy=busy;
   for(const id of installDirectoryConfirmControls)$(id).disabled=busy||appExiting;
   $('install-directory-dialog').setAttribute('aria-busy',String(busy));
-  loadingIndicator($('install-directory-actions'),busy);
+  const feedback=$('install-directory-error');
+  loadingIndicator(feedback,Boolean(feedback.textContent)&&busy&&!feedback.classList.contains('is-error'));
 }
 function closeInstallDirectoryConfirmation(){
   if(installDirectoryConfirmBusy||!installDirectoryConfirmation)return;
@@ -1612,7 +1613,11 @@ async function installerRequest(method,path,body,revision=''){
     if(!response.ok){
       const code=typeof result?.code==='string'?result.code:'',detail=typeof result?.error==='string'?localizeInstallerMessage(result.error):'',localized=code==='queue_full'?m('The install queue is full. Wait for a task to finish, then try again.'):Object.hasOwn(INSTALLER_ERROR_TEXT,code)?INSTALLER_ERROR_TEXT[code]:'';
       const error=uiError(localized||detail||m("The installer returned HTTP ")+response.status);error.httpStatus=response.status;error.code=code;
-      if(error.code==='settings_changed'){settingsStale=true;error.uiMessage=errorText(error)+m(" Open Settings to confirm the directory before retrying.");updateAllInstallationViews();}
+      if(error.code==='settings_changed'){
+        const requestRevision=typeof body?.expectedRevision==='string'?body.expectedRevision:revision;
+        const obsoleteSettingsError=/^[a-f0-9]{32}$/.test(requestRevision)&&requestRevision!==settingsRevision;
+        if(!obsoleteSettingsError){settingsStale=true;error.uiMessage=errorText(error)+m(" Open Settings to confirm the directory before retrying.");updateAllInstallationViews();}
+      }
       throw error;
     }
     return result;

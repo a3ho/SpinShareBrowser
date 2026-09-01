@@ -16,7 +16,7 @@ class Element {
   constructor() {
     this.open = false; this.disabled = false; this.inert = false; this.isConnected = true;
     this.textContent = ''; this.attributes = new Map(); this.classes = new Set();
-    this.classList = {toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name)};
+    this.classList = {toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name), contains: name => this.classes.has(name)};
   }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   focus() { this.focused = true; }
@@ -95,13 +95,33 @@ async function run() {
   }
 
   {
-    const h = harness(), first = row(9);
-    h.setService(async () => ({cancelled: true, settings: settings('a'.repeat(32), 'C:\\Game\\Custom')}));
+    const h = harness(), first = row(9); let finishPicker;
+    h.setService(() => new Promise(resolve => { finishPicker = resolve; }));
     h.api.requestInstallation(first, new Element());
-    await h.api.changeInstallDirectoryFromConfirmation();
+    const changing = h.api.changeInstallDirectoryFromConfirmation();
+    await Promise.resolve();
+    assert.equal(h.api.installDirectoryConfirmBusy, true);
+    assert.equal(h.node('install-directory-error').loading, true, 'Only the inline status owns the picker spinner');
+    assert.notEqual(h.node('install-directory-actions').loading, true, 'The action row must not render a second spinner');
+    for (const id of ['install-directory-close', 'install-directory-change', 'install-directory-confirm']) assert.equal(h.node(id).disabled, true);
+    finishPicker({cancelled: true, settings: settings('a'.repeat(32), 'C:\\Game\\Custom')});
+    await changing;
     assert.equal(h.node('install-directory-dialog').open, true, 'Cancelling the Windows picker keeps the confirmation open');
     assert.equal(h.api.installDirectoryConfirmed, false); assert.deepEqual(h.starts, []);
     assert.equal(h.node('install-directory-confirm-path').textContent, 'C:\\Game\\Custom');
+    assert.equal(h.node('install-directory-error').loading, false, 'The picker spinner retires after cancellation');
+    assert.equal(h.node('install-directory-actions').loading, undefined);
+  }
+
+  {
+    const h = harness();
+    h.setService(async () => { throw new Error('Picker failed'); });
+    h.api.requestInstallation(row(10), new Element());
+    await h.api.changeInstallDirectoryFromConfirmation();
+    assert.equal(h.node('install-directory-error').textContent, 'Picker failed');
+    assert.equal(h.node('install-directory-error').loading, false, 'Picker errors never retain loading animation');
+    assert.equal(h.node('install-directory-error').classes.has('is-error'), true);
+    for (const id of ['install-directory-close', 'install-directory-change', 'install-directory-confirm']) assert.equal(h.node(id).disabled, false);
   }
 
   {
@@ -116,10 +136,39 @@ async function run() {
     await h.api.changeInstallDirectoryFromConfirmation();
     assert.equal(h.node('install-directory-dialog').open, true);
     assert.equal(h.node('install-directory-confirm-path').textContent, nextDirectory);
+    assert.equal(h.node('install-directory-error').loading, false, 'The picker spinner retires after a directory is selected');
     assert.deepEqual(h.starts, []);
+    h.api.closeInstallDirectoryConfirmation();
+    assert.equal(h.api.installDirectoryConfirmation, null, 'Closing after a directory change leaves no orphaned confirmation');
+    const reopened = row(12); h.api.requestInstallation(reopened, new Element());
+    assert.equal(h.node('install-directory-dialog').open, true, 'The next install reopens the same confirmation flow');
+    assert.equal(h.api.installDirectoryConfirmation.row[0], 12);
     await h.api.confirmInstallDirectoryAndContinue();
     assert.deepEqual(h.calls.map(call => call.route), ['/v1/directory/select', '/v1/install-directory-confirmation']);
-    assert.deepEqual(h.starts, [11]);
+    assert.deepEqual(h.starts, [12]);
+  }
+
+  {
+    let viewRefreshes = 0;
+    const api = vm.createContext({
+      AbortController, setTimeout, clearTimeout, INSTALL_KEY: 'key', INSTALL_ORIGIN: 'http://127.0.0.1:1',
+      settingsRevision: 'b'.repeat(32), settingsStale: false,
+      m: String, localizeInstallerMessage: String, INSTALLER_ERROR_TEXT: {settings_changed: 'The install directory changed'},
+      errorText: error => error.uiMessage || error.message,
+      uiError(message) { const error = new Error(message); error.uiMessage = message; return error; },
+      updateAllInstallationViews() { viewRefreshes++; },
+      async fetch() { return {ok: false, status: 409, headers: {}, body: {}}; },
+      async readJSONResponse() { return {code: 'settings_changed', error: 'The install directory changed'}; },
+    });
+    vm.runInContext(extract('async function installerRequest(', 'function installationPending('), api);
+    await assert.rejects(api.installerRequest('POST', '/v1/installations/check', {expectedRevision: 'a'.repeat(32), charts: []}), error => error.code === 'settings_changed');
+    assert.equal(api.settingsStale, false, 'A late response for the previous directory cannot poison current settings');
+    assert.equal(viewRefreshes, 0);
+    await assert.rejects(api.installerRequest('POST', '/v1/install', {songId: 1}, 'a'.repeat(32)), error => error.code === 'settings_changed');
+    assert.equal(api.settingsStale, false, 'A late install response with an old header revision is also obsolete');
+    await assert.rejects(api.installerRequest('POST', '/v1/installations/check', {expectedRevision: 'b'.repeat(32), charts: []}), error => error.code === 'settings_changed');
+    assert.equal(api.settingsStale, true, 'A mismatch for the current revision still enters the guarded stale state');
+    assert.equal(viewRefreshes, 1);
   }
   console.log('PASS: first-install directory confirmation is single-flight, revision-bound, persistent-gated, cancellable and directory-picker safe.');
 }
