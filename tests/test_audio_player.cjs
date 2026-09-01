@@ -99,6 +99,13 @@ class Element {
     if (selector.startsWith('.')) return this.classList.contains(selector.slice(1));
     return this.tagName === selector.toLowerCase();
   }
+  closest(selector) {
+    const selectors = String(selector).split(',').map(value => value.trim());
+    for (let node = this; node; node = node.parentElement) {
+      if (selectors.some(value => node.matches(value))) return node;
+    }
+    return null;
+  }
   querySelector(selector) {
     for (const child of this.children) {
       if (child.matches(selector)) return child;
@@ -184,7 +191,10 @@ function playerHarness(options = {}) {
   player.append(placeholder, body); player.hidden = true;
   node('preview-player-image').hidden = true;
   node('player-shortcut-hint').hidden = true;
-  node('preview-player-progress').value = '0';
+  const playerToggle = node('preview-player-toggle');
+  playerToggle.tagName = 'button'; playerToggle.className = 'global-player-cover preview-toggle';
+  const playerProgress = node('preview-player-progress');
+  playerProgress.tagName = 'input'; playerProgress.type = 'range'; playerProgress.value = '0';
   const coverViews = new Map();
   const context = vm.createContext({
     __coverViews: coverViews,
@@ -275,6 +285,7 @@ function spaceTarget(kind) {
   return {
     closest(selector) {
       if (inputType && selector.split(',').includes('input')) return {type: inputType};
+      if (kind === 'link' && selector.includes('a[href]')) return this;
       if (kind === 'reading' && selector.includes('.reading-content')) return this;
       if (controlKinds.has(kind)) {
         if (kind === 'editable') return selector.includes('[contenteditable="true"]') ? this : null;
@@ -293,9 +304,21 @@ function spaceTarget(kind) {
 function keyEvent(target, details = {}) {
   return {
     key: ' ', code: 'Space', target, repeat: false, defaultPrevented: false,
-    isComposing: false, ctrlKey: false, altKey: false, metaKey: false,
+    isComposing: false, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false,
     preventDefault() { this.defaultPrevented = true; }, ...details,
   };
+}
+
+function pressKey(harness, control, details = {}) {
+  harness.document.activeElement = control;
+  const keydown = harness.document.emit('keydown', keyEvent(control, details));
+  const nativeClick = () => {
+    if (!keydown.defaultPrevented && !keydown.repeat && control.tagName === 'button' && !control.disabled) control.emit('click', {detail: 0});
+  };
+  if (keydown.key === 'Enter') nativeClick();
+  harness.document.emit('keyup', keyEvent(control, details));
+  if (keydown.key === ' ' || keydown.code === 'Space') nativeClick();
+  return keydown;
 }
 
 async function flush() {
@@ -604,33 +627,76 @@ test('late play and media callbacks cannot overwrite a newer song, and replaceme
   assert.equal(h.audio.src, ''); assert.equal(h.player.hidden, true);
 });
 
-test('Space toggles globally except where the focused control has its own Space action', () => {
+test('Space toggles globally except where the focused control has its own Space action', async () => {
   const empty = playerHarness(); empty.setup();
   const noTrack = empty.document.emit('keydown', keyEvent(spaceTarget('page')));
   assert.equal(noTrack.defaultPrevented, false); assert.equal(empty.audio.playCalls, 0);
 
-  const reserved = ['textarea', 'select', 'button', 'summary', 'editable', 'editable-empty', 'editable-plaintext', 'role-button', 'checkbox', 'radio', 'switch', 'textbox', 'combobox', 'menuitem', 'tab', 'input:search', 'input:date', 'reading'];
+  const reserved = [
+    'link', 'textarea', 'select', 'button', 'summary', 'editable', 'editable-empty', 'editable-plaintext',
+    'role-button', 'checkbox', 'radio', 'switch', 'textbox', 'combobox', 'slider', 'menu', 'menuitem',
+    'listbox', 'option', 'spinbutton', 'tree', 'treeitem', 'grid', 'gridcell', 'tab',
+    'input:search', 'input:date', 'reading', 'calendar',
+  ];
   for (const kind of reserved) {
     const h = playerHarness(); h.setup(); h.audio.readyState = 4; h.start(h.row(1, 'spinshare_a')); h.audio.emit('playing');
     const event = h.document.emit('keydown', keyEvent(spaceTarget(kind)));
     assert.equal(event.defaultPrevented, false, kind);
     assert.equal(h.state().state, 'playing', kind);
   }
-  for (const kind of ['page', 'link', 'input:range']) {
+  for (const kind of ['page', 'input:range']) {
     const h = playerHarness(); h.setup(); h.audio.readyState = 4; h.start(h.row(1, 'spinshare_a')); h.audio.emit('playing');
     const event = h.document.emit('keydown', keyEvent(spaceTarget(kind)));
     assert.equal(event.defaultPrevented, true, kind);
     assert.equal(h.state().state, 'paused', kind);
   }
 
+  for (const position of ['card', 'player']) {
+    const focused = playerHarness(); focused.setup(); const focusedRow = focused.row(2, 'spinshare_b'); focused.makeCover(focusedRow);
+    const focusedView = [...focused.coverViews.values()][0], control = position === 'card' ? focusedView.play : focused.node('preview-player-toggle');
+    focused.document.activeElement = focusedView.play; focusedView.play.emit('click'); focused.audio.emit('playing');
+    const paused = pressKey(focused, control);
+    assert.equal(paused.defaultPrevented, true, `${position}: the current song control joins the global Space path`);
+    assert.equal(focused.state().state, 'paused', `${position}: one Space pauses exactly once`);
+    assert.equal(focused.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true, `${position}: pause feedback appears immediately`);
+    focused.advance(900);
+    const resumed = pressKey(focused, control); focused.audio.emit('playing'); await flush();
+    assert.equal(resumed.defaultPrevented, true, `${position}: resume also suppresses native button activation`);
+    assert.equal(focused.state().state, 'playing', `${position}: a second Space resumes exactly once`);
+    assert.equal(focused.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true, `${position}: resume feedback appears without touching the range`);
+  }
+
+  const switched = playerHarness(); switched.setup(); const firstRow = switched.row(3, 'spinshare_c'), secondRow = switched.row(4, 'spinshare_d');
+  switched.makeCover(firstRow); switched.makeCover(secondRow); const [firstView, secondView] = [...switched.coverViews.values()];
+  switched.document.activeElement = firstView.play; firstView.play.emit('click'); switched.audio.emit('playing');
+  const switchSong = pressKey(switched, secondView.play);
+  assert.equal(switchSong.defaultPrevented, false, 'A different song button keeps its native keyboard action');
+  assert.equal(switched.state().id, secondRow[0], 'Native Space activation may explicitly select the focused different song');
+  switched.audio.emit('playing');
+  const pauseSecond = pressKey(switched, secondView.play);
+  assert.equal(pauseSecond.defaultPrevented, true, 'The newly selected cover immediately becomes the global Space control');
+  assert.equal(switched.state().state, 'paused', 'A newly selected song needs no progress click before feedback works');
+  assert.equal(switched.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true);
+
   const modified = playerHarness(); modified.setup(); modified.audio.readyState = 4; modified.start(modified.row(1, 'spinshare_a')); modified.audio.emit('playing');
-  for (const details of [{defaultPrevented: true}, {isComposing: true}, {ctrlKey: true}, {altKey: true}, {metaKey: true}]) {
+  for (const details of [{defaultPrevented: true}, {isComposing: true}, {ctrlKey: true}, {altKey: true}, {metaKey: true}, {shiftKey: true}]) {
     const before = modified.audio.pauseCalls;
     modified.document.emit('keydown', keyEvent(spaceTarget('page'), details));
     assert.equal(modified.audio.pauseCalls, before);
   }
   const repeated = modified.document.emit('keydown', keyEvent(spaceTarget('page'), {repeat: true}));
   assert.equal(repeated.defaultPrevented, true); assert.equal(modified.state().state, 'playing');
+
+  const repeatFocused = playerHarness(); repeatFocused.setup(); const repeatRow = repeatFocused.row(5, 'spinshare_e'); repeatFocused.makeCover(repeatRow);
+  const repeatView = [...repeatFocused.coverViews.values()][0]; repeatFocused.start(repeatRow); repeatFocused.audio.emit('playing');
+  const repeatEvent = pressKey(repeatFocused, repeatView.play, {repeat: true});
+  assert.equal(repeatEvent.defaultPrevented, true); assert.equal(repeatFocused.state().state, 'playing', 'Key repeat cannot leak into a native cover click');
+
+  const enter = playerHarness(); enter.setup(); const enterRow = enter.row(6, 'spinshare_f'); enter.makeCover(enterRow); const enterView = [...enter.coverViews.values()][0];
+  enter.start(enterRow); enter.audio.emit('playing');
+  const enterEvent = pressKey(enter, enterView.play, {key: 'Enter', code: 'Enter'});
+  assert.equal(enterEvent.defaultPrevented, false); assert.equal(enter.state().state, 'paused', 'Enter keeps the button\'s native action');
+  assert.equal(enter.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), false, 'Enter is not presented as the global Space shortcut');
 });
 
 test('Left and Right seek five seconds globally while preserving native control behavior', () => {
@@ -696,15 +762,17 @@ test('Space feedback follows the earliest real media state transition and retire
   assert(h.state().shortcutPending > 0);
   assert.equal(toggle.classList.contains('is-shortcut-feedback'), false, 'A play request is not presented as playback yet');
   resumed.resolve(); await flush();
+  assert(h.state().shortcutPending > 0);
+  assert.equal(h.state().state, 'loading');
+  assert.equal(toggle.classList.contains('is-loading'), true, 'A fulfilled play request remains loading until the media playing event');
+  h.audio.emit('playing');
   const feedbackTimer = h.state().shortcutTimer;
   assert.equal(h.state().shortcutPending, 0);
-  assert.equal(h.state().state, 'playing');
-  assert.equal(toggle.classList.contains('is-loading'), false);
-  assert.equal(toggle.classList.contains('is-shortcut-feedback'), true, 'A fulfilled play request gives immediate visible cover feedback');
-  h.audio.emit('playing');
-  assert.equal(h.state().shortcutPending, 0);
   assert.equal(toggle.classList.contains('is-playing'), true);
-  assert.equal(h.state().shortcutTimer, feedbackTimer, 'The later playing event must not restart the feedback animation');
+  assert.equal(toggle.classList.contains('is-loading'), false);
+  assert.equal(toggle.classList.contains('is-shortcut-feedback'), true, 'The media playing event gives visible cover feedback');
+  h.audio.emit('playing');
+  assert.equal(h.state().shortcutTimer, feedbackTimer, 'A repeated playing event must not restart the feedback animation');
   h.advance(900); assert.equal(toggle.classList.contains('is-shortcut-feedback'), false);
 
   h.document.emit('keydown', keyEvent(spaceTarget('page'))); h.advance(900);
@@ -719,11 +787,17 @@ test('Space feedback follows the earliest real media state transition and retire
   const early = playerHarness(), firstPlay = deferred(); early.audio.playResults.push(firstPlay.promise); early.setup(); early.start(early.row(32, 'spinshare_32'));
   early.audio.duration = 180; early.audio.readyState = 4; early.audio.emit('loadedmetadata');
   firstPlay.resolve(); await flush();
+  assert.equal(early.state().state, 'loading'); assert.equal(early.state().playbackConfirmed, false,
+    'A Promise alone is not allowed to end the loading state');
+  early.audio.emit('playing');
   assert.equal(early.state().state, 'playing'); assert.equal(early.state().playbackConfirmed, true);
+  early.audio.emit('waiting');
+  assert.equal(early.state().state, 'loading'); assert.equal(early.state().playbackConfirmed, true);
+  assert.equal(early.node('preview-player-toggle').getAttribute('aria-busy'), 'true');
   const earlyPause = early.document.emit('keydown', keyEvent(spaceTarget('page')));
   assert.equal(earlyPause.defaultPrevented, true); assert.equal(early.state().state, 'paused');
   assert.equal(early.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true,
-    'Playback confirmed by play() must show pause feedback before the later playing event');
+    'A confirmed play cycle keeps truthful pause feedback while buffering');
 
   const loading = playerHarness(); loading.setup(); loading.start(loading.row(31, 'spinshare_31'));
   loading.document.emit('keydown', keyEvent(spaceTarget('page')));
@@ -752,9 +826,11 @@ test('Space feedback follows the earliest real media state transition and retire
   assert(fallback.state().shortcutPending > oggAttempt,
     'The shortcut intent moves to the fallback play attempt');
   mp3Play.resolve(); await flush();
+  assert.equal(fallback.state().state, 'loading'); assert(fallback.state().shortcutPending > 0);
+  fallback.audio.emit('playing');
   assert.equal(fallback.state().state, 'playing'); assert.equal(fallback.state().shortcutPending, 0);
   assert.equal(fallback.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true,
-    'Successful fallback playback confirms the same Space action without waiting for playing');
+    'Successful fallback playback confirms the same Space action exactly at playing');
 });
 
 test('visibility pauses without discarding the song, while page exit disposes media and listeners', () => {

@@ -1193,8 +1193,8 @@ function showPreviewShortcutFeedback(){
 function acknowledgePreviewShortcut(attempt=previewShortcutPending){
   if(!attempt||previewShortcutPending!==attempt)return false;previewShortcutPending=0;showPreviewShortcutFeedback();return true;
 }
-function confirmPreviewPlaying(attempt=0){
-  if(!previewTrack||!previewWantsPlay)return false;previewPlaybackConfirmed=true;clearPreviewWatchdog();previewState='playing';syncPreviewInterface();startPreviewFrame();announcePreview('Now playing: ');if(attempt)acknowledgePreviewShortcut(attempt);else acknowledgePreviewShortcut();return true;
+function confirmPreviewPlaying(){
+  if(!previewTrack||!previewWantsPlay)return false;previewPlaybackConfirmed=true;clearPreviewWatchdog();previewState='playing';syncPreviewInterface();startPreviewFrame();announcePreview('Now playing: ');acknowledgePreviewShortcut();return true;
 }
 function dismissPreviewShortcutHint(animate=true){
   if(previewHintTimer!==null)clearTimeout(previewHintTimer);previewHintTimer=null;
@@ -1259,9 +1259,8 @@ function attemptPreviewPlay(token,source,shortcut=false){
   if(shortcut)previewShortcutPending=attempt;
   const current=()=>attempt===previewPlayAttempt&&token===previewGeneration&&source===previewExpectedSource;
   const rejected=error=>{if(!current()||error?.name==='AbortError')return;if(error?.name==='NotSupportedError'){handlePreviewSourceFailure(token,source);return;}if(previewShortcutPending===attempt)previewShortcutPending=0;previewWantsPlay=false;previewPlaybackConfirmed=false;previewState='paused';clearPreviewWatchdog();stopPreviewFrame();audio.pause();syncPreviewInterface();announcePreview('Song paused: ');};
-  const accepted=()=>{if(current())confirmPreviewPlaying(attempt);};
   try{work=audio.play();}catch(error){rejected(error);return;}
-  if(work&&typeof work.then==='function')Promise.resolve(work).then(accepted,rejected);
+  if(work&&typeof work.then==='function')Promise.resolve(work).catch(rejected);
 }
 function bindPreviewSource(token,source,resumeAt=0,resumeShortcut=false){
   const audio=$('preview-audio'),listeners=[],current=()=>token===previewGeneration&&source===previewExpectedSource&&Boolean(previewTrack);
@@ -1312,10 +1311,13 @@ function disposePreview(){
 function reconcilePreviewCatalog(data){
   if(!previewTrack||!Array.isArray(data))return;const song=data.find(item=>Number(item?.id)===previewTrack.id),reference=String(song?.fileReference||''),hash=String(song?.updateHash||'');if(!song||!PREVIEW_REFERENCE.test(reference)||reference!==previewTrack.reference||hash!==previewTrack.updateHash)disposePreview();
 }
+function currentPreviewControl(target){
+  const control=target?.closest?.('.preview-toggle');if(!control)return null;return control===$('preview-player-toggle')||control.classList.contains('is-current')?control:null;
+}
 function previewSpaceReserved(event){
-  if(event.defaultPrevented||event.isComposing||event.ctrlKey||event.altKey||event.metaKey)return true;const target=event.target;
-  if(!target?.closest)return false;if(target.closest('a[href],textarea,select,button,summary,[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="textbox"],[role="combobox"],[role="menuitem"],[role="tab"]'))return true;
-  const input=target.closest('input');if(input&&String(input.type||'').toLowerCase()!=='range')return true;return Boolean(target.closest('.reading-content'));
+  if(event.defaultPrevented||event.isComposing||event.ctrlKey||event.altKey||event.metaKey||event.shiftKey)return true;const target=event.target;
+  if(!target?.closest)return false;if(currentPreviewControl(target))return false;if(target.closest('a[href],textarea,select,button,summary,[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],[role="button"],[role="checkbox"],[role="radio"],[role="switch"],[role="textbox"],[role="combobox"],[role="slider"],[role="menu"],[role="menuitem"],[role="listbox"],[role="option"],[role="spinbutton"],[role="tree"],[role="treeitem"],[role="grid"],[role="gridcell"],[role="tab"]'))return true;
+  const input=target.closest('input');if(input&&String(input.type||'').toLowerCase()!=='range')return true;return Boolean(target.closest('.reading-content,.calendar-popover'));
 }
 function handlePreviewSpace(event){
   if((event.key!==' '&&event.code!=='Space')||!previewTrack||previewSpaceReserved(event))return;event.preventDefault();if(event.repeat)return;
