@@ -28,6 +28,7 @@ SOURCE_FILES = (
     "tests/test_catalog_ui.cjs", "tests/test_catalog_sync.cjs", "tests/test_chart_cache.py",
     "tests/test_desktop_notifications.py", "tests/test_windows_installer.py",
     "tests/test_review_drawers.cjs", "tests/test_installation_filters.cjs", "tests/test_audio_player.cjs",
+    "tests/test_focus_modality.cjs",
     "tests/test_install_queue.py", "tests/test_install_pipeline.py", "tests/test_download_transport.py",
     "tests/read_web_template.cjs", "tests/test_web_resources.py",
     *WEB_FILES, "scripts/build.py", "scripts/windows.iss",

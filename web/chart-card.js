@@ -32,7 +32,7 @@ function makeChartNotes(row){
     strip.addEventListener('pointerdown',event=>{touchOpening=event.pointerType==='touch'&&chartTagsOwner!==strip&&chartTagsOverflow(strip);});
     strip.addEventListener('pointercancel',()=>{touchOpening=false;});
     strip.addEventListener('click',event=>{if(touchOpening||event.target===strip){touchOpening=false;if(showChartTags(strip)){event.preventDefault();event.stopPropagation();}}},true);
-    strip.addEventListener('focusin',event=>{if(!chartTagsIgnoreFocus&&event.target.matches(':focus-visible'))showChartTags(strip);});
+    strip.addEventListener('focusin',event=>{if(document.documentElement.dataset.inputModality!=='pointer'&&!chartTagsIgnoreFocus&&event.target.matches(':focus-visible'))showChartTags(strip);});
     strip.addEventListener('focusout',leaveChartTags);
     strip.addEventListener('keydown',event=>{if(event.target===strip&&['Enter',' ','ArrowDown'].includes(event.key)&&showChartTags(strip)){event.preventDefault();chartTagsPopover.querySelector('button')?.focus({preventScroll:true});}});
     scheduleChartTagsRefresh();
@@ -50,7 +50,7 @@ function createChartCard(row){
   const titleRow=element('div',undefined,'song-title-row');
   const songTitle=element('h2',row[1],'song-title');
   const official=element('a',undefined,'chart-official-link');
-  songTitle.id='song-title-'+row[0];
+  songTitle.id='song-title-'+row[0];songTitle.tabIndex=-1;
   official.href='https://spinsha.re/song/'+row[0];official.target='_blank';official.rel='noopener noreferrer';
   uiAttr(official,'aria-label',m('Open on SpinShare: ')+row[1]);official.append(icon('external'));
   titleRow.append(songTitle,official);copy.append(titleRow);

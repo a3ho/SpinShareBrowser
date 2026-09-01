@@ -8,42 +8,57 @@ colors:
   surface: "#24262d"
   surface-hover: "#30323b"
   text: "#f2f3f7"
-  muted: "#a4a7b5"
+  muted: "#adb0bd"
+  text-secondary: "#c8cbd5"
+  text-quiet: "#9296a5"
   line: "#ffffff12"
   pink: "#eb5ba1"
   pink-soft: "#eb5ba11c"
   green: "#8bdbb0"
-  reading: "#c4c7d2"
-  note: "#bec1ce"
   error: "#ffabb9"
 typography:
   brand:
-    fontFamily: "\"Segoe UI\", \"Microsoft YaHei\", sans-serif"
-    fontSize: "17px"
-    fontWeight: 650
+    fontFamily: "\"Segoe UI Variable Display\", \"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, sans-serif"
+    fontSize: "18px"
+    fontWeight: 700
     lineHeight: 1.15
-    letterSpacing: "-0.35px"
+    letterSpacing: "-0.28px"
   title:
-    fontFamily: "\"Segoe UI\", \"Microsoft YaHei\", sans-serif"
+    fontFamily: "\"Segoe UI Variable Display\", \"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, sans-serif"
     fontSize: "20px"
-    fontWeight: 600
-    lineHeight: 1.35
-    letterSpacing: "-0.25px"
+    fontWeight: 700
+    lineHeight: 1.3
+    letterSpacing: "normal"
   body:
-    fontFamily: "\"Segoe UI\", \"Microsoft YaHei\", sans-serif"
+    fontFamily: "\"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, sans-serif"
     fontSize: "14px"
     fontWeight: 400
-    lineHeight: 1.5
+    lineHeight: 1.55
   reading:
-    fontFamily: "\"Segoe UI\", \"Microsoft YaHei\", sans-serif"
-    fontSize: "13px"
+    fontFamily: "\"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, sans-serif"
+    fontSize: "14px"
     fontWeight: 400
-    lineHeight: 1.7
-  label:
-    fontFamily: "\"Segoe UI\", \"Microsoft YaHei\", sans-serif"
+    lineHeight: 1.68
+  meta:
+    fontFamily: "\"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, sans-serif"
     fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.4
+  micro:
+    fontFamily: "\"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, sans-serif"
+    fontSize: "11px"
     fontWeight: 600
-    lineHeight: 1.5
+    lineHeight: 1.35
+  label:
+    fontFamily: "\"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, sans-serif"
+    fontSize: "13px"
+    fontWeight: 600
+    lineHeight: 1.4
+  mono:
+    fontFamily: "\"Cascadia Mono\", \"Cascadia Code\", Consolas, \"Microsoft YaHei UI\", monospace"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.65
 rounded:
   badge: "4px"
   chip: "6px"
@@ -157,7 +172,7 @@ components:
 **Key Characteristics:**
 
 - 石墨色分层，控件安静，功能状态清晰。
-- 系统字体与紧凑密度，歌曲识别优先。
+- Windows UI 字体与清晰的角色层级，歌曲识别优先。
 - 单一主页面、同层级名称与直接可用的筛选，减少重复标题和导航。
 - 长标题自然换行，长说明主动打开全文，评论按需展开且完整可达。
 
@@ -167,19 +182,20 @@ components:
 
 - **Primary：** `pink` 与 `pink-soft` 承担有意义的强调，绿色 `green` 表示已安装、推荐或成功。
 - **Neutral：** `bg` 为页面底，`sidebar` 为顶栏与筛选区沿用的色彩 token 名称，并不表示存在侧栏；`card` 为谱面，`surface` / `surface-hover` 为控件及其交互状态。
-- **Text：** `text` 用于主信息，`muted` 用于辅助信息，`reading` / `note` 用于评论与作者说明。低透明度 `line` 分隔卡片内部区域。
+- **Text：** `text` 用于主信息，`text-secondary` 用于长说明和评论正文，`muted` 用于辅助信息，`text-quiet` 仅用于时间码、路径和最低优先级状态。低透明度 `line` 分隔卡片内部区域。
 - **Feedback：** `error` 配合具体错误文案；不要只靠颜色解释安装或请求状态。
 
 **The 功能强调 Rule.** 品红用于选中、焦点、进度及现有链接、难度和提示状态；不铺成装饰性大色块。主要筛选与安装按钮使用浅色底。
 
 ## Typography
 
-全界面采用前置字体栈，无 Google Fonts、下载字体或单独的展示字体。路径字段是现有例外：Consolas / monospace，正文大小（12px）、行高（1.7）。
+界面正文优先使用 `Segoe UI Variable Text`，大标题和品牌优先使用同系列 Display 光学版本；Windows 10 回退到 Segoe UI，中文依次回退到 Microsoft YaHei UI / Microsoft YaHei。字体全部来自系统，无 Google Fonts、下载字体、授权或加载抖动。路径使用 Cascadia Mono / Cascadia Code / Consolas，并保留 Microsoft YaHei UI 中文回退。
 
-- `brand` 用于完整名称 SpinShare Browser；两词始终使用相同字号、字重和颜色，视口不超过（1000px / 680px）时整体降为（16px / 15px）。页面的“谱面浏览”一级标题仅供辅助技术读取，不作为可见的大标题。
-- `title` 是歌曲标题；卡片内容宽度不超过（460px）时降为（17px）。
-- `body` 是全局默认；`reading` 用于说明和评论，评论最大行宽（96ch）。
-- `label` 用于主要按钮。辅助控件通常为（11–12px），统计和徽标为（10–11px）；这些紧凑信息不是新的正文尺寸。
+- `brand` 用于完整名称 SpinShare Browser；两词始终使用相同字号、字重和颜色，视口不超过（1000px / 680px）时整体降为（17px / 16px）。页面的“谱面浏览”一级标题仅供辅助技术读取，不作为可见的大标题。
+- `title` 是歌曲标题；卡片内容宽度不超过（460px）时降为（18px）。用户生成的中英日混排标题保持正常字距，只有固定拉丁品牌名使用轻微负字距。
+- `body` 是全局默认；`reading` 用于说明和评论，正文最大行宽（72ch）。两者均为（14px），依靠行高、字重和颜色区分角色。
+- `label` 用于按钮、select 与关键控件（13px / 600）；`meta` 用于日期、统计、作者与页脚（12px / 400）；`micro` 只用于难度短码、时间码和紧凑徽章（11px / 600）。普通界面文字不得降到（8–10px），窄窗优先换行或隐藏低优先信息。
+- 字重限制为系统稳定支持的（400 / 600 / 700）；正文与普通元信息用 400，控件强调用 600，品牌和主要标题用 700，避免中英文 fallback 粗细失衡。
 - 日期、难度与统计使用等宽数字；保留用户内容换行和任意长词回流，不改写为界面翻译文本。
 
 **The 文字完整 Rule.** 标题与艺人自然换行，说明和评论保留全文；长说明仅在卡片预览处半行裁断，全文通过主动打开浮层访问，不改成摘要。
@@ -222,9 +238,9 @@ components:
 
 ### Buttons and inputs
 
-主筛选按钮与安装按钮是浅底深字；次按钮采用控件底色。普通按钮最小高度（36px），安装按钮（34px）；搜索框默认（48px），窄窗（44px）。悬停只改变颜色，禁用状态降低透明度并保持明确语义；不增加悬停放大。
+主筛选按钮与安装按钮是浅底深字；次按钮采用控件底色。普通按钮最小高度（36px），安装按钮（34px）；搜索框默认（48px），窄窗（44px）。悬停只改变颜色；禁用态使用稳定的灰阶前景与背景，不降低整段文字透明度或造成发灰锯齿；不增加悬停放大。
 
-键盘焦点为品红外轮廓（2px，偏移 3px），搜索框用 focus-within 边框；卡片标签采用向内偏移的轮廓。已有原生输入、选择、details 和 dialog 语义需要保留。强制颜色模式用系统颜色补充边框与选中状态。
+键盘焦点使用柔和品红外轮廓（1px，通常偏移 2px；原生 select 偏移 0）；搜索框及正在编辑的文本字段使用同等细边框。指针点击完成后不保留焦点圈或悬停式高亮，只有 Tab / Shift+Tab 切回键盘导航时显示焦点；选中态仍由底色、勾选或箭头独立表达。已有原生输入、选择、details 和 dialog 语义需要保留，强制颜色模式用系统颜色补充边框与选中状态。
 
 ### Catalog synchronization
 
@@ -322,7 +338,7 @@ Space 在已有当前曲目时全局切换播放 / 暂停；输入框、文本�
 
 ### Do:
 
-- Do 沿用源码已有的色彩、字号、圆角与系统字体；新文案保持中英文可用。
+- Do 沿用统一的色彩、排版字阶、圆角与 Windows UI 字体栈；新文案保持中英文可用。
 - Do 保持单一谱面主页面、同层级的完整名称、紧凑且顶端对齐的筛选；外部入口留在页脚。
 - Do 保留日期手输、直接年月选择、完整键盘导航和开放范围；共享日历跟随当前端点的 DOM 顺序。
 - Do 保留完整评论、独立 AND 标签、候选结果数和键盘可达的全部标签弹层；删除标签保持视口和页码。

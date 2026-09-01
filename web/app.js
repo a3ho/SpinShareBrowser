@@ -92,6 +92,15 @@ const READING_MOTION=Object.freeze({
 });
 const activeMotions=new Set(),entrySeen=new Set(),entryTargets=new Map();
 let hostVisible=true,entryObserver=null;
+function setupInputModality(){
+  const root=document.documentElement;
+  root.dataset.inputModality='keyboard';
+  globalThis.addEventListener?.('pointerdown',()=>{root.dataset.inputModality='pointer';},{capture:true,passive:true});
+  // Tab is the operation that moves focus through the interface. Other keys
+  // (notably Escape and the global Space shortcut) must not resurrect a ring
+  // on the last control clicked with the pointer.
+  globalThis.addEventListener?.('keydown',event=>{if(event.key==='Tab')root.dataset.inputModality='keyboard';},true);
+}
 function motionAllowed(){return hostVisible&&!document.hidden&&!motionPreference?.matches;}
 function playMotion(node,keyframes,options={}){
   if(!motionAllowed()||typeof node?.animate!=='function')return null;
@@ -268,10 +277,11 @@ function dismissCloseHelp(panel){
 function setupCloseHelp(){
   for(const id of closeHelpIds){
     const button=$(id),panel=$(id+'-panel'),show=()=>setCloseHelp(id,true);
-    const leave=()=>{clearTimeout(closeHelpTimer);closeHelpTimer=setTimeout(()=>{closeHelpTimer=null;if(!button.matches(':hover,:focus-visible')&&!panel.matches(':hover'))setCloseHelp(id,false);},100);};
+    const keyboardFocused=()=>document.documentElement.dataset.inputModality==='keyboard'&&button.matches(':focus-visible');
+    const leave=()=>{clearTimeout(closeHelpTimer);closeHelpTimer=setTimeout(()=>{closeHelpTimer=null;if(!button.matches(':hover')&&!keyboardFocused()&&!panel.matches(':hover'))setCloseHelp(id,false);},100);};
     button.addEventListener('pointerenter',show);panel.addEventListener('pointerenter',show);
     button.addEventListener('pointerleave',leave);panel.addEventListener('pointerleave',leave);
-    button.addEventListener('focus',()=>{if(button.matches(':focus-visible'))show();});button.addEventListener('blur',leave);
+    button.addEventListener('focus',()=>{if(keyboardFocused())show();});button.addEventListener('blur',leave);
   }
   const reposition=()=>{for(const id of closeHelpIds)positionCloseHelp(id);};
   globalThis.addEventListener?.('resize',reposition);globalThis.addEventListener?.('scroll',reposition,true);
@@ -376,6 +386,7 @@ function setupAppDialogs(){
   installerRequest('GET','/v1/desktop/dialog').then(result=>{if(!receivedEvent)showAppDialog(result?.dialog);}).catch(()=>{});
 }
 function setupRuntime(){
+  setupInputModality();
   setupMotion();
   setupLanguage();
   setupAudioPreview();
@@ -649,9 +660,9 @@ function positionTagPanel(panel,anchor){
   panel.style.top=Math.max(top+8,Math.min(rect.bottom+8,innerHeight-height-12))+'px';
 }
 function tagChip(key,name){
-  const chip=element('span',undefined,'selected-tag'),label=element('span',name,'selected-tag-name'),remove=element('button','×','selected-tag-remove');
+  const chip=element('span',undefined,'selected-tag'),label=element('span',name,'selected-tag-name'),remove=element('button',undefined,'selected-tag-remove');
   chip.dataset.tagKey=key;remove.type='button';uiAttr(remove,'aria-label',m('Remove tag: ')+name);
-  remove.addEventListener('click',()=>removeTagFilter(key));chip.append(label,remove);return chip;
+  remove.append(icon('close'));remove.addEventListener('click',()=>removeTagFilter(key));chip.append(label,remove);return chip;
 }
 function updateTagOverflow(){
   const strip=$('tag-filter-strip'),container=$('selected-tags'),more=$('tag-more');
@@ -1262,7 +1273,8 @@ function leaveChartTags(){
   clearTimeout(chartTagsTimer);chartTagsTimer=setTimeout(()=>{
     chartTagsTimer=null;const owner=chartTagsOwner,panel=chartTagsPopover,focused=document.activeElement;
     if(!owner)return;
-    if(owner.matches(':hover')||panel.matches(':hover')||focused?.matches(':focus-visible')&&(owner.contains(focused)||panel.contains(focused)))return;
+    const keyboardFocused=document.documentElement.dataset.inputModality==='keyboard'&&focused?.matches(':focus-visible');
+    if(owner.matches(':hover')||panel.matches(':hover')||keyboardFocused&&(owner.contains(focused)||panel.contains(focused)))return;
     dismissChartTags();
   },160);
 }
@@ -1734,7 +1746,7 @@ function syncReviewVisibility(animate=false,cells=[...cardViews.values()].map(vi
       }
     }
     syncReviewToggle(cell);
-    if(restoreFocus)cell.card.querySelector('.chart-official-link')?.focus({preventScroll:true});
+    if(restoreFocus)cell.card.querySelector('.song-title')?.focus({preventScroll:true});
     if(state&&open&&animate)queueReviews(cell,state);
   }
   syncReviewRefresh();

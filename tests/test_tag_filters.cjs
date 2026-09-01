@@ -97,7 +97,7 @@ function checkTagScrollRestoration() {
     if (!api.selectedTags.size) node('selected-tag-popover').open = false;
   }
   api = vm.createContext({
-    $: node, element, uiAttr() {}, m: text => text, tagKey: tags.tagKey, tagFilterReady: () => true,
+    $: node, element, icon: name => element('svg', name, 'icon'), uiAttr() {}, m: text => text, tagKey: tags.tagKey, tagFilterReady: () => true,
     document: {body: element('body'), documentElement: {classList: {add: key => classes.add(key), remove: key => classes.delete(key)}}},
     selectedTags: new Map(), tagCatalog: new Map([['edm', 'EDM'], ['piano', 'Piano']]), cardViews: new Map(),
     pendingTagAnchor: null, tagViewportFrame: null, scrollX: 0, scrollY: 1966, page: 2, visibleCount: 80,

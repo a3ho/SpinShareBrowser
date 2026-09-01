@@ -42,6 +42,7 @@
 !/tests/test_date_picker.cjs
 !/tests/test_review_drawers.cjs
 !/tests/test_installation_filters.cjs
+!/tests/test_focus_modality.cjs
 !/tests/test_install_queue.py
 !/tests/test_catalog_ui.cjs
 !/tests/test_catalog_sync.cjs
