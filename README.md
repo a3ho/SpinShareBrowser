@@ -2,9 +2,9 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A third-party Windows app for browsing and installing [SpinShare](https://spinsha.re/) charts.
+A third-party Windows app for browsing, installing, and managing local [SpinShare](https://spinsha.re/) charts.
 
-![Browsing charts in SpinShare Browser](docs/images/overview-en.png)
+![Browse and manage local SpinShare charts](docs/images/overview-en.png)
 
 ## Current release: 2.0.0
 
@@ -56,7 +56,7 @@ Setup reuses an existing **Microsoft Edge WebView2 Runtime 123.0.2420.47 or late
 
 Select **Add tag** to combine tags, or select a tag directly on a chart card. **Reset filters** returns to the default browsing view.
 
-![Filter, search, and install a chart](docs/images/workflow-en.gif)
+![Filter, search, install, and manage a chart](docs/images/workflow-en.gif)
 
 ### Play songs
 
@@ -74,9 +74,11 @@ Select the review count to read reviews in a floating panel. Turn on **Expand al
 
 Select **Download and install** on a chart card. The first time, confirm the chart installation folder or select **Change directory**.
 
-Installed charts are marked **Installed**. Select **Install again** to replace one with the listed version. If a chart requires DLC, its requirement label can open the relevant Steam page.
+Installed charts are marked **Installed**. Select **Install again** to replace one with the listed version. DLC charts use the same install, reinstall, and delete actions; their requirement label can open the relevant Steam page.
 
-When an installed chart shows **Delete**, selecting it immediately and permanently removes that chart's local files without another confirmation. You can select **Delete** on several charts to queue them.
+When an installed chart shows **Delete**, selecting it immediately and permanently removes that chart's custom chart, cover, and audio files without another confirmation. Other files and Steam DLC files are left untouched. You can select **Delete** on several charts to queue them.
+
+Installation status refreshes automatically when you return to the app. A completed chart updates without waiting for other queued downloads or installations.
 
 To update SpinShare Browser, run the latest installer. If downloads or installations are still active, let them finish and then select **Retry**.
 
