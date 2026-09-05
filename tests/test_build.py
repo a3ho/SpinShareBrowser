@@ -28,7 +28,7 @@ smoke = load_script("windows_smoke")
 class BuildChecks(unittest.TestCase):
     def test_tool_manifest_preserves_release_version_when_executable_metadata_is_a_placeholder(self):
         with tempfile.TemporaryDirectory() as directory:
-            executable = Path(directory) / "fixture.exe"
+            executable = Path(directory).resolve() / "fixture.exe"
             executable.write_bytes(b"fixture tool; never executed")
             for release, file_version, expected in (("7.1.0", "0.0.0.0", "7.1.0"),
                                                      (None, "1.3.245.1", "1.3.245.1")):
@@ -52,9 +52,9 @@ class BuildChecks(unittest.TestCase):
                 build.check_requirements(b"example==1.2.3")
 
     def test_qa_output_cannot_target_release_or_escape_project(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(build, "PROJECT", Path(directory)):
-            self.assertEqual(build.output_directory(None, qa=True), Path(directory) / "build" / "qa")
-            self.assertEqual(build.output_directory(None, qa=False), Path(directory) / "dist")
+        with tempfile.TemporaryDirectory() as directory, patch.object(build, "PROJECT", Path(directory).resolve()):
+            self.assertEqual(build.output_directory(None, qa=True), Path(directory).resolve() / "build" / "qa")
+            self.assertEqual(build.output_directory(None, qa=False), Path(directory).resolve() / "dist")
             for value, qa in (("dist", True), ("../outside", True), ("build/qa/../../dist", True),
                               ("build/qa", False)):
                 with self.subTest(value=value, qa=qa), self.assertRaises(ValueError):
@@ -64,7 +64,7 @@ class BuildChecks(unittest.TestCase):
         revision = {"commit": "a" * 40, "dirty": False}
         sources = {"example.py": b"example"}
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory)
+            output = Path(directory).resolve()
             def git(*args):
                 return "example.py" if args[0] == "ls-files" else ""
             with patch.object(build, "git_output", side_effect=git):
@@ -97,7 +97,7 @@ class BuildChecks(unittest.TestCase):
                     build.check_release(output, sources, revision)
 
     def test_build_lock_is_exclusive_and_released_after_failure(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(build, "PROJECT", Path(directory)):
+        with tempfile.TemporaryDirectory() as directory, patch.object(build, "PROJECT", Path(directory).resolve()):
             with self.assertRaisesRegex(RuntimeError, "fixture"):
                 with build.build_lock():
                     with self.assertRaisesRegex(ValueError, "Another build"):
@@ -105,12 +105,12 @@ class BuildChecks(unittest.TestCase):
                             self.fail("Second build acquired the lock")
                     raise RuntimeError("fixture")
             with build.build_lock():
-                self.assertTrue((Path(directory) / "build" / ".build.lock").is_file())
-            self.assertFalse((Path(directory) / "build" / ".build.lock").exists())
+                self.assertTrue((Path(directory).resolve() / "build" / ".build.lock").is_file())
+            self.assertFalse((Path(directory).resolve() / "build" / ".build.lock").exists())
 
     def test_build_uses_one_snapshot_and_manifest_matches_emitted_artifacts(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(build, "PROJECT", Path(directory)):
-            root = Path(directory)
+        with tempfile.TemporaryDirectory() as directory, patch.object(build, "PROJECT", Path(directory).resolve()):
+            root = Path(directory).resolve()
             sources = {"scripts/windows.iss": b"snapshot installer", "LICENSE": b"license",
                        "licenses/webview2-runtime-license.txt": b"runtime license"}
             (root / "scripts").mkdir()
@@ -178,7 +178,7 @@ class BuildChecks(unittest.TestCase):
 
     def test_smoke_verifies_exact_filename_checksum_and_location_before_execution(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             path = root / "SpinShareBrowser-1.2.3-windows-x64-setup.exe"
             path.write_bytes(b"fixture installer")
             digest = hashlib.sha256(path.read_bytes()).hexdigest()

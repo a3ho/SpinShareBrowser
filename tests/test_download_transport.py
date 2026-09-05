@@ -79,7 +79,7 @@ class DownloadTransportTests(unittest.TestCase):
         payload, _ = chart_zip()
         source = RecordingSource(payload)
         with tempfile.TemporaryDirectory() as directory, patch.object(installer.urllib.request, "build_opener", return_value=source):
-            root = Path(directory)
+            root = Path(directory).resolve()
             first = installer.download_archive(1, root, lambda _: None, unique_name=True)
             second = installer.download_archive(2, root, lambda _: None, unique_name=True)
             self.assertNotEqual(first, second)
@@ -106,8 +106,9 @@ class DownloadTransportTests(unittest.TestCase):
             with self.subTest(workers=workers):
                 source = RecordingSource(payload, blocked=True)
                 with tempfile.TemporaryDirectory() as directory, patch.object(installer.urllib.request, "build_opener", return_value=source):
+                    root = Path(directory).resolve()
                     with ThreadPoolExecutor(max_workers=workers) as pool:
-                        futures = [pool.submit(installer.download_archive, song_id, directory, lambda _: None, unique_name=True)
+                        futures = [pool.submit(installer.download_archive, song_id, root, lambda _: None, unique_name=True)
                                    for song_id in range(1, 7)]
                         try:
                             with source.condition:
@@ -128,7 +129,7 @@ class DownloadTransportTests(unittest.TestCase):
         source = RecordingSource(payload)
         original_mkdir = Path.mkdir
         with tempfile.TemporaryDirectory() as directory:
-            parent = Path(directory) / "new-parent"
+            parent = Path(directory).resolve() / "new-parent"
             root = parent / "Custom"
             barriers = {path: threading.Barrier(2) for path in (parent, root)}
 
@@ -155,7 +156,7 @@ class DownloadTransportTests(unittest.TestCase):
         payload, _ = chart_zip()
         source = RecordingSource(payload)
         with tempfile.TemporaryDirectory() as directory, patch.object(installer.urllib.request, "build_opener", return_value=source):
-            root = Path(directory) / "Custom"
+            root = Path(directory).resolve() / "Custom"
             root.write_bytes(b"existing ordinary file")
             with self.assertRaisesRegex(installer.InstallError, "ordinary folder"):
                 installer.download_archive(1, root, lambda _: None, unique_name=True)
@@ -166,7 +167,7 @@ class DownloadTransportTests(unittest.TestCase):
         payload, _ = chart_zip()
         source = RecordingSource(payload, declared_size=len(payload) - 1)
         with tempfile.TemporaryDirectory() as directory, patch.object(installer.urllib.request, "build_opener", return_value=source):
-            root = Path(directory)
+            root = Path(directory).resolve()
             original = root / "spinshare_a.zip"
             original.write_bytes(b"previous ZIP")
             with self.assertRaises(installer.InstallError):
@@ -190,23 +191,25 @@ class DownloadTransportTests(unittest.TestCase):
 
         source = FailOnce(payload)
         with tempfile.TemporaryDirectory() as directory, patch.object(installer.urllib.request, "build_opener", return_value=source):
+            root = Path(directory).resolve()
             with self.assertRaisesRegex(installer.InstallError, "HTTP 503"):
-                installer.download_archive(1, directory, lambda _: None)
+                installer.download_archive(1, root, lambda _: None)
             self.assertEqual(len(source.requests), 1)
             self.assertEqual(source.active, 0, "Close the error body before releasing its connection permit")
-            self.assertFalse(list(Path(directory).iterdir()))
-            self.assertEqual(installer.download_archive(2, directory, lambda _: None).read_bytes(), payload)
+            self.assertFalse(list(root.iterdir()))
+            self.assertEqual(installer.download_archive(2, root, lambda _: None).read_bytes(), payload)
         self.assertEqual(source.active, 0)
 
     def test_expired_deadlines_do_not_contact_the_counting_api_or_leak_permits(self):
         payload, _ = chart_zip()
         source = RecordingSource(payload)
         with tempfile.TemporaryDirectory() as directory, patch.object(installer.urllib.request, "build_opener", return_value=source):
+            root = Path(directory).resolve()
             for _ in range(installer.MAX_DOWNLOAD_CONNECTIONS + 1):
                 with self.assertRaisesRegex(installer.InstallError, "15 minutes"):
-                    installer.download_archive(1, directory, lambda _: None, deadline=time.monotonic() - 1)
+                    installer.download_archive(1, root, lambda _: None, deadline=time.monotonic() - 1)
             self.assertEqual(source.requests, [])
-            archive = installer.download_archive(2, directory, lambda _: None, deadline=time.monotonic() + 2)
+            archive = installer.download_archive(2, root, lambda _: None, deadline=time.monotonic() + 2)
             self.assertEqual(archive.read_bytes(), payload)
         self.assertEqual(source.active, 0)
 
@@ -233,7 +236,7 @@ class DownloadTransportTests(unittest.TestCase):
 
         source = TricklingSource(payload)
         with tempfile.TemporaryDirectory() as directory, patch.object(installer.urllib.request, "build_opener", return_value=source), patch.object(installer.time, "monotonic", side_effect=lambda: clock[0]):
-            root = Path(directory)
+            root = Path(directory).resolve()
             original = root / "spinshare_a.zip"
             original.write_bytes(b"previous ZIP")
             progress = []
@@ -257,7 +260,7 @@ class DownloadTransportTests(unittest.TestCase):
     def test_staging_decompresses_each_member_once_before_replacing_files(self):
         payload, files = chart_zip()
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             archive = root / "chart.zip"
             archive.write_bytes(payload)
             with patch.object(installer, "_copy_member", wraps=installer._copy_member) as copy:
@@ -278,7 +281,7 @@ class DownloadTransportTests(unittest.TestCase):
             offset = last.header_offset + 30 + len(last.filename.encode()) + len(last.extra)
         damaged[offset + last.file_size - 1] ^= 1  # Leave headers/central metadata intact; fail the last member's CRC.
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             original = {}
             for name in files:
                 target = root / name

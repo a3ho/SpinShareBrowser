@@ -149,7 +149,7 @@ class FrameLayoutAPITests(unittest.TestCase):
         import installer
         import spinshare_portable as app
         with tempfile.TemporaryDirectory(prefix="spinshare-frame-") as directory:
-            root=Path(directory)
+            root=Path(directory).resolve()
             game=root/"game"
             game.mkdir()
             with patch.object(installer,"default_target_directory",return_value=game):

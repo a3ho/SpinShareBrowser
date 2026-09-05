@@ -34,7 +34,7 @@ class AudioPreviewTests(unittest.TestCase):
         (self.steam / "steamapps").mkdir(parents=True)
         (self.library / "steamapps").mkdir(parents=True)
         (self.steam / "steamapps" / "libraryfolders.vdf").write_text(
-            '"libraryfolders" { "1" { "path" "' + str(self.library).replace("\\", "\\\\") + '" } }')
+            '"libraryfolders" { "1" { "path" "' + str(self.library).replace("\\", "\\\\") + '" } }', encoding="utf-8")
         (self.library / "steamapps" / "appmanifest_1058830.acf").write_text(
             '"AppState" { "appid" "1058830" "installdir" "Spin Rhythm" }')
         self.audio = self.game / "SpinRhythm_Data" / "StreamingAssets" / (GUID + ".ogg")

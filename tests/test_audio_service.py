@@ -17,7 +17,7 @@ import spinshare_portable as portable
 class AudioServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="spinshare-audio-")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.target = self.root / "Custom"
         self.target.mkdir()
         self.audio = self.root / "game.ogg"
