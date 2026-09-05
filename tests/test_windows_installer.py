@@ -7,13 +7,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerTests(unittest.TestCase):
-    def test_release_version_is_consistently_2_0_0(self):
+    def test_release_version_is_consistently_2_0_1(self):
         build = (ROOT / "scripts" / "build.py").read_text(encoding="utf-8")
         setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
         resource = (ROOT / "assets" / "windows-version.txt").read_text(encoding="utf-8")
-        self.assertRegex(build, r'VERSION\s*=\s*"2\.0\.0"')
-        self.assertIn('#define AppVersion "2.0.0"', setup)
-        self.assertIn("StringStruct('ProductVersion', '2.0.0')", resource)
+        self.assertRegex(build, r'VERSION\s*=\s*"2\.0\.1"')
+        self.assertIn('#define AppVersion "2.0.1"', setup)
+        self.assertIn("StringStruct('ProductVersion', '2.0.1')", resource)
+        self.assertIn('filevers=(2, 0, 1, 0)', resource)
+        service = (ROOT / 'src/spinshare_portable.py').read_text(encoding='utf-8')
+        interface = (ROOT / 'web/app.js').read_text(encoding='utf-8')
+        self.assertIn('VERSION = "2.0.1"', service)
+        self.assertIn("config.version==='2.0.1'", interface)
+        self.assertIn("settings.version!=='2.0.1'", interface)
 
     def test_existing_install_is_an_explicit_safe_update(self):
         setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")

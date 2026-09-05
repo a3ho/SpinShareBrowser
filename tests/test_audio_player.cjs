@@ -134,7 +134,7 @@ class Element {
     for (const callback of [...(this.events.get(name) || [])]) callback(event);
     return event;
   }
-  focus() { this.focused = true; }
+  focus(options) { this.focused = true; this.focusOptions = options; }
   blur() { this.blurred = true; }
 }
 
@@ -198,7 +198,8 @@ function playerHarness(options = {}) {
   const coverViews = new Map();
   const context = vm.createContext({
     __coverViews: coverViews,
-    $: node, document, URL, Number, Promise,
+    $: node, document, URL, Number, Promise, AbortController,
+    INSTALL_ORIGIN: 'http://127.0.0.1:54901',
     APP_CONFIG: Object.freeze({playerShortcutHintShown: options.hintShown !== false}),
     cacheGeneration: 'test',
     appExiting: false,
@@ -216,8 +217,10 @@ function playerHarness(options = {}) {
     uiAttr: (target, name, value) => target.setAttribute(name, value),
     coverURL: value => typeof value === 'string' && /^https:\/\/spinshare\.b-cdn\.net\/uploads\/(cover|thumbnail)\/[a-z0-9_-]+\.jpg$/i.test(value) ? value : '',
     playMotion: (target, frames, options) => { motions.push({target, frames, options}); return null; },
-    installerRequest(method, requestPath, body) {
-      requests.push({method, path: requestPath, body}); return Promise.resolve({shown: true});
+    installerRequest(method, requestPath, body, revision, signal) {
+      requests.push({method, path: requestPath, body, signal});
+      if(requestPath==='/v1/preview/resolve')return options.resolve?options.resolve(body,signal):Promise.reject(Object.assign(new Error('no audio'),{code:'preview_unavailable'}));
+      return Promise.resolve({shown: true});
     },
     requestAnimationFrame(callback) { const id = ++nextFrame; frames.set(id, callback); return id; },
     cancelAnimationFrame(id) { frames.delete(id); },
@@ -243,7 +246,8 @@ function playerHarness(options = {}) {
     attempt:previewPlayAttempt, ready:previewReady, wantsPlay:previewWantsPlay,
     frame:previewFrame, watchdog:previewSourceTimer, shortcutPending:previewShortcutPending,
     shortcutTimer:previewShortcutTimer, playbackConfirmed:previewPlaybackConfirmed,
-    hintShown:previewShortcutHintShown, hintTimer:previewHintTimer
+    hintShown:previewShortcutHintShown, hintTimer:previewHintTimer,
+    resolving:Boolean(previewResolveWork), errorCode:previewErrorCode
   })`, context);
   const run = (expression, values = {}) => {
     Object.assign(context, values); return vm.runInContext(expression, context);
@@ -405,7 +409,7 @@ test('a missing cover keeps valid song audio playable while unavailable audio st
   assert.equal(unavailable.player.hidden, true);
 });
 
-test('top and card controls expose matching pressed and busy states throughout playback', () => {
+test('top and card controls expose matching pressed and busy states throughout playback', async () => {
   const h = playerHarness(), row = h.row(23, 'spinshare_23');
   h.makeCover(row);
   let view = [...h.coverViews.values()].at(-1);
@@ -434,6 +438,7 @@ test('top and card controls expose matching pressed and busy states throughout p
   h.audio.emit('error');
   assert.equal(h.state().format, 'mp3'); expectState(true, true);
   h.audio.emit('error');
+  await flush();
   assert.equal(h.state().state, 'error'); expectState(false, false);
 });
 
@@ -465,7 +470,7 @@ test('metadata, seeking and completion use the complete native song duration', (
   assert.equal(h.state().state, 'ended'); assert.equal(h.audio.currentTime, 12.4);
 });
 
-test('OGG falls back once, restores an interrupted position after MP3 metadata, and explicit retry is bounded', () => {
+test('OGG falls back once, restores an interrupted position after MP3 metadata, and explicit retry is bounded', async () => {
   const h = playerHarness(), track = h.row(7, 'spinshare_abc123');
   h.start(track);
   assert.equal(h.state().format, 'ogg');
@@ -482,6 +487,7 @@ test('OGG falls back once, restores an interrupted position after MP3 metadata, 
   assert.equal(h.audio.playCalls, playsBeforeFallback + 1);
   const attempts = h.audio.sourceHistory.length;
   h.audio.emit('error');
+  await flush();
   assert.equal(h.state().state, 'error'); assert.equal(h.state().wantsPlay, false);
   h.audio.emit('error');
   assert.equal(h.audio.sourceHistory.length, attempts, 'A failed MP3 must never loop back to OGG');
@@ -500,6 +506,7 @@ test('a current NotSupportedError falls back once and never returns from a faile
     'https://spinshare.b-cdn.net/uploads/audio/spinshare_24_0.mp3',
   ]);
   h.audio.emit('error'); h.audio.emit('error');
+  await flush();
   assert.equal(h.state().state, 'error'); assert.equal(h.state().wantsPlay, false);
   assert.equal(h.audio.sourceHistory.length, 2, 'A failed fallback must not cycle formats');
 });
@@ -518,7 +525,7 @@ test('an OGG failure after 25 seconds still falls back and preserves full-song p
   assert.equal(h.audio.currentTime, 75);
 });
 
-test('a 15-second loading watchdog advances OGG to MP3 to error without looping', () => {
+test('a 15-second loading watchdog advances OGG to MP3 to local lookup without looping', async () => {
   const h = playerHarness(); h.start(h.row(6, 'spinshare_600d'));
   assert.equal(h.state().state, 'loading'); assert.equal(h.state().format, 'ogg'); assert.equal(h.timers.size, 1);
   h.advance(14999);
@@ -532,6 +539,7 @@ test('a 15-second loading watchdog advances OGG to MP3 to error without looping'
   assert.equal(h.timers.size, 1, 'The fallback source receives one fresh watchdog');
   h.advance(14999); assert.equal(h.state().state, 'loading');
   h.advance(1);
+  await flush();
   assert.equal(h.state().state, 'error'); assert.equal(h.state().wantsPlay, false); assert.equal(h.timers.size, 0);
   h.advance(60000);
   assert.equal(h.audio.sourceHistory.length, 2, 'A timed-out MP3 must not return to OGG');
@@ -545,6 +553,131 @@ test('policy play rejection pauses the same source instead of pretending the aud
   assert.equal(h.state().wantsPlay, false);
   assert.deepEqual(h.audio.sourceHistory, ['https://spinshare.b-cdn.net/uploads/audio/spinshare_abcde_0.ogg']);
   assert.equal(h.audio.pauseCalls > 0, true);
+});
+
+test('only both failed CDN formats trigger one authenticated local lookup and actual playing confirms success', async () => {
+  const pending = deferred(), h = playerHarness({resolve: () => pending.promise}), capability = '/v1/preview/audio/' + 'ab'.repeat(24);
+  h.start(h.row(15312, 'spinshare_6a9a15683a6a8'));
+  h.audio.duration = 300; h.audio.emit('loadedmetadata'); h.audio.emit('playing');
+  assert.equal(h.requests.length, 0, 'Working CDN audio must not fetch SRTB or inspect game files');
+  h.audio.currentTime = 91; h.audio.emit('error');
+  assert.equal(h.requests.length, 0, 'The ordinary MP3 fallback remains first');
+  const oldErrors = [...h.audio.events.get('error')];
+  h.audio.emit('error'); oldErrors.forEach(callback => callback({})); h.audio.emit('error');
+  assert.equal(h.requests.length, 1); assert.equal(h.requests[0].path, '/v1/preview/resolve');
+  assert.equal(h.requests[0].body.fileReference, 'spinshare_6a9a15683a6a8');
+  assert.equal(h.requests[0].body.updateHash, String(15312).padStart(32,'0'));
+  assert.equal(h.state().state, 'loading'); assert.equal(h.audio.src, '');
+  pending.resolve({url: capability}); await flush();
+  assert.equal(h.state().format, 'local'); assert.equal(h.audio.src, 'http://127.0.0.1:54901' + capability);
+  assert.equal(h.state().state, 'loading', 'A successful lookup is not proof of audible playback');
+  h.audio.duration = 300; h.audio.emit('loadedmetadata');
+  assert.equal(h.audio.currentTime, 91, 'Local playback preserves progress even when MP3 failed before metadata');
+  assert.equal(h.state().state, 'loading'); h.audio.emit('playing');
+  assert.equal(h.state().state, 'playing'); assert.equal(h.node('preview-player-error').hidden, true);
+  assert.match(html, /media-src https:\/\/spinshare\.b-cdn\.net __SPINSHARE_MEDIA_ORIGIN__/);
+});
+
+test('local audio URLs reject foreign hosts, path tricks and malformed capabilities', async () => {
+  const valid = '/v1/preview/audio/' + 'a'.repeat(48);
+  for (const url of ['', null, 12, 'https://evil.test' + valid, '//127.0.0.1:54901' + valid,
+    valid + '?x=1', valid + '#x', valid + '/', valid.replace('audio/', 'audio/../'),
+    '/v1/preview/audio/' + 'A'.repeat(48), '/v1/preview/audio/' + 'a'.repeat(47)]) {
+    const h = playerHarness({resolve: () => Promise.resolve({url})});
+    h.start(h.row(51)); h.audio.emit('error'); h.audio.emit('error'); await flush();
+    assert.equal(h.state().state, 'error', String(url)); assert.equal(h.state().errorCode, 'preview_lookup_failed');
+    assert.equal(h.audio.sourceHistory.length, 2, 'Untrusted values never become audio.src');
+  }
+});
+
+test('switching songs or disposing cancels lookup and ignores late results and failures', async () => {
+  for (const action of ['switch', 'dispose']) for (const reject of [false, true]) {
+    const pending = deferred(), h = playerHarness({resolve: () => pending.promise});
+    h.start(h.row(52)); h.audio.emit('error'); h.audio.emit('error');
+    const request = h.requests[0];
+    if (action === 'switch') h.start(h.row(53)); else h.dispose();
+    assert.equal(request.signal.aborted, true);
+    const expected = h.state(), sources = h.audio.sourceHistory.length;
+    if (reject) pending.reject(Object.assign(new Error('late missing file'), {code:'game_audio_not_found'}));
+    else pending.resolve({url:'/v1/preview/audio/' + 'b'.repeat(48)});
+    await flush();
+    assert.equal(h.state().id, expected.id); assert.equal(h.state().state, expected.state);
+    assert.equal(h.audio.sourceHistory.length, sources); assert.equal(h.state().resolving, false);
+  }
+});
+
+test('pausing or hiding during lookup never autoplays a late local result and can resume it normally', async () => {
+  for (const hide of [false, true]) {
+    const pending = deferred(), h = playerHarness({resolve: () => pending.promise});
+    h.setup(); h.start(h.row(54)); h.audio.emit('error'); h.audio.emit('error');
+    if (hide) { h.document.hidden = true; h.document.emit('visibilitychange'); } else h.toggle();
+    const plays = h.audio.playCalls;
+    pending.resolve({url:'/v1/preview/audio/' + 'c'.repeat(48)}); await flush();
+    h.audio.duration = 200; h.audio.emit('loadedmetadata');
+    assert.equal(h.state().state, 'paused'); assert.equal(h.state().wantsPlay, false); assert.equal(h.audio.playCalls, plays);
+    h.audio.emit('playing'); assert.equal(h.state().state, 'paused'); assert.equal(h.audio.paused, true);
+    h.document.hidden = false; h.document.emit('visibilitychange'); assert.equal(h.audio.playCalls, plays);
+    h.toggle(); h.audio.emit('playing'); assert.equal(h.state().state, 'playing');
+  }
+});
+
+test('resuming pending lookup does not play an empty source and preserves keyboard confirmation', async () => {
+  const pending = deferred(), h = playerHarness({resolve: () => pending.promise});
+  h.setup(); h.start(h.row(55)); h.audio.emit('error'); h.audio.emit('error');
+  h.toggle(); const plays = h.audio.playCalls;
+  h.document.emit('keydown', keyEvent(spaceTarget('page')));
+  assert.equal(h.audio.playCalls, plays); assert.equal(h.state().state, 'loading');
+  pending.resolve({url:'/v1/preview/audio/' + 'd'.repeat(48)}); await flush();
+  assert.equal(h.audio.playCalls, plays + 1); assert.equal(h.state().state, 'loading');
+  h.audio.emit('playing');
+  assert.equal(h.node('preview-player-toggle').classList.contains('is-shortcut-feedback'), true);
+});
+
+test('local failures explain the recovery visibly, announce details, and remain retryable without stale events', async () => {
+  const copy = {game_audio_not_found:'Check game files', preview_lookup_failed:'Could not load audio', preview_unavailable:'Audio unavailable'};
+  for (const code of Object.keys(copy)) {
+    const h = playerHarness({resolve: () => Promise.reject(Object.assign(new Error('failed'), {code}))});
+    h.setup(); h.makeCover(h.row(56)); h.start(h.row(56)); h.audio.emit('error'); h.audio.emit('error'); await flush();
+    assert.equal(h.state().state, 'error'); assert.equal(h.node('preview-player-timeline').hidden, true);
+    assert.equal(h.node('preview-player-error').hidden, false); assert.equal(h.node('preview-player-error-text').textContent, copy[code]);
+    assert.match(h.node('preview-player-status').textContent, /Chart 56/);
+    assert(h.node('preview-player-toggle').getAttribute('aria-description').length > copy[code].length);
+    h.audio.emit('loadedmetadata'); h.audio.emit('waiting'); h.audio.emit('playing');
+    assert.equal(h.state().state, 'error', 'Late media events cannot undo the error');
+    h.node('preview-player-retry').emit('click'); assert.equal(h.state().state, 'loading');
+    assert.equal(h.node('preview-player-error').hidden, true); assert.equal(h.node('preview-player-timeline').hidden, false);
+    assert.equal(h.state().format, 'ogg');
+  }
+  assert.match(html, /id="preview-player-retry"[^>]*data-ui-static="Retry"/);
+  assert.match(interfaceSource, /\.global-player-error\s*\{[^}]*height:\s*18px/);
+});
+
+test('a failed or timed-out local stream terminates rather than retrying the resolver', async () => {
+  for (const timeout of [false, true]) {
+    const h = playerHarness({resolve: () => Promise.resolve({url:'/v1/preview/audio/' + 'e'.repeat(48)})});
+    h.start(h.row(57)); h.audio.emit('error'); h.audio.emit('error'); await flush();
+    if (timeout) h.advance(15000); else h.audio.emit('error');
+    assert.equal(h.state().state, 'error'); assert.equal(h.state().errorCode, 'preview_unavailable');
+    h.audio.emit('error'); h.advance(60000); assert.equal(h.requests.length, 1); assert.equal(h.audio.sourceHistory.length, 3);
+  }
+});
+
+test('preview resolver requests use a bounded 20-second deadline and support cancellation', async () => {
+  for (const cancel of [false, true]) {
+    const h = playerHarness(), controller = new AbortController(); let aborted = false;
+    Object.assign(h.context, {
+      INSTALL_KEY:'test', uiError: value => new Error(value),
+      fetch: (_url, {signal}) => new Promise((_resolve,reject) => signal.addEventListener('abort', () => {
+        aborted = true; reject(Object.assign(new Error('cancelled'),{name:'AbortError'}));
+      }, {once:true})),
+    });
+    vm.runInContext(extract(appSource,'async function installerRequest(', 'function installationStatePending('), h.context);
+    const work = h.context.installerRequest('POST','/v1/preview/resolve',{fileReference:'spinshare_1'},'',controller.signal);
+    const rejected = assert.rejects(work);
+    if (cancel) controller.abort();
+    else { h.advance(19999); assert.equal(aborted, false); h.advance(1); }
+    await rejected; assert.equal(aborted, true); assert.equal(h.timers.size, 0);
+  }
 });
 
 test('a stale play Promise on the same source cannot reject a newer play attempt', async () => {
@@ -868,6 +1001,51 @@ test('visibility pauses without discarding the song, while page exit disposes me
   assert.equal(h.state().id, null); assert.equal(h.audio.src, ''); assert.equal(h.player.hidden, true);
   for (const name of ['loadedmetadata', 'durationchange', 'timeupdate', 'playing', 'waiting', 'stalled', 'pause', 'ended', 'error']) {
     assert.equal((h.audio.events.get(name) || []).length, 0, name);
+  }
+});
+
+test('settings or activity announcing exit first retires playback and pending lookup exactly once', async () => {
+  for (const origin of ['settings','activity']) for (const resolving of [false,true]) {
+    const pending = deferred(), h = playerHarness({resolve: () => pending.promise});
+    Object.assign(h.context, {
+      settingsStale:false, settingsRevision:'a'.repeat(32), INSTALL_DIRECTORY:'fixture', DEFAULT_INSTALL_DIRECTORY:'fixture',
+      settingsLoaded:true, closeBehavior:'ask', installationViews:new Map(), installDirectoryConfirmed:true,
+      refreshInstallDirectoryConfirmation() {}, syncCloseOptions() {}, renderActivity() {}, updateAllInstallationViews() {},
+      syncFilters() {}, queueInstallationChecks() {}, refreshInstallationResults() {}, uiError: value => new Error(value),
+    });
+    vm.runInContext([
+      extract(appSource,'function applySettings(', 'async function loadSettings('),
+      extract(appSource,'function applyActivity(', 'function showActivity('),
+    ].join('\n'),h.context);
+    h.start(h.row(58));
+    if (resolving) { h.audio.emit('error'); h.audio.emit('error'); }
+    else { h.audio.duration=200; h.audio.emit('loadedmetadata'); h.audio.emit('playing'); }
+    if (origin==='settings') h.context.applySettings({targetDirectory:'fixture',defaultDirectory:'fixture',revision:'a'.repeat(32),closeBehavior:'ask',exiting:true});
+    else h.context.applyActivity({exiting:true,activeCount:0,jobs:[]});
+    assert.equal(h.context.appExiting,true); assert.equal(h.state().id,null); assert.equal(h.audio.src,'');
+    assert.equal(h.state().frame,0); assert.equal(h.state().watchdog,null); assert.equal(h.state().resolving,false);
+    if(resolving) {
+      assert.equal(h.requests[0].signal.aborted,true);
+      pending.resolve({url:'/v1/preview/audio/'+'f'.repeat(48)}); await flush();
+      assert.equal(h.audio.src,''); assert.equal(h.state().id,null);
+    }
+    const generation=h.state().generation;
+    h.context.markAppExiting(true); h.context.markAppExiting(false);
+    assert.equal(h.state().generation,generation,'Later window/activity exit notifications do not dispose twice');
+    assert.equal(h.context.appExiting,true); assert.equal(h.start(h.row(59)),false);
+  }
+});
+
+test('retry transfers only its disappearing focus to the player without scrolling', async () => {
+  for (const focused of [false,true]) {
+    const h=playerHarness(); h.setup(); h.start(h.row(60));
+    h.audio.emit('error'); h.audio.emit('error'); await flush();
+    const retry=h.node('preview-player-retry'),cover=h.node('preview-player-toggle');
+    h.document.activeElement=focused?retry:h.node('another-control');
+    retry.emit('click');
+    assert.equal(h.state().state,'loading'); assert.equal(h.node('preview-player-error').hidden,true);
+    assert.equal(Boolean(cover.focused),focused);
+    if(focused)assert.equal(cover.focusOptions.preventScroll,true);
   }
 });
 

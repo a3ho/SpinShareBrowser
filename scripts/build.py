@@ -16,19 +16,19 @@ import urllib.request
 import zipfile
 
 PROJECT = Path(__file__).resolve().parent.parent
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 SOURCE_DATE_EPOCH = "1788048000"
 WEB_FILES = ("web/index.html", "web/interface.css", "web/chart-card.js", "web/app.js", "web/locales.json")
 SOURCE_FILES = (
     ".gitattributes", ".gitignore", "AGENTS.md", "LICENSE", "README.md", "README.zh-CN.md", "CHANGELOG.md",
     "PRODUCT.md", "DESIGN.md",
     "requirements-build.txt", "src/installer.py", "src/spinshare_portable.py",
-    "src/desktop.py", "src/maintenance.py",
+    "src/desktop.py", "src/maintenance.py", "src/audio_preview.py",
     "tests/test_external_links.py", "tests/test_tag_filters.cjs", "tests/test_date_picker.cjs",
     "tests/test_catalog_ui.cjs", "tests/test_catalog_sync.cjs", "tests/test_chart_cache.py",
-    "tests/test_desktop_notifications.py", "tests/test_windows_installer.py",
+    "tests/test_desktop_notifications.py", "tests/test_desktop_frame.py", "tests/test_window_regions.cjs", "tests/test_windows_installer.py",
     "tests/test_review_drawers.cjs", "tests/test_installation_filters.cjs", "tests/test_chart_deletion.cjs",
-    "tests/test_chart_deletion.py", "tests/test_audio_player.cjs",
+    "tests/test_chart_deletion.py", "tests/test_audio_player.cjs", "tests/test_audio_preview.py", "tests/test_audio_service.py",
     "tests/test_focus_modality.cjs", "tests/test_choice_menus.cjs",
     "tests/test_install_queue.py", "tests/test_install_pipeline.py", "tests/test_download_transport.py",
     "tests/read_web_template.cjs", "tests/test_web_resources.py",

@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import spinshare_portable as portable
 
 TEMPLATE = """<!doctype html>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src __SPINSHARE_CONNECT_ORIGIN__">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src __SPINSHARE_CONNECT_ORIGIN__; media-src __SPINSHARE_MEDIA_ORIGIN__">
 <style>/*__SPINSHARE_STYLES__*/</style>
 <script>
 'use strict';
@@ -109,10 +109,10 @@ class WebResourceTests(unittest.TestCase):
         page = portable.load_web_template()
         self.assertEqual(re.findall(r"<script\b[^>]*>", page), ["<script>"])
         self.assertRegex(page, r"<script>\s*'use strict';")
-        for placeholder in ("__SPINSHARE_RUNTIME_CONFIG__", "__SPINSHARE_CONNECT_ORIGIN__", "__SPINSHARE_UI_CATALOG__"):
+        for placeholder in ("__SPINSHARE_RUNTIME_CONFIG__", "__SPINSHARE_CONNECT_ORIGIN__", "__SPINSHARE_MEDIA_ORIGIN__", "__SPINSHARE_UI_CATALOG__"):
             self.assertEqual(page.count(placeholder), 1, placeholder)
 
-    def test_live_csp_allows_only_the_preview_cdn_for_media(self):
+    def test_live_csp_allows_only_the_preview_cdn_and_paired_local_media(self):
         template = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         tag = re.search(r'<meta\b[^>]*http-equiv="Content-Security-Policy"[^>]*>', template, re.I)
         self.assertIsNotNone(tag)
@@ -125,7 +125,7 @@ class WebResourceTests(unittest.TestCase):
                 self.assertNotIn(fields[0], directives)
                 directives[fields[0]] = fields[1:]
         self.assertEqual(directives.get("default-src"), ["'none'"])
-        self.assertEqual(directives.get("media-src"), ["https://spinshare.b-cdn.net"])
+        self.assertEqual(directives.get("media-src"), ["https://spinshare.b-cdn.net", "__SPINSHARE_MEDIA_ORIGIN__"])
         self.assertNotIn("blob:", directives["media-src"])
         self.assertNotIn("data:", directives["media-src"])
 

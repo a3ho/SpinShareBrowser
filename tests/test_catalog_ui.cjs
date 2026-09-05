@@ -52,7 +52,7 @@ const api = vm.createContext({
   settingsStale: false, searchFields: {title: 1, subtitle: 2, artist: 3, creator: 4},
   searchScopes: new Set(['title', 'subtitle', 'artist', 'creator']), textSearchWork: null, textSearchProblem: '',
   loadingIndicator() {}, setStatus() {}, filtersChanged: () => false, playMotion() { return null; }, motionAllowed() { return false; },
-  number: value => String(value),
+  number: value => String(value), disposePreview() {},
   MOTION_MS: {feedback: 150, standard: 180, panel: 220, expressive: 280},
   syncResultTools() {}, syncTagControls() {}, unknownSearchUploaders: () => false,
   updateAllInstallationViews: () => assert.fail('Queue saturation must not invalidate installation settings'),
@@ -73,6 +73,7 @@ vm.runInContext([
   extract('function syncCatalogRefresh(', 'async function readReviews('),
   extract('async function installerRequest(', 'function installationPending('),
   extract('function applyActivity(', 'function showActivity('),
+  extract('function markAppExiting(', 'function cancelPreviewResolve('),
 ].join('\n'), api);
 
 function checkCachedSearchAvailable() {

@@ -6,21 +6,18 @@ A third-party Windows app for browsing, installing, and managing local [SpinShar
 
 ![Browse and manage local SpinShare charts](docs/images/overview-en.png)
 
-## Current release: 2.0.0
+## Current release: 2.0.1
 
-**Maintenance re-release: September 2, 2026**
+**Patch release: September 5, 2026**
 
-- A redesigned, responsive chart browser with clearer typography, denser cards, refined motion, and cohesive loading, empty, and footer states.
-- Local-first filtering, search, tags, sorting, and installation-status views backed by a durable catalog with 12-hour automatic synchronization.
-- A single full-song player with cover controls, a draggable timeline, and Space and arrow-key shortcuts.
-- Anchored floating descriptions and review panels that preserve page layout, contain scrolling, and keep review counts available.
-- Fast local installation inventories plus targeted per-chart verification, so completed cards update immediately while other jobs continue.
-- Unified DLC installation behavior and one-click deletion of verified local charts, with multi-delete queuing and rollback on failure.
-- Safer overwrite updates that wait for the original idle process, never force active jobs, and offer retry/cancel when files remain locked.
+- Fixed a freeze when bringing the app forward, dragging, or resizing its window.
+- Kept usable drag space beside the player, including in narrow windows. The player's text and background can also move the window; playback controls still work normally.
+- Fixed playback for charts that use installed Steam game or DLC music, including The Kraken and FOREVER NOW.
+- Added clearer playback errors and a Retry action.
 
-[Read the complete 2.0.0 changelog](CHANGELOG.md)
+[Read the complete 2.0.1 changelog](CHANGELOG.md)
 
-> SpinShare Browser maintains and distributes only the latest stable release. Historical installers are unavailable; update to the latest release for continued support.
+> Only the latest stable release is maintained and supported. Update to the latest release for fixes and support.
 
 ## Features
 
@@ -37,7 +34,7 @@ A third-party Windows app for browsing, installing, and managing local [SpinShar
 
 **[Download for Windows](https://github.com/a3ho/SpinShareBrowser/releases/latest)**
 
-1. On the release page, download `SpinShareBrowser-2.0.0-windows-x64-setup.exe` under **Assets**. Source archives are for building the app.
+1. On the release page, download `SpinShareBrowser-2.0.1-windows-x64-setup.exe` under **Assets**. Source archives are for building the app.
 2. Run the installer and follow Setup. It installs for your Windows account, adds a Start Menu entry, and offers a desktop shortcut.
 
 Requires **Windows 10 version 1903 or later, or Windows 11 (x64)**, and **.NET Framework 4.8 or later**. Python and the app libraries are bundled.
@@ -61,6 +58,8 @@ Select **Add tag** to combine tags, or select a tag directly on a chart card. **
 ### Play songs
 
 Move the pointer over a chart cover and select the play button. The global player at the top shows the current song and lets you pause, resume, or drag the timeline.
+
+Some charts use music from the game. To preview them, keep Spin Rhythm XD and any required DLC installed through Steam.
 
 After a song starts playing, press **Space** to pause or resume. Press **Left** or **Right** to seek by five seconds. These shortcuts are disabled while you are typing.
 

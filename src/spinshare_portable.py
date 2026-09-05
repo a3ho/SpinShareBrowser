@@ -20,8 +20,9 @@ import threading
 import time
 
 import installer
+import audio_preview
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 HOST = "127.0.0.1"
 CONFIG_NAME = "config.json"
 PAGE_NAME = "browser.html"
@@ -1037,7 +1038,7 @@ def load_web_template() -> str:
 
 def render_page(template: str, bootstrap: dict, catalog: dict) -> str:
     """Replace each unique runtime, CSP and interface catalog placeholder once."""
-    placeholders = {"__SPINSHARE_RUNTIME_CONFIG__", "__SPINSHARE_CONNECT_ORIGIN__", "__SPINSHARE_UI_CATALOG__"}
+    placeholders = {"__SPINSHARE_RUNTIME_CONFIG__", "__SPINSHARE_CONNECT_ORIGIN__", "__SPINSHARE_MEDIA_ORIGIN__", "__SPINSHARE_UI_CATALOG__"}
     if any(template.count(placeholder) != 1 for placeholder in placeholders):
         raise PortableError("The page template has missing or duplicate runtime placeholders.")
     origin = bootstrap.get("origin")
@@ -1045,10 +1046,10 @@ def render_page(template: str, bootstrap: dict, catalog: dict) -> str:
         raise PortableError("The local page origin is invalid.")
     if not 1 <= int(origin.rsplit(":", 1)[1]) <= 65535:
         raise PortableError("The local page port is invalid.")
-    values = {"__SPINSHARE_CONNECT_ORIGIN__": origin, "__SPINSHARE_RUNTIME_CONFIG__": _script_json(bootstrap),
+    values = {"__SPINSHARE_CONNECT_ORIGIN__": origin, "__SPINSHARE_MEDIA_ORIGIN__": origin, "__SPINSHARE_RUNTIME_CONFIG__": _script_json(bootstrap),
               "__SPINSHARE_UI_CATALOG__": _script_json(catalog)}
     # Single-pass substitution leaves placeholder-like JSON strings intact.
-    return re.sub(r"__SPINSHARE_(?:RUNTIME_CONFIG|CONNECT_ORIGIN|UI_CATALOG)__", lambda match: values[match[0]], template)
+    return re.sub(r"__SPINSHARE_(?:RUNTIME_CONFIG|CONNECT_ORIGIN|MEDIA_ORIGIN|UI_CATALOG)__", lambda match: values[match[0]], template)
 
 
 class PortableManager(installer.JobManager):
@@ -1060,6 +1061,10 @@ class PortableManager(installer.JobManager):
         self.exiting = False
         self.install_directory = Path(sys.executable).parent if getattr(sys, "frozen", False) else None
         self.directory_picker_lock = threading.Lock()
+        self.preview_lock = threading.Lock()
+        self.preview_resolvers = threading.BoundedSemaphore(2)
+        self.preview_streams = threading.BoundedSemaphore(4)
+        self.preview_sources = {}
         # Retain IDs after job eviction for retry deduplication.
         self.accepted_requests = set()
         super().__init__(store.target_for(config))
@@ -1092,6 +1097,47 @@ class PortableManager(installer.JobManager):
         with self.lock:
             self.exiting = True
             return True
+
+    def resolve_preview(self, reference, update_hash):
+        if (not isinstance(reference, str) or not re.fullmatch(r"spinshare_[a-fA-F0-9]{1,64}", reference) or
+                not isinstance(update_hash, str) or update_hash and not re.fullmatch(r"[a-fA-F0-9]{32}", update_hash)):
+            raise APIError(400, "invalid_preview_reference", "Choose a chart to preview.")
+        with self.lock:
+            if self.closed or self.exiting:
+                raise APIError(409, "shutting_down", "The app is exiting.")
+            target, revision = self.target_dir, self.revision
+        now = time.monotonic()
+        with self.preview_lock:
+            self.preview_sources = {key: entry for key, entry in self.preview_sources.items() if entry[4] > now}
+            for key, entry in self.preview_sources.items():
+                if update_hash and entry[:2] == ((reference, update_hash), revision):
+                    try:
+                        if preview_file_signature(entry[2]) == entry[3]:
+                            return {"url": "/v1/preview/audio/" + key}
+                    except OSError:
+                        pass
+        if not self.preview_resolvers.acquire(blocking=False):
+            raise APIError(429, "preview_lookup_failed", "Audio is being located. Try again shortly.")
+        try:
+            # No install lock is held during remote lookup or game-library discovery.
+            path = audio_preview.resolve_preview(reference, target)
+            signature = preview_file_signature(path)
+            with self.lock:
+                if self.closed or self.exiting or self.revision != revision:
+                    raise APIError(409, "preview_lookup_failed", "Settings changed. Try the preview again.")
+            key = secrets.token_hex(24)
+            with self.preview_lock:
+                while len(self.preview_sources) >= 32:
+                    del self.preview_sources[next(iter(self.preview_sources))]
+                self.preview_sources[key] = ((reference, update_hash), revision, path, signature, time.monotonic() + 6 * 3600)
+            return {"url": "/v1/preview/audio/" + key}
+        except audio_preview.PreviewError as exc:
+            raise APIError(404 if exc.code in {"game_audio_not_found", "preview_unavailable"} else 502,
+                           exc.code, str(exc)) from exc
+        except OSError as exc:
+            raise APIError(404, "game_audio_not_found", "The installed game audio could not be read.") from exc
+        finally:
+            self.preview_resolvers.release()
 
     def submit(self, song_id, request_id, *, settings_revision=None):
         # Validate IDs before looking up retries.
@@ -1343,6 +1389,33 @@ class PortableManager(installer.JobManager):
             self.settings_changed()
 
 
+def preview_file_signature(path):
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400 or
+            not 0 < info.st_size <= 256 * 1024 * 1024):
+        raise OSError("The preview is not a regular audio file.")
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
+
+
+def preview_byte_range(value, size):
+    """Only a single bytes range is needed by the native media element."""
+    if value is None:
+        return 0, size - 1
+    match = re.fullmatch(r"bytes=(\d{0,20})-(\d{0,20})", value)
+    if not match or not any(match.groups()):
+        raise ValueError("Invalid range")
+    first, last = match.groups()
+    if not first:
+        count = int(last)
+        if not count:
+            raise ValueError("Empty suffix")
+        return max(0, size - count), size - 1
+    start, end = int(first), min(int(last), size - 1) if last else size - 1
+    if start > end or start >= size:
+        raise ValueError("Unsatisfiable range")
+    return start, end
+
+
 class PortableHTTPServer(http.server.ThreadingHTTPServer):
     allow_reuse_address = False
     daemon_threads = True
@@ -1446,7 +1519,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"} and
+        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"} and
                 not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
@@ -1458,7 +1531,87 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
             return
         self._respond(204, preflight=True)
 
+    def _preview_audio(self):
+        # Media elements cannot set the pairing header. A short-lived, random,
+        # single-file capability is issued only by the authenticated resolver.
+        browser = (self.client_address[0] == HOST and
+                   self.headers.get_all("Host") == [HOST + ":" + str(self.server.server_address[1])] and
+                   self.headers.get_all("Sec-Fetch-Site") == ["same-origin"] and
+                   self.headers.get_all("Sec-Fetch-Dest") == ["audio"] and
+                   self.headers.get("Sec-Fetch-Mode") in {"no-cors", "cors"} and
+                   self.headers.get_all("Origin") in (None, [self.server.ui_origin]))
+        if not browser and not self._authenticated():
+            return
+        manager = self.server.manager
+        with manager.preview_lock:
+            entry = manager.preview_sources.get(self.path.rsplit("/", 1)[-1])
+        if entry is None or entry[4] < time.monotonic() or manager.closed or manager.exiting:
+            self._respond(404, {"code": "preview_unavailable", "error": "Retry the song to reopen its audio."})
+            return
+        if not manager.preview_streams.acquire(blocking=False):
+            self._respond(429, {"code": "preview_lookup_failed", "error": "Try the song again shortly."})
+            return
+        headers_sent = False
+        try:
+            path, signature = entry[2:4]
+            if preview_file_signature(path) != signature:
+                raise OSError("Audio changed")
+            with path.open("rb") as stream:
+                info = os.fstat(stream.fileno())
+                if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != signature or stream.read(4) != b"OggS":
+                    raise OSError("Audio changed")
+                ranges = self.headers.get_all("Range")
+                try:
+                    if ranges is not None and len(ranges) != 1:
+                        raise ValueError("Duplicate range")
+                    start, end = preview_byte_range(ranges[0] if ranges else None, info.st_size)
+                except ValueError:
+                    self.close_connection = True
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{info.st_size}")
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    return
+                self.close_connection = True
+                self.send_response(206 if ranges else 200)
+                self.send_header("Content-Type", "audio/ogg")
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Content-Length", str(end - start + 1))
+                if ranges:
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{info.st_size}")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                headers_sent = True
+                if self.command == "HEAD":
+                    return
+                stream.seek(start)
+                remaining = end - start + 1
+                while remaining:
+                    chunk = stream.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except OSError:
+            if not headers_sent:
+                self._respond(404, {"code": "game_audio_not_found", "error": "The installed game audio could not be read."})
+        finally:
+            manager.preview_streams.release()
+
+    def do_HEAD(self):
+        if re.fullmatch(r"/v1/preview/audio/[a-f0-9]{48}", self.path):
+            self._preview_audio()
+        else:
+            self._respond(404)
+
     def do_GET(self):
+        if re.fullmatch(r"/v1/preview/audio/[a-f0-9]{48}", self.path):
+            self._preview_audio()
+            return
         if self.server.ui_path is not None and self.path == self.server.ui_path:
             if (self.client_address[0] != HOST or
                     self.headers.get_all("Host") != [HOST + ":" + str(self.server.server_address[1])] or
@@ -1539,11 +1692,16 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"}:
+        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
             data = self._body()
+            if self.path == "/v1/preview/resolve":
+                if set(data) != {"fileReference", "updateHash"}:
+                    raise APIError(400, "invalid_preview_reference", "Choose a chart to preview.")
+                self._respond(200, self.server.manager.resolve_preview(data["fileReference"], data["updateHash"]))
+                return
             if self.path in {"/v1/charts/manual", "/v1/charts/automatic"}:
                 if data:
                     raise APIError(400, "invalid_body", "Chart update requests do not accept additional fields.")
@@ -1559,6 +1717,15 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                     raise APIError(400, "invalid_body", "Choose a dialog action.")
                 if self.server.desktop is None or not self.server.desktop.dialog_reply(data["id"], data["action"], data.get("remember", False)):
                     raise APIError(409, "dialog_changed", "This prompt has already been handled.")
+                self._respond(202, {"ok": True})
+                return
+            if self.path == "/v1/desktop/window/regions":
+                from desktop import valid_frame_layout
+                if not valid_frame_layout(data):
+                    raise APIError(400, "invalid_body", "Provide the window's title bar layout.")
+                desktop = self.server.desktop
+                if desktop is None or not desktop.update_frame_layout(data):
+                    raise APIError(409, "window_starting", "The application window is starting.")
                 self._respond(202, {"ok": True})
                 return
             if self.path == "/v1/desktop/window":

@@ -18,9 +18,9 @@ The release files are written to `dist`:
 
 | File | Contents |
 | --- | --- |
-| `SpinShareBrowser-2.0.0-windows-x64-setup.exe` | Windows installer |
-| `SpinShareBrowser-2.0.0-windows-x64-setup.exe.sha256` | Installer checksum |
-| `SpinShareBrowser-2.0.0-source.zip` | Source archive |
+| `SpinShareBrowser-2.0.1-windows-x64-setup.exe` | Windows installer |
+| `SpinShareBrowser-2.0.1-windows-x64-setup.exe.sha256` | Installer checksum |
+| `SpinShareBrowser-2.0.1-source.zip` | Source archive |
 
 The unpacked application files are in `build/windows/SpinShareBrowser`. Third-party license files are included in the installed application.
 
@@ -54,17 +54,17 @@ Get-ChildItem .\tests -Filter "test_*.cjs" | Sort-Object Name | ForEach-Object {
 Build once more after the final source and documentation changes. Verify that the installer matches its generated SHA-256 sidecar and that the source archive contains the release documentation and primary source files:
 
 ```powershell
-$installer = "dist\SpinShareBrowser-2.0.0-windows-x64-setup.exe"
+$installer = "dist\SpinShareBrowser-2.0.1-windows-x64-setup.exe"
 $expected = ((Get-Content "$installer.sha256" -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
 $actual = (Get-FileHash $installer -Algorithm SHA256).Hash
 if ($actual -ne $expected) { throw "Installer SHA-256 mismatch" }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = (Resolve-Path "dist\SpinShareBrowser-2.0.0-source.zip").Path
+$archive = (Resolve-Path "dist\SpinShareBrowser-2.0.1-source.zip").Path
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
 try {
     $entries = $zip.Entries.FullName
-    $prefix = "SpinShareBrowser-2.0.0/"
+    $prefix = "SpinShareBrowser-2.0.1/"
     $required = "CHANGELOG.md", "README.md", "PRODUCT.md", "DESIGN.md", "src/spinshare_portable.py", "web/app.js"
     $missing = $required |
         ForEach-Object { "$prefix$_" } |

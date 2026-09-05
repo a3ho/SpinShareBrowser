@@ -18,9 +18,9 @@ py -3.12 -m venv .venv
 
 | 文件 | 内容 |
 | --- | --- |
-| `SpinShareBrowser-2.0.0-windows-x64-setup.exe` | Windows 安装包 |
-| `SpinShareBrowser-2.0.0-windows-x64-setup.exe.sha256` | 安装包校验文件 |
-| `SpinShareBrowser-2.0.0-source.zip` | 源码包 |
+| `SpinShareBrowser-2.0.1-windows-x64-setup.exe` | Windows 安装包 |
+| `SpinShareBrowser-2.0.1-windows-x64-setup.exe.sha256` | 安装包校验文件 |
+| `SpinShareBrowser-2.0.1-source.zip` | 源码包 |
 
 打包后的程序目录为 `build/windows/SpinShareBrowser`。第三方许可文件随程序安装。
 
@@ -54,17 +54,17 @@ Get-ChildItem .\tests -Filter "test_*.cjs" | Sort-Object Name | ForEach-Object {
 源码和文档全部定稿后再执行一次构建。校验安装包与自动生成的 SHA-256 文件一致，并确认源码包包含发布文档和主要源码：
 
 ```powershell
-$installer = "dist\SpinShareBrowser-2.0.0-windows-x64-setup.exe"
+$installer = "dist\SpinShareBrowser-2.0.1-windows-x64-setup.exe"
 $expected = ((Get-Content "$installer.sha256" -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
 $actual = (Get-FileHash $installer -Algorithm SHA256).Hash
 if ($actual -ne $expected) { throw "Installer SHA-256 mismatch" }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = (Resolve-Path "dist\SpinShareBrowser-2.0.0-source.zip").Path
+$archive = (Resolve-Path "dist\SpinShareBrowser-2.0.1-source.zip").Path
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
 try {
     $entries = $zip.Entries.FullName
-    $prefix = "SpinShareBrowser-2.0.0/"
+    $prefix = "SpinShareBrowser-2.0.1/"
     $required = "CHANGELOG.md", "README.md", "PRODUCT.md", "DESIGN.md", "src/spinshare_portable.py", "web/app.js"
     $missing = $required |
         ForEach-Object { "$prefix$_" } |

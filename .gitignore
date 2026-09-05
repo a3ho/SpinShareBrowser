@@ -14,6 +14,7 @@
 !/src/spinshare_portable.py
 !/src/desktop.py
 !/src/maintenance.py
+!/src/audio_preview.py
 
 !/web/
 !/web/index.html
@@ -45,6 +46,10 @@
 !/tests/test_review_drawers.cjs
 !/tests/test_installation_filters.cjs
 !/tests/test_audio_player.cjs
+!/tests/test_audio_preview.py
+!/tests/test_audio_service.py
+!/tests/test_desktop_frame.py
+!/tests/test_window_regions.cjs
 !/tests/test_focus_modality.cjs
 !/tests/test_choice_menus.cjs
 !/tests/test_install_queue.py

@@ -364,6 +364,21 @@ def external_url_allowed(value):
         return False
 
 
+def valid_frame_layout(value):
+    def number(item, minimum=0, maximum=65536):
+        return type(item) in (int, float) and minimum <= item <= maximum
+    if not isinstance(value, dict) or set(value) != {"viewport", "pixelRatio", "headerHeight", "excluded"}:
+        return False
+    viewport, excluded = value["viewport"], value["excluded"]
+    return (isinstance(viewport, list) and len(viewport) == 2 and
+            all(number(item, 1) for item in viewport) and
+            number(value["pixelRatio"], 0.1, 8) and
+            number(value["headerHeight"], maximum=min(256, viewport[1])) and
+            isinstance(excluded, list) and len(excluded) <= 5 and
+            all(isinstance(rect, list) and len(rect) == 4 and all(number(item) for item in rect)
+                for rect in excluded))
+
+
 class Desktop:
     def __init__(self, application, webview):
         self.application = application
@@ -390,7 +405,9 @@ class Desktop:
         self.window_size = None
         self.frame_callback = None
         self.frame_handles = set()
-        self.frame_cursor_callback = self.frame_cursor_hook = None
+        self.frame_overlay = None
+        self.frame_layout = None
+        self.frame_geometry = None
         self.toast_phase = None
         self.catalog_sync_due = 0.0
         self.catalog_sync_thread = None
@@ -492,6 +509,14 @@ class Desktop:
                 self.form.WindowState = state.Normal if self.form.WindowState == state.Maximized else state.Maximized
             else:
                 self.form.Close()
+        return self.post(apply)
+
+    def update_frame_layout(self, layout):
+        if not valid_frame_layout(layout):
+            return False
+        def apply():
+            self.frame_layout = layout
+            self._update_frame_region()
         return self.post(apply)
 
     def dialog_state(self):
@@ -672,6 +697,7 @@ class Desktop:
             self._remember_window_size()
         self.window_visible = self.form.Visible and self.form.WindowState != self.Forms.FormWindowState.Minimized
         self._update_maximized_bounds()
+        self._update_frame_region()
         if previous != (self.maximized, self.window_visible):
             self._emit_window_state()
 
@@ -726,7 +752,8 @@ class Desktop:
             work.Top - monitor.Top - top, work.Width + left + right, work.Height + top + bottom)
 
     def _configure_chrome(self, settings):
-        # Keep native resize and system-menu styles; WebView2 handles CSS drag regions.
+        # WebView2 152 can loop in SetWindowPos for fragmented CSS drag regions.
+        # One application-owned native region retains Windows move/size behavior.
         user = ctypes.WinDLL("user32", use_last_error=True)
         user.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
         user.GetWindowLongW.restype = ctypes.c_int32
@@ -739,7 +766,7 @@ class Desktop:
         style = user.GetWindowLongW(handle, -16)
         border_style, bounds = self.form.FormBorderStyle, self.form.Bounds
         try:
-            settings.IsNonClientRegionSupportEnabled = True
+            settings.IsNonClientRegionSupportEnabled = False
             # WinForms must also use full-client sizing when restoring the window.
             self.form.FormBorderStyle = getattr(self.Forms.FormBorderStyle, "None")
             self._install_frame(handle, user)
@@ -758,9 +785,9 @@ class Desktop:
                 set_attribute.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
                 set_attribute(handle, 34, ctypes.byref(border), ctypes.sizeof(border))
         except Exception:
-            if self.frame_cursor_hook:
-                user.UnhookWindowsHookEx(self.frame_cursor_hook)
-                self.frame_cursor_hook = None
+            if self.frame_overlay:
+                user.DestroyWindow(self.frame_overlay)
+                self.frame_overlay = None
             if self.frame_callback is not None:
                 for frame_handle in tuple(self.frame_handles):
                     self.frame_api.RemoveWindowSubclass(frame_handle, self.frame_callback, 1)
@@ -792,10 +819,16 @@ class Desktop:
         user.LoadCursorW.restype = ctypes.c_void_p
         user.SetCursor.argtypes = [ctypes.c_void_p]
         user.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        user.IsChild.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         user.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
         user.SendMessageW.restype = ctypes.c_ssize_t
-        thread_id = user.GetWindowThreadProcessId(handle, None)
+        user.CreateWindowExW.argtypes = [ctypes.c_uint, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint,
+            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_void_p,
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+        user.CreateWindowExW.restype = ctypes.c_void_p
+        user.DestroyWindow.argtypes = [ctypes.c_void_p]
+        user.ValidateRect.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        user.SetWindowRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]
+        user.SetWindowRgn.restype = ctypes.c_int
 
         def hit_test(x, y):
             rect = wintypes.RECT()
@@ -813,19 +846,22 @@ class Desktop:
             try:
                 if hwnd == handle and message == 0x0083:  # WM_NCCALCSIZE: the client fills the window.
                     return 0
-                if message in (0x0084, 0x00A1) or hwnd == handle and message == 0x0112 and wparam == 0xF012:
+                if message == 0x0084:  # WM_NCHITTEST
                     x, y = ctypes.c_int16(lparam & 0xFFFF).value, ctypes.c_int16((lparam >> 16) & 0xFFFF).value
                     hit = hit_test(x, y)
                     if hit:
-                        if message == 0x0084:
-                            return hit
-                        if message == 0x00A1:
-                            if hwnd != handle:
-                                return user.SendMessageW(handle, message, hit, lparam)
-                            return api.DefSubclassProc(hwnd, message, hit, lparam)
-                        # WebView2's transparent CSS drag edges forward a native move command.
-                        return api.DefSubclassProc(hwnd, message, 0xF000 | (hit - 9), lparam)
-                if message == 0x0020:  # WM_SETCURSOR is forwarded by the native drag regions.
+                        return hit
+                    if hwnd == self.frame_overlay:
+                        return 2  # HTCAPTION: Windows owns dragging, snap, double click and touch.
+                if hwnd == self.frame_overlay:
+                    if message in (0x00A1, 0x00A3, 0x00A4, 0x00A5, 0x0241, 0x0242, 0x0243):
+                        return user.SendMessageW(handle, message, wparam, lparam)
+                    if message == 0x000F:  # Transparent input surface: no pixels of its own.
+                        user.ValidateRect(hwnd, None)
+                        return 0
+                    if message in (0x0014, 0x0318):  # WM_ERASEBKGND / WM_PRINTCLIENT
+                        return 1
+                if message == 0x0020:
                     point = wintypes.POINT()
                     if user.GetCursorPos(ctypes.byref(point)):
                         hit = hit_test(point.x, point.y)
@@ -836,9 +872,8 @@ class Desktop:
                 if message == 0x0082:  # WM_NCDESTROY
                     api.RemoveWindowSubclass(hwnd, self.frame_callback, identifier)
                     self.frame_handles.discard(hwnd)
-                    if hwnd == handle and self.frame_cursor_hook:
-                        user.UnhookWindowsHookEx(self.frame_cursor_hook)
-                        self.frame_cursor_hook = None
+                    if hwnd == self.frame_overlay:
+                        self.frame_overlay = None
             except Exception:
                 pass
             return api.DefSubclassProc(hwnd, message, wparam, lparam)
@@ -848,33 +883,69 @@ class Desktop:
         if not api.SetWindowSubclass(handle, self.frame_callback, 1, 0):
             raise OSError("The window frame could not be configured.")
         self.frame_handles.add(handle)
-        hook_type = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t)
-        user.SetWindowsHookExW.argtypes = [ctypes.c_int, hook_type, ctypes.c_void_p, ctypes.c_uint]
-        user.SetWindowsHookExW.restype = ctypes.c_void_p
-        user.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
-        user.CallNextHookEx.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t]
-        user.CallNextHookEx.restype = ctypes.c_ssize_t
-
-        def attach_cursor(child):
-            if (self.frame_cursor_hook and user.IsChild(handle, child) and
-                    user.GetWindowThreadProcessId(child, None) == thread_id and
-                    api.SetWindowSubclass(child, self.frame_callback, 1, 0)):
-                self.frame_handles.add(child)
-
-        def cursor_window_created(code, wparam, lparam):
-            try:
-                if code == 3:  # HCBT_CREATEWND: attach after native creation completes.
-                    self.post(lambda: attach_cursor(wparam))
-                elif code == 0:  # HCBT_MOVESIZE: native drag regions track layout changes.
-                    attach_cursor(wparam)
-            except Exception:
-                pass
-            return user.CallNextHookEx(None, code, wparam, lparam)
-
-        self.frame_cursor_callback = hook_type(cursor_window_created)
-        self.frame_cursor_hook = user.SetWindowsHookExW(5, self.frame_cursor_callback, None, thread_id)
-        if not self.frame_cursor_hook:
+        self.frame_overlay = user.CreateWindowExW(0x20, "STATIC", None, 0x50000100,
+            0, 0, 0, 0, handle, None, None, None)
+        if not self.frame_overlay or not api.SetWindowSubclass(self.frame_overlay, self.frame_callback, 1, 0):
             raise OSError("The window frame could not be configured.")
+        self.frame_handles.add(self.frame_overlay)
+        self.frame_user = user
+        self._update_frame_region()
+
+    def _update_frame_region(self):
+        if not self.frame_overlay or self.form is None or self.form.IsDisposed:
+            return
+        width, height = self.form.ClientSize.Width, self.form.ClientSize.Height
+        if width <= 0 or height <= 0:
+            return
+        layout = self.frame_layout
+        maximized = self.form.WindowState == self.Forms.FormWindowState.Maximized
+        dpi = self.frame_user.GetDpiForWindow(self.form.Handle.ToInt64())
+        edge = 0 if maximized else max(1, self.frame_user.GetSystemMetricsForDpi(32, dpi) +
+                                      self.frame_user.GetSystemMetricsForDpi(92, dpi))
+        header, excluded = 0, []
+        # During resize/DPI/zoom changes, stale caption holes must never cover live controls.
+        # Native edges remain usable until the browser publishes its matching viewport.
+        if (layout and abs(width-layout["viewport"][0]*layout["pixelRatio"]) <= 2 and
+                abs(height-layout["viewport"][1]*layout["pixelRatio"]) <= 2):
+            scale = layout["pixelRatio"]
+            header = min(height, round(layout["headerHeight"] * scale))
+            excluded = [(max(0, int(x * scale) - 1), max(0, int(y * scale) - 1),
+                         min(width, round((x + w) * scale) + 1), min(height, round((y + h) * scale) + 1))
+                        for x, y, w, h in layout["excluded"]]
+        geometry = width, height, edge, header, tuple(excluded)
+        if geometry == self.frame_geometry:
+            return
+        gdi = ctypes.WinDLL("gdi32")
+        gdi.CreateRectRgn.argtypes = [ctypes.c_int] * 4
+        gdi.CreateRectRgn.restype = ctypes.c_void_p
+        gdi.CombineRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]
+        gdi.DeleteObject.argtypes = [ctypes.c_void_p]
+        region = gdi.CreateRectRgn(0, 0, width, header)
+        if not region:
+            raise ctypes.WinError()
+        try:
+            pieces = [(rect, 4) for rect in excluded]  # RGN_DIFF
+            if edge:
+                pieces += [((0, 0, width, edge), 2), ((0, height-edge, width, height), 2),
+                           ((0, 0, edge, height), 2), ((width-edge, 0, width, height), 2)]  # RGN_OR
+            for rect, operation in pieces:
+                piece = gdi.CreateRectRgn(*rect)
+                if not piece:
+                    raise ctypes.WinError()
+                try:
+                    if not gdi.CombineRgn(region, region, piece, operation):
+                        raise ctypes.WinError()
+                finally:
+                    gdi.DeleteObject(piece)
+            # HWND_TOP only inside this app; never activate or repaint the WebView.
+            self.frame_user.SetWindowPos(self.frame_overlay, None, 0, 0, width, height, 0x0010)
+            if not self.frame_user.SetWindowRgn(self.frame_overlay, region, False):
+                raise ctypes.WinError()
+            region = None  # Ownership transfers to Windows after SetWindowRgn succeeds.
+            self.frame_geometry = geometry
+        finally:
+            if region:
+                gdi.DeleteObject(region)
 
     def _trusted(self, uri):
         return isinstance(uri, str) and uri.partition("#")[0] == self.url

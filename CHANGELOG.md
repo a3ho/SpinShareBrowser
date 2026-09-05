@@ -1,8 +1,26 @@
 # Changelog
 
-SpinShare Browser maintains and distributes only the latest stable release. Historical installers are unavailable; install the current release to receive updates and support.
+SpinShare Browser maintains and supports only the latest stable release. Update to the latest release for fixes and support.
 
-SpinShare Browser 仅维护和提供最新稳定版，历史安装包不再提供下载；请安装当前版本以获得更新与问题支持。
+SpinShare Browser 仅维护和支持最新稳定版。请升级到最新版本以获得修复与问题支持。
+
+## 2.0.1 — 2026-09-05
+
+### English
+
+- Restored dragging from the empty title-bar space between the player and the right-hand controls, with at least 32px of reserved drag space. The player adapts to narrow windows; its text and background can also drag the window, while the cover button, timeline, and Retry remain interactive. Stable hit regions retain the native window-freeze fix without following track-change animations.
+- Fixed a reproducible window freeze when activating, moving, or resizing the app with a changing header player. Window dragging and resizing now use a single host-owned native hit region instead of WebView2's changing non-client regions. Player controls remain interactive, and title-bar double-click behavior is preserved.
+- Fixed previews for charts such as **The Kraken** and **FOREVER NOW**, whose public audio URLs are absent because they reference music supplied with the game. After both normal CDN formats fail, the app reads the static chart reference and streams the exact OGG from the user's Steam game or installed DLC, with seeking. It does not modify, copy, convert, or redistribute game audio; the required game resources must be installed.
+- Added bounded, cancellable audio resolution, version-aware caching, isolated concurrency, and same-origin range streaming. Fast switching, pausing, hiding, and exiting cannot revive an obsolete playback request. Working CDN audio keeps its existing direct path.
+- Playback failures now show a concise recovery message and **Retry** in the existing player height, with full accessible error detail and keyboard focus recovery. Settings, activity, and window-exit notifications share idempotent media cleanup.
+
+### 简体中文
+
+- 恢复播放器与右侧控件之间空白标题栏的拖动，并保留至少 32px 的可拖动留白；窄窗由播放器自适应让出空间。播放器内除封面按钮、进度条和重试按钮以外的区域也可拖动，保留原生窗口防卡死修复与稳定命中区域，不随换曲动画反复更新。
+- 修复播放器更新时激活、拖动或缩放窗口可复现的卡死。窗口拖动和缩放改由宿主维护单个原生命中区域，不再使用 WebView2 动态非客户区；播放器控件保持可操作，标题栏双击行为保留。
+- 修复 **The Kraken**、**FOREVER NOW** 等引用游戏音乐、没有公开音频文件的谱面无法试听的问题。两个常规 CDN 格式均失败后，按静态谱面引用读取本机 Steam 游戏或已安装 DLC 中的精确 OGG，并支持进度定位。不修改、复制、转码或分发游戏音频；本机需已安装所需游戏资源。
+- 音频解析可取消、有超时，并采用绑定谱面版本的缓存、独立并发和同源分段读取。快速切歌、暂停、隐藏和退出不会被迟到请求恢复旧播放；正常 CDN 音频仍沿用原有直连路径。
+- 播放失败在播放器原有高度中显示简短恢复说明与“重试”，补齐完整无障碍原因和键盘焦点返回。设置、活动与窗口退出通知共用幂等媒体清理。
 
 ## 2.0.0 maintenance refresh — 2026-09-02
 
