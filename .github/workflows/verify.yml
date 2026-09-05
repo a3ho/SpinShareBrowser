@@ -1,0 +1,125 @@
+name: Verify Windows build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      installer_smoke:
+        description: Run real installation and upgrade checks on fresh hosted Windows runners
+        type: boolean
+        default: false
+      previous_tag:
+        description: Previous stable release used for upgrade verification
+        type: string
+        default: v2.0.1
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+          architecture: x64
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install exact build dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Check dependencies and source manifest
+        run: python scripts/build.py --qa --preflight
+      - name: Offline Python regression checks
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Offline JavaScript regression checks
+        shell: pwsh
+        run: |
+          Get-ChildItem .\tests -Filter 'test_*.cjs' | Sort-Object Name | ForEach-Object {
+            node $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript test failed: $($_.Name)" }
+          }
+      - name: Install browser verification tool
+        run: npm install --prefix build/browser-tools --no-audit --no-fund playwright@1.62.1
+      - name: Headless Edge interface smoke checks
+        env:
+          PLAYWRIGHT_BROWSER_CHANNEL: msedge
+        shell: pwsh
+        run: |
+          $env:NODE_PATH = (Resolve-Path build/browser-tools/node_modules).Path
+          node scripts/browser_smoke.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Headless browser smoke check failed.' }
+      - name: Build unpublished verification artifacts
+        if: github.event_name != 'workflow_dispatch' || !inputs.installer_smoke
+        run: python scripts/build.py --qa
+      - name: Build the formal release candidate
+        if: github.event_name == 'workflow_dispatch' && inputs.installer_smoke
+        run: python scripts/build.py
+      - name: Verify installer Cancel and Retry on a private desktop
+        run: python scripts/installer_cancel_smoke.py --compiler build/tools/inno-7.1.0/ISCC.exe --prove-regression
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-candidate
+          path: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_smoke && 'dist/*' || 'build/qa/*' }}
+          if-no-files-found: error
+          retention-days: 14
+
+  installer-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.installer_smoke
+    needs: verify
+    runs-on: windows-2022
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        baseline: [current, previous]
+    env:
+      CI_SPINSHARE_INSTALL_SMOKE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+          architecture: x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-candidate
+          path: build/qa
+      - name: Fetch previous release and checksum
+        if: matrix.baseline == 'previous'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+        shell: pwsh
+        run: |
+          if ($env:PREVIOUS_TAG -notmatch '^v?[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Use a stable version tag.' }
+          gh release download $env:PREVIOUS_TAG --repo $env:GITHUB_REPOSITORY --dir build/previous --pattern '*-windows-x64-setup.exe' --pattern '*-windows-x64-setup.exe.sha256'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the previous release.' }
+      - name: Verify install, idle upgrade, native WebView2 window and uninstall
+        env:
+          SMOKE_BASELINE: ${{ matrix.baseline }}
+        shell: pwsh
+        run: |
+          $candidate = @(Get-ChildItem build/qa -Filter '*-windows-x64-setup.exe')
+          if ($candidate.Count -ne 1) { throw 'Expected exactly one candidate installer.' }
+          $arguments = @('scripts/windows_smoke.py', '--installer', $candidate[0].FullName)
+          if ($env:SMOKE_BASELINE -eq 'previous') {
+            $previous = @(Get-ChildItem build/previous -Filter '*-windows-x64-setup.exe')
+            if ($previous.Count -ne 1) { throw 'Expected exactly one previous installer.' }
+            $arguments += @('--previous', $previous[0].FullName)
+          }
+          python @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'Installer smoke check failed.' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installer-smoke-${{ matrix.baseline }}
+          path: build/smoke-logs/*.log
+          if-no-files-found: ignore
+          retention-days: 14

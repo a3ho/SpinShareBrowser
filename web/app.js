@@ -169,13 +169,13 @@ function setStatus(message,error=false){
   uiText(status,message);status.classList.toggle('error',error);loadingIndicator(status,false);
 }
 const INSTALLER_MESSAGE_REPLACEMENTS=Object.keys(UI_CATALOG.en).filter(key=>key.startsWith("engine.")).map(key=>[UI_CATALOG.en[key],key]).sort((a,b)=>b[0].length-a[0].length);
-const INSTALLER_ERROR_TEXT=Object.freeze({invalid_installations:m("Installation status could not be read."),invalid_deletion:m("Could not delete this chart. Refresh its installation status and try again."),installation_changed:m("The installed chart files changed. Refresh the installation status before trying again."),delete_failed:m("Could not delete local chart files. Close the game and try again."),delete_partial:m("Some local chart files could not be restored. Check the install folder before trying again."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_confirmation_required:m("Confirm the chart installation directory before downloading."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
+const INSTALLER_ERROR_TEXT=Object.freeze({installation_recovery_required:m("An interrupted installation needs recovery. Close apps using its files, then retry. Backups are kept."),invalid_installations:m("Installation status could not be read."),invalid_deletion:m("Could not delete this chart. Refresh its installation status and try again."),installation_changed:m("The installed chart files changed. Refresh the installation status before trying again."),delete_failed:m("Could not delete local chart files. Close the game and try again."),delete_partial:m("Some local chart files could not be restored. Check the install folder before trying again."),invalid_language:m("Choose a language and try again."),settings_changed:m("The install directory changed."),installer_busy:m("Wait for installations before changing the directory or exiting."),shutting_down:m("Exiting. Reopen SpinShareBrowser.exe to continue."),pairing_failed:m("Reopen SpinShareBrowser.exe to reconnect."),invalid_body:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_type:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_settings:m("Open Settings and choose the install folder again."),invalid_install:m("Unable to complete this action. Reopen SpinShareBrowser.exe."),invalid_revision:m("Open Settings and choose the install folder again."),invalid_request:m("Check the install folder in Settings, then try again."),settings_io_error:m("Settings could not be saved or read. Check permissions and free space."),request_expired:m("Could not confirm whether this chart was installed."),request_history_full:m("After installations finish, exit and reopen SpinShareBrowser.exe."),job_not_found:m("Cannot find this installation. Check the install folder."),not_found:m("Installer unavailable. Reopen SpinShareBrowser.exe."),context_rejected:m("Reopen SpinShareBrowser.exe to reconnect."),directory_confirmation_required:m("Confirm the chart installation directory before downloading."),directory_picker_busy:m("A folder selection dialog is already open."),directory_picker_error:m("Folder selection failed. Try again."),directory_picker_expired:m("Choosing a folder timed out. Close the folder dialog before retrying.")});
 const CHART_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not connect to the chart server'),charts_request_timeout:m('The chart server did not respond in time'),charts_access_denied:m('The chart server denied access'),charts_rate_limited:m('The chart server is temporarily limiting updates'),charts_server_error:m('The chart server is temporarily unavailable'),charts_request_rejected:m('The chart server rejected this update'),charts_remote_timeout:m('Chart data transfer timed out'),charts_response_incomplete:m('Chart data transfer was interrupted'),charts_response_too_large:m('Chart data exceeded the safe size limit'),charts_invalid_response:m('The chart server returned invalid data')});
 const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not connect to the chart server'),charts_request_timeout:m('The chart server did not respond in time'),charts_access_denied:m('The chart server denied access'),charts_rate_limited:m('The chart server is temporarily limiting updates'),charts_server_error:m('The chart server is temporarily unavailable'),charts_request_rejected:m('The chart server rejected this update'),charts_remote_timeout:m('Chart data transfer timed out'),charts_response_incomplete:m('Chart data transfer was interrupted'),charts_response_too_large:m('Chart data exceeded the safe size limit'),charts_invalid_response:m('The chart server returned invalid data'),charts_cache_error:m('Local chart data could not be read or saved'),charts_cooldown:m('Manual update is not available yet')});
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
-  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.0.1'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
+  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.1.0'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
   if(valid){try{const url=new URL(config.origin);valid=url.protocol==='http:'&&url.hostname==='127.0.0.1'&&Number(url.port)>=1&&Number(url.port)<=65535&&url.origin===config.origin&&globalThis.location?.origin===config.origin&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}catch{valid=false;}}
   if(valid)valid=typeof config.settingsRevision==='string'&&/^[a-f0-9]{32}$/.test(config.settingsRevision);
   if(valid)valid=['zh-CN','en'].includes(config.language);
@@ -201,7 +201,7 @@ function refreshSettingsControls(){
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){
   const settings=payload?.settings;
-  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.0.1')throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.1.0')throw uiError(m("Settings could not be loaded. Reopen Settings."));
   if(settings.targetDirectory!==(settings.customDirectory===null?settings.defaultDirectory:settings.customDirectory))throw uiError(m("Open Settings and choose the install folder again."));
   if(settings.closeBehavior!==undefined&&!['ask','exit','tray'].includes(settings.closeBehavior))throw uiError(m("Settings could not be loaded. Reopen Settings."));
   return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',installDirectoryConfirmed:settings.installDirectoryConfirmed,exiting:settings.exiting===true};
@@ -756,6 +756,7 @@ function syncSearchControls(){
     button.setAttribute('aria-pressed',String(selected));button.setAttribute('aria-disabled',String(last));
   }
   const query=titleKey($('local-search').value),active=phase==='ready'&&searchScopes.has('creator')&&Boolean(query);
+  $('search-network-hint').hidden=!searchScopes.has('creator');
   const message=!active?'':textSearchWork?m('Searching uploader accounts...'):textSearchProblem||(!canSearchUsers(query)&&unknownSearchUploaders()?m('For uploader accounts, enter 2–80 characters with at least two letters or digits, without % or *.'):'');
   uiText($('search-message'),message);$('search-feedback').hidden=!message;$('search-feedback').classList.toggle('is-error',Boolean(textSearchProblem));$('search-retry').hidden=!active||!textSearchProblem;
   loadingIndicator($('search-message'),active&&Boolean(textSearchWork));
@@ -957,7 +958,7 @@ function startTextSearch(query){
   const work={controller:new AbortController(),query,rows:currentRows,generation:cacheGeneration,promise:null};textSearchWork=work;
   work.promise=(async()=>{
     try{const users=await readUserSearch(query,work.controller.signal);if(textSearchWork===work)scopeSearchUsers(users,currentRows);}
-    catch{if(textSearchWork===work)textSearchProblem=m('Uploader search failed. Please retry.');}
+    catch{if(textSearchWork===work)textSearchProblem=m('Uploader lookup failed. Showing local matches only.');}
     finally{if(textSearchWork===work){textSearchWork=null;await rebuild(false);}}
   })();
 }
@@ -1753,7 +1754,7 @@ function installationWorkActive(){
 function deletionWorkActive(){return typeof deletionStates!=='undefined'&&[...deletionStates.values()].some(state=>['queued','deleting','leaving'].includes(state.phase));}
 function clearDeletionErrors(){if(typeof deletionStates!=='undefined')for(const [songId,state] of deletionStates)if(state.phase==='error')deletionStates.delete(songId);}
 function syncInstallationInterlocks(){for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();}
-function installationFilterMode(){const value=$('installation-filter').value;return ['installed','uninstalled'].includes(value)?value:'all';}
+function installationFilterMode(){const value=$('installation-filter').value;return ['installed','uninstalled','different'].includes(value)?value:'all';}
 function installationKey(row){return settingsRevision+':'+row[8].fileReference+':'+row[8].updateHash;}
 function canCheckInstallation(row){return /^spinshare_[a-f0-9]{1,64}$/i.test(row[8].fileReference||'')&&/^[a-f0-9]{32}$/i.test(row[8].updateHash||'');}
 function installationPresence(row){
@@ -1763,7 +1764,8 @@ function installationPresence(row){
 }
 function installationIndexValue(row,index=installationIndex){
   if(!index||index.revision!==settingsRevision)return undefined;
-  return index.entries.get(String(row[8].fileReference).toLowerCase())===String(row[8].updateHash).toLowerCase();
+  const hash=index.entries.get(String(row[8].fileReference).toLowerCase());
+  return hash===undefined?false:hash===String(row[8].updateHash).toLowerCase()?true:'different';
 }
 function readInstallationIndex(payload,revision){
   if(payload?.settingsRevision!==revision||!Array.isArray(payload.installations))throw new Error('Invalid installation index response');
@@ -1776,7 +1778,7 @@ function readInstallationIndex(payload,revision){
 }
 function readInstallationCheck(payload,row,revision){
   const result=payload?.installations?.[0];
-  if(payload?.settingsRevision!==revision||!Array.isArray(payload.installations)||payload.installations.length!==1||!result||typeof result!=='object'||Object.keys(result).length!==2||result.songId!==row[0]||typeof result.installed!=='boolean')throw new Error('Invalid installation check response');
+  if(payload?.settingsRevision!==revision||!Array.isArray(payload.installations)||payload.installations.length!==1||!result||typeof result!=='object'||Object.keys(result).length!==2||result.songId!==row[0]||typeof result.installed!=='boolean'&&result.installed!=='different')throw new Error('Invalid installation check response');
   return result.installed;
 }
 function noteInstallationMutation(row,installed){
@@ -1794,7 +1796,7 @@ function trimPresenceQueue(rows=[]){
 }
 function installationProgressText(pending,total=installationFilterTotal){return m('Checking installation status: ')+number(Math.max(0,total-pending))+' / '+number(total);}
 function syncInstallationFilter(){
-  const active=Boolean(applied)&&phase==='ready'&&installationFilterMode()!=='all';let pending=0,unknown=0,retry=false,checkable=0;
+  const ready=Boolean(applied)&&phase==='ready',active=ready&&installationFilterMode()!=='all';let pending=0,unknown=0,retry=false,checkable=0;
   if(active)for(const row of installationCandidates){
     const value=installationPresence(row);
     if(!canCheckInstallation(row)){unknown++;continue;}
@@ -1805,14 +1807,14 @@ function syncInstallationFilter(){
   installationFilterPending=pending>0;
   installationFilterRemaining=pending;
   installationFilterTotal=checkable;
-  const refreshing=active&&(presenceBusy||presenceQueue.size>0)&&pending===0;
+  const refreshing=ready&&(presenceBusy||presenceQueue.size>0)&&pending===0;
   const stageOwnsProgress=pending>0&&filtered.length===0;
-  const relevantProblem=presenceProblem&&checkable>0,notices=[];
-  if(relevantProblem)notices.push(m('Installation status could not be updated. Current results remain visible.'));
-  if(unknown)notices.push(m('Installation status unknown: ')+number(unknown)+m(' charts excluded.'));
+  const relevantProblem=ready&&presenceProblem&&(active?checkable>0:[...installationViews.values()].some(view=>canCheckInstallation(view.row))),notices=[];
+  if(relevantProblem)notices.push(typeof presenceProblem==='string'?presenceProblem:m('Installation status could not be updated. Current results remain visible.'));
+  if(active&&unknown)notices.push(m('Installation status unknown: ')+number(unknown)+m(' charts excluded.'));
   const message=settingsStale?m('Open Settings to confirm the changed install directory.'):pending?installationProgressText(pending,checkable):notices.join(m(' | '));
-  $('installation-filter-feedback').hidden=!active||!message||stageOwnsProgress;
-  $('installation-filter-retry').hidden=!active||!relevantProblem&&!retry||settingsStale||pending>0||refreshing;
+  $('installation-filter-feedback').hidden=!ready||!message||stageOwnsProgress;
+  $('installation-filter-retry').hidden=!ready||!relevantProblem&&!retry||settingsStale||pending>0||refreshing;
   $('installation-filter-retry').disabled=appExiting||pending>0||refreshing;
   $('installation-filter').setAttribute('aria-busy',String(pending>0||refreshing));
   uiText($('installation-filter-message'),message);
@@ -1836,7 +1838,7 @@ function refreshInstallationActivity(){
   for(const id of changed)if(installationActivityIds.get(id)===active.get(id))changed.delete(id);
   for(const id of changed){
     const previous=installationActivityIds.get(id),state=installationStates.get(id),record=installedCharts.get(id),currentRow=currentRows.find(row=>row[0]===id);
-    if(previous&&!active.has(id)&&state?.job?.id===previous&&state.job.state==='complete'&&record?.key===installationKey(currentRow||state.row)&&typeof record.value==='boolean'&&!record.pending)changed.delete(id);
+    if(previous&&!active.has(id)&&state?.job?.id===previous&&state.job.state==='complete'&&record?.key===installationKey(currentRow||state.row)&&(typeof record.value==='boolean'||record.value==='different')&&!record.pending)changed.delete(id);
   }
   installationActivityIds=active;
   if(!changed.size)return;
@@ -1885,7 +1887,7 @@ async function readInstallationPresence(){
       presenceQueue.clear();let index=null,failed=false;
       try{
         index=readInstallationIndex(await installerRequest('POST','/v1/installations/index',{expectedRevision:revision}),revision);
-      }catch{failed=true;}
+      }catch(error){failed=error;}
       if(generation!==presenceGeneration||revision!==settingsRevision)continue;
       if(mutationGeneration!==installationMutationGeneration){
         for(const {row,record} of batch){
@@ -1896,7 +1898,7 @@ async function readInstallationPresence(){
         syncInstallationFilter();continue;
       }
       if(!failed&&!settingsStale){publishResults=publishInstallationIndex(index,batch)||publishResults;syncInstallationFilter();continue;}
-      presenceProblem=true;
+      presenceProblem=failed?.code==='installation_recovery_required'?errorText(failed):true;
       const wanted=new Set(installationCandidates.map(row=>row[0]));let changed=false;
       for(const {row,record} of batch){
         // A completed install or new directory can replace a record while this batch is in flight.
@@ -1913,8 +1915,9 @@ async function readInstallationPresence(){
 }
 function updateInstallationView(songId){
   const view=installationViews.get(songId);if(!view)return;
-  const saved=installationStates.get(songId),state=saved?.targetDirectory===INSTALL_DIRECTORY?saved:null,deletion=deletionState(songId),job=state?.job,presence=installationPresence(view.row),installed=presence===true;
-  let label=installed?m("Install again"):m("Download and install"),message='';
+  const saved=installationStates.get(songId),state=saved?.targetDirectory===INSTALL_DIRECTORY?saved:null,deletion=deletionState(songId),job=state?.job,presence=installationPresence(view.row),installed=presence===true,different=presence==='different';
+  const overwriteNotice=m('Installing again replaces the local chart and any local edits.');
+  let label=installed||different?m("Install again"):m("Download and install"),message=different?overwriteNotice:'';
   if(state?.problem){
     label=state.expired?m("Download and install again"):job?m("Check progress"):state.rejected?m("Try installing again"):m("Check installation");message=state.problem+(state.expired?m("\nDownloading again will replace files with the same name."):'');
   }else if(state?.running&&!job){
@@ -1934,7 +1937,8 @@ function updateInstallationView(songId){
   else if(deletion?.phase==='error')message=deletion.problem;
   const error=deletion?.phase==='error'||Boolean(state?.problem)||job?.state==='error'||job?.state==='complete'&&!job.zipRemoved;
   const needsSubmit=!job||state?.rejected||state?.expired||['complete','error'].includes(job.state);
-  uiText(view.presence,installed?m("Installed"):presence===false?m("Not installed"):presence===undefined?m('Checking installation status...'):m('Installation status unknown'));view.presence.classList.toggle('is-installed',installed);
+  uiText(view.presence,installed?m("Installed"):different?m('Local files differ'):presence===false?m("Not installed"):presence===undefined?m('Checking installation status...'):m('Installation status unknown'));view.presence.classList.toggle('is-installed',installed);
+  uiAttr(view.button,'aria-description',different?overwriteNotice:m('Install all difficulties and replace matching files.'));
   uiText(view.label,label);uiAttr(view.button,"aria-label",label+' '+view.songTitle);view.button.disabled=Boolean(state?.running)||deletionWorkActive()||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown'||settingsStale&&needsSubmit;view.button.classList.toggle('is-complete',installed);
   const deleteLabel=deletion?.phase==='queued'?m('Queued'):['deleting','leaving'].includes(deletion?.phase)?m('Deleting...'):m('Delete');
   uiText(view.deleteLabel,deleteLabel);uiAttr(view.deleteButton,'aria-label',deleteLabel+' '+view.songTitle);view.deleteButton.hidden=!installed;view.deleteButton.disabled=deletionPending(songId)||installationWorkActive()||appExiting||settingsBusy==='saving'||settingsBusy==='shutdown'||settingsStale;view.deleteButton.classList.toggle('is-error',deletion?.phase==='error');
@@ -2016,7 +2020,7 @@ async function settleInstallationPresence(state){
     const row=currentRows.find(item=>item[0]===state.songId)||state.row,revision=state.settingsRevision,installed=readInstallationCheck(await installerRequest('POST','/v1/installations/check',{expectedRevision:revision,charts:[{songId:state.songId,fileReference:row[8].fileReference,updateHash:row[8].updateHash}]}),row,revision);
     if(installationStates.get(state.songId)!==state||settingsStale||settingsRevision!==revision||installationPending(state.songId))return;
     const currentRow=currentRows.find(item=>item[0]===state.songId);if(currentRow&&installationKey(currentRow)!==installationKey(row)){queueInstallationChecks([currentRow],true);refreshInstallationResults();return;}
-    if(installed)noteInstallationMutation(row,true);else{installationMutationGeneration++;installationIndex=null;}
+    if(installed===true)noteInstallationMutation(row,true);else{installationMutationGeneration++;installationIndex=null;}
     installedCharts.set(state.songId,{key:installationKey(row),value:installed,pending:false});presenceQueue.delete(state.songId);updateInstallationView(state.songId);syncInstallationFilter();refreshInstallationResults();
   }catch{
     if(installationStates.get(state.songId)===state&&!installationPending(state.songId)){queueInstallationChecks([state.row],true);refreshInstallationResults();}
@@ -2418,7 +2422,9 @@ async function rebuild(resolveUsers=true,preservePage=false){
   installationCandidates=rowsMatchingTags(currentRows.filter(row=>!text||fields.some(field=>titleKey(row[searchFields[field]]).includes(text)||field==='creator'&&uploaders.has(row[8].uploader))));
   const installationMode=installationFilterMode();
   if(phase==='ready'&&installationMode!=='all'){trimPresenceQueue(installationCandidates);queueInstallationChecks(installationCandidates);}
-  filtered=installationMode==='all'?installationCandidates.slice():installationCandidates.filter(row=>installationPresence(row)===(installationMode==='installed'));
+  filtered=installationMode==='all'?installationCandidates.slice():installationCandidates.filter(row=>{
+    const value=installationPresence(row);return installationMode==='installed'?value===true||value==='different':installationMode==='different'?value==='different':value===false;
+  });
   tagResultCounts=countTagResults(filtered);
   if(!preservePage){page=1;visibleCount=scrollBatchSize;}
   if(resolveUsers)startTextSearch(text);
@@ -2842,7 +2848,7 @@ async function readUserSearch(query,signal){
   return readSharedUser('search:'+query,signal,async(request,generation)=>{
     const response=await fetch('https://spinsha.re/api/searchUsers',{method:'POST',mode:'cors',credentials:'omit',cache:'no-store',priority:'low',headers:{'Content-Type':'application/json'},body:JSON.stringify({searchQuery:query}),signal:request});
     const result=await readJSONResponse(response,512*1024);
-    if(result?.status!==200||!Array.isArray(result.data))throw uiError(m('Uploader search failed. Please retry.'));
+    if(result?.status!==200||!Array.isArray(result.data))throw uiError(m('Uploader lookup failed. Showing local matches only.'));
     const users=result.data.filter(user=>typeof user?.username==='string'&&titleKey(user.username).includes(query)).map(publicUser).filter(user=>user.id);
     if(request.aborted)throw new DOMException('Aborted','AbortError');
     if(generation===cacheGeneration)remember(userSearchCache,query,users,32,2*1024*1024);return users;

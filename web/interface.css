@@ -215,6 +215,7 @@ body:has(#app-activity:not([hidden])) { --content-bottom: 120px; }
 .scope-check { position: relative; width: 12px; height: 12px; border: 1px solid #757987; border-radius: 3px; flex: none; }
 .search-scope[aria-pressed=true] .scope-check { border-color: #a4a7b5; background: #a4a7b5; }
 .search-scope[aria-pressed=true] .scope-check::after { content: ""; position: absolute; left: 3px; top: 1px; width: 3px; height: 6px; border-right: 1.5px solid #15161b; border-bottom: 1.5px solid #15161b; transform: rotate(45deg); }
+.search-network-hint { margin: 6px 0 0; color: var(--muted); font-size: var(--type-meta); line-height: var(--leading-body); overflow-wrap: anywhere; }
 .search-feedback { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; color: var(--muted); font-size: var(--type-control); }
 .search-feedback button { padding: 5px 9px; background: var(--surface); color: inherit; }
 .tag-add-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: none; min-height: 46px; padding: 9px 15px; background: var(--surface); color: #d9dbe5; font-size: var(--type-control); font-weight: var(--weight-medium); }

@@ -219,7 +219,7 @@ class InstallPipelineTests(unittest.TestCase):
         cover = art / "spinshare_1.png"
         original.write_bytes(b"old chart")
         cover.write_bytes(b"old cover")
-        replace = installer._replace
+        replace = installer._move_absent
         failed = []
 
         def failing_replace(root, source, target):
@@ -232,7 +232,7 @@ class InstallPipelineTests(unittest.TestCase):
             return fixture_zip(target_dir, song_id, extra=True)
 
         manager = self.start_manager(download)
-        with patch.object(installer, "_replace", side_effect=failing_replace), self.assertLogs(level="WARNING"):
+        with patch.object(installer, "_move_absent", side_effect=failing_replace), self.assertLogs(level="WARNING"):
             first, second = self.submit(1), self.submit(2)
             self.drain()
         self.assertTrue(failed)

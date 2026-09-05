@@ -136,7 +136,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       <div class="search-main">
       <div class="search-input-row">
       <form id="chart-search-form" class="search-box" role="search">
-        <input id="local-search" type="search" aria-label="Search charts" data-ui-attr-aria-label="Search charts" placeholder="Search within these charts…" data-ui-attr-placeholder="Search within these charts..." autocomplete="off" aria-describedby="search-scope-hint">
+        <input id="local-search" type="search" aria-label="Search charts" data-ui-attr-aria-label="Search charts" placeholder="Search within these charts…" data-ui-attr-placeholder="Search within these charts..." autocomplete="off" aria-describedby="search-scope-hint search-network-hint">
         <button id="search-clear" class="search-clear" type="button" aria-label="Clear search" data-ui-attr-aria-label="Clear search" hidden><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
         <button id="search-submit" class="search-submit" type="submit" aria-label="Search charts" data-ui-attr-aria-label="Search charts"><svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg></button>
       </form>
@@ -150,13 +150,14 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <button id="search-scope-creator" class="search-scope" type="button" aria-pressed="true"><span class="scope-check" aria-hidden="true"></span><span data-ui-static="Uploader / charter">Uploader / charter</span></button>
       </div>
       <span id="search-scope-hint" class="sr-only" data-ui-static="Select one or more fields. A match in any selected field returns a chart.">Select one or more fields. A match in any selected field returns a chart</span>
+      <p id="search-network-hint" class="search-network-hint" data-ui-static="Chart fields are searched locally; uploader accounts are looked up online when needed.">Chart fields are searched locally; uploader accounts are looked up online when needed</p>
       <div id="search-feedback" class="search-feedback" role="status" aria-live="polite" hidden><span id="search-message"></span><button id="search-retry" type="button" data-ui-static="Retry uploader search" hidden>Retry uploader search</button></div>
       </div>
     </section>
     <div class="content-header" id="results-start" tabindex="-1">
       <div class="result-summary"><h2 id="count"><span data-ui-static="Ready to search">Ready to search</span></h2><p class="scope" id="scope"></p></div>
       <div class="tools">
-        <div class="tool-field installation-filter-control"><span id="installation-filter-label" class="tool-field-label" data-ui-static="Installation status">Installation status</span><select id="installation-filter" data-choice-menu aria-labelledby="installation-filter-label" aria-describedby="installation-filter-message" disabled><option value="all" data-ui-static="All installation states">All</option><option value="installed" data-ui-static="Installed only">Installed only</option><option value="uninstalled" data-ui-static="Not installed only">Not installed only</option></select></div>
+        <div class="tool-field installation-filter-control"><span id="installation-filter-label" class="tool-field-label" data-ui-static="Installation status">Installation status</span><select id="installation-filter" data-choice-menu aria-labelledby="installation-filter-label" aria-describedby="installation-filter-message" disabled><option value="all" data-ui-static="All installation states">All</option><option value="installed" data-ui-static="Installed only">Installed only</option><option value="uninstalled" data-ui-static="Not installed only">Not installed only</option><option value="different" data-ui-static="Local files differ">Local files differ</option></select></div>
         <div class="sort-tools" role="group" aria-label="Sort by" data-ui-attr-aria-label="Sort by">
           <div class="tool-field sort-field"><span id="sort-label" class="tool-field-label" data-ui-static="Sort by">Sort by</span><select id="sort" data-choice-menu aria-labelledby="sort-label"><option value="date" data-ui-static="Upload date">Upload date</option><option value="views" data-ui-static="Views">Views</option><option value="downloads" data-ui-static="Downloads">Downloads</option><option value="level" data-ui-static="Difficulty rating">Difficulty rating</option><option value="title" data-ui-static="Title">Title</option></select></div>
           <div class="tool-field direction-field"><span id="sort-direction-label" class="tool-field-label" data-ui-static="Sort direction">Sort direction</span><select id="sort-direction" data-choice-menu aria-labelledby="sort-direction-label"><option value="desc" data-ui-static="Descending">Descending</option><option value="asc" data-ui-static="Ascending">Ascending</option></select></div>

@@ -7,19 +7,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerTests(unittest.TestCase):
-    def test_release_version_is_consistently_2_0_1(self):
+    def test_release_version_is_consistently_2_1_0(self):
         build = (ROOT / "scripts" / "build.py").read_text(encoding="utf-8")
         setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
         resource = (ROOT / "assets" / "windows-version.txt").read_text(encoding="utf-8")
-        self.assertRegex(build, r'VERSION\s*=\s*"2\.0\.1"')
-        self.assertIn('#define AppVersion "2.0.1"', setup)
-        self.assertIn("StringStruct('ProductVersion', '2.0.1')", resource)
-        self.assertIn('filevers=(2, 0, 1, 0)', resource)
+        self.assertRegex(build, r'VERSION\s*=\s*"2\.1\.0"')
+        self.assertIn('#define AppVersion "2.1.0"', setup)
+        self.assertIn("StringStruct('ProductVersion', '2.1.0')", resource)
+        self.assertIn('filevers=(2, 1, 0, 0)', resource)
         service = (ROOT / 'src/spinshare_portable.py').read_text(encoding='utf-8')
         interface = (ROOT / 'web/app.js').read_text(encoding='utf-8')
-        self.assertIn('VERSION = "2.0.1"', service)
-        self.assertIn("config.version==='2.0.1'", interface)
-        self.assertIn("settings.version!=='2.0.1'", interface)
+        self.assertIn('VERSION = "2.1.0"', service)
+        self.assertIn("config.version==='2.1.0'", interface)
+        self.assertIn("settings.version!=='2.1.0'", interface)
 
     def test_existing_install_is_an_explicit_safe_update(self):
         setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
@@ -117,12 +117,44 @@ class WindowsInstallerTests(unittest.TestCase):
         self.assertIn("RetryPreparation(Result)", body)
         self.assertLess(body.index("RunMaintenance"), body.index("CheckProgramFiles"))
         self.assertIn("MB_RETRYCANCEL", setup)
-        self.assertIn("WizardForm.Close", setup)
-        self.assertIn("MaintenanceCancelRequested", setup)
         self.assertIn("MaintenanceFilesBusy", setup)
         self.assertIn("13: Result := CustomMessage('MaintenanceTimeout')", setup)
         self.assertIn("GetProgramFiles(Files)", setup)
         self.assertIn("ProbeProgramFile(FileName, True)", setup)
+
+    def test_prepare_cancel_and_silent_failure_both_preserve_the_nonempty_error(self):
+        setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
+        preparation = re.search(
+            r"function PrepareToInstall\b(?P<body>.*?)procedure DeinitializeSetup\b", setup, re.S)
+        self.assertIsNotNone(preparation)
+        body = preparation.group("body")
+        cancelled = re.search(r"if not RetryPreparation\(Result\) then\s+begin(?P<body>.*?)end;", body, re.S)
+        self.assertIsNotNone(cancelled)
+        branch = re.sub(r"\{.*?\}", "", cancelled.group("body"), flags=re.S)
+        self.assertRegex(branch, r"\bExit\s*;")
+        self.assertNotRegex(branch, r"\bResult\s*:=", "Cancel must never turn a failed prepare into success")
+        self.assertNotIn("SilentOperation", branch, "Interactive cancel and silent failure share the same exit")
+        self.assertNotIn("WizardForm.Close", body, "Inno disables Cancel while PrepareToInstall runs")
+        self.assertLess(body.index("if Result <> '' then"), cancelled.start())
+
+    def test_interactive_prepare_cancel_closes_after_returning_to_the_preparing_page(self):
+        setup = (ROOT / "scripts" / "windows.iss").read_text(encoding="utf-8-sig")
+        retry = re.search(r"function RetryPreparation\b(?P<body>.*?)procedure CancelButtonClick\b", setup, re.S)
+        self.assertIsNotNone(retry)
+        self.assertRegex(retry.group("body"),
+                         r"if not Result and not SilentOperation then\s+begin\s+MaintenanceCancelRequested := True;")
+        self.assertNotIn("WizardForm.Close", retry.group("body"))
+        page = re.search(r"procedure CurPageChanged\b(?P<body>.*?)function PrepareToInstall\b", setup, re.S)
+        self.assertIsNotNone(page)
+        delayed = re.search(
+            r"if \(CurPageID = wpPreparing\) and MaintenanceCancelRequested then\s+begin(?P<body>.*?)end;",
+            page.group("body"), re.S)
+        self.assertIsNotNone(delayed)
+        self.assertIn("WizardForm.Close;", delayed.group("body"))
+        self.assertIn("Exit;", delayed.group("body"))
+        cancel = re.search(r"procedure CancelButtonClick\b(?P<body>.*?)procedure ReleaseMaintenanceGate\b", setup, re.S)
+        self.assertIsNotNone(cancel)
+        self.assertRegex(cancel.group("body"), r"if MaintenanceCancelRequested then\s+Confirm := False;")
 
 
 if __name__ == "__main__":

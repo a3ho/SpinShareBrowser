@@ -5,6 +5,7 @@ import contextlib
 import dataclasses
 import email.message
 import hashlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -80,6 +81,12 @@ class DeletePartialError(InstallError):
     code = "delete_partial"
 
 
+class RecoveryError(InstallError):
+    """An interrupted installation needs attention before more files are changed."""
+
+    code = "installation_recovery_required"
+
+
 @dataclasses.dataclass(frozen=True)
 class InstallLimits:
     max_archive_bytes: int = 512 * 1024 * 1024
@@ -90,6 +97,8 @@ class InstallLimits:
 
 DEFAULT_LIMITS = InstallLimits()
 MAX_DELETE_AUDIO_FILES = DEFAULT_LIMITS.max_entries
+INSTALL_TRANSACTION_NAME = ".spinshare-install-transaction.json"
+MAX_TRANSACTION_BYTES = 8 * 1024 * 1024
 
 
 def _deadline(deadline):
@@ -274,6 +283,221 @@ def _rollback(root, records):
     return errors
 
 
+@contextlib.contextmanager
+def _open_owned(root, path):
+    path = _owned(root, path)
+    before = _no_link(path)
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or
+                (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)):
+            raise InstallError("An installation recovery file changed while being opened.")
+        yield stream
+
+
+def _file_identity(root, path, deadline=None):
+    """Recognize our exact bytes after a crash without trusting only timestamps."""
+    with _open_owned(root, path) as stream:
+        before = os.fstat(stream.fileno())
+        if before.st_size > DEFAULT_LIMITS.max_file_bytes:
+            raise InstallError("An installation recovery file exceeds the size limit.")
+        digest, size = hashlib.sha256(), 0
+        while True:
+            _deadline(deadline)
+            block = stream.read(CHUNK_SIZE)
+            if not block:
+                break
+            size += len(block)
+            if size > DEFAULT_LIMITS.max_file_bytes:
+                raise InstallError("An installation recovery file exceeds the size limit.")
+            digest.update(block)
+        after = os.fstat(stream.fileno())
+    identity = [before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns]
+    if identity != [after.st_dev, after.st_ino, size, after.st_mtime_ns]:
+        raise InstallError("An installation recovery file changed while being read.")
+    return [*identity, digest.hexdigest()]
+
+
+def _identity_at(root, path):
+    return _file_identity(root, path) if os.path.lexists(path) else None
+
+
+def _write_transaction(root, transaction):
+    path = _owned(root, root / INSTALL_TRANSACTION_NAME)
+    raw = json.dumps(transaction, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    if len(raw) > MAX_TRANSACTION_BYTES:
+        raise InstallError("The installation recovery record exceeds the size limit.")
+    descriptor, temporary = _temporary(root, root, ".spinshare-journal-")
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _owned(root, temporary)
+        _owned(root, path)
+        if os.name == "nt":
+            import ctypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.MoveFileExW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+            kernel.MoveFileExW.restype = ctypes.c_int
+            # The mapping must reach disk before any original is renamed.
+            if not kernel.MoveFileExW(str(temporary), str(path), 0x1 | 0x8):
+                raise ctypes.WinError(ctypes.get_last_error())
+        else:
+            os.replace(temporary, path)
+            descriptor = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    finally:
+        _unlink(root, temporary)
+
+
+def _read_transaction(root):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate recovery field")
+            result[key] = value
+        return result
+
+    with _open_owned(root, root / INSTALL_TRANSACTION_NAME) as stream:
+        raw = stream.read(MAX_TRANSACTION_BYTES + 1)
+    if len(raw) > MAX_TRANSACTION_BYTES:
+        raise ValueError("Recovery record is too large")
+    transaction = json.loads(raw, object_pairs_hook=unique_object)
+    if (not isinstance(transaction, dict) or set(transaction) != {"schemaVersion", "phase", "archive", "files"} or
+            type(transaction["schemaVersion"]) is not int or transaction["schemaVersion"] != 1 or
+            transaction["phase"] not in {"installing", "committed"} or
+            not isinstance(transaction["files"], list) or not 1 <= len(transaction["files"]) <= DEFAULT_LIMITS.max_entries):
+        raise ValueError("Invalid recovery record")
+
+    def identity(value):
+        return (isinstance(value, list) and len(value) == 5 and
+                all(type(number) is int and number >= 0 for number in value[:4]) and
+                value[2] <= DEFAULT_LIMITS.max_file_bytes and isinstance(value[4], str) and
+                re.fullmatch(r"[a-f0-9]{64}", value[4]) is not None)
+
+    used, references = set(), set()
+
+    def member(value, pattern):
+        if not isinstance(value, str) or not re.fullmatch(pattern, value):
+            raise ValueError("Unsafe recovery path")
+        parts = _member_parts(value)
+        folded = value.casefold()
+        if folded in used:
+            raise ValueError("Colliding recovery paths")
+        used.add(folded)
+        return _owned(root, root.joinpath(*parts))
+
+    archive = transaction["archive"]
+    if not isinstance(archive, dict) or set(archive) != {"path", "identity"} or not identity(archive["identity"]):
+        raise ValueError("Invalid recovery archive")
+    member(archive["path"], r"(?:[^/]+/)*[^/]+")
+    for record in transaction["files"]:
+        if (not isinstance(record, dict) or set(record) != {"target", "temp", "backup", "old", "new", "oldMode"} or
+                not identity(record["new"]) or
+                record["old"] is not None and not identity(record["old"]) or
+                (record["old"] is None) != (record["backup"] is None) or
+                (record["old"] is None) != (record["oldMode"] is None) or
+                record["oldMode"] is not None and (type(record["oldMode"]) is not int or not 0 <= record["oldMode"] <= 0xffff)):
+            raise ValueError("Invalid recovery file")
+        target = member(record["target"], r"(?:spinshare_[a-fA-F0-9]{1,64}\.srtb|AlbumArt/spinshare_[a-fA-F0-9]{1,64}\.png|AudioClips/spinshare_[a-fA-F0-9]{1,64}_[0-9]+\.(?:ogg|mp3))")
+        reference = re.search(r"spinshare_[a-fA-F0-9]{1,64}", record["target"])[0]
+        references.add(reference)
+        temporary = member(record["temp"], r"(?:AlbumArt/|AudioClips/)?\.spinshare-stage-[a-z0-9_]{8}\.tmp")
+        if temporary.parent != target.parent:
+            raise ValueError("Recovery staging directory mismatch")
+        if record["backup"] is not None:
+            backup = member(record["backup"], r"(?:AlbumArt/|AudioClips/)?\.spinshare-rollback-[a-z0-9_]{8}\.tmp")
+            if backup.parent != target.parent:
+                raise ValueError("Recovery backup directory mismatch")
+    if len(references) != 1 or sum(record["target"].endswith(".srtb") for record in transaction["files"]) != 1:
+        raise ValueError("Recovery record does not describe one official chart")
+    return transaction
+
+
+def _move_absent(root, source, target):
+    source, target = _owned(root, source), _owned(root, target)
+    if os.path.lexists(target):
+        raise InstallError("A changed file prevents installation recovery.")
+    if os.name == "nt":
+        # Windows rename fails if another process creates the destination first.
+        os.rename(source, target)
+    else:
+        # link/unlink gives the same no-replace guarantee on POSIX.
+        os.link(source, target, follow_symlinks=False)
+        source.unlink()
+
+
+def _recover_transaction(root, transaction):
+    restored = 0
+    # Preflight every file before changing anything; an external edit keeps all backups.
+    for record in transaction["files"]:
+        target, temporary = root / record["target"], root / record["temp"]
+        current, staged = _identity_at(root, target), _identity_at(root, temporary)
+        backup = _identity_at(root, root / record["backup"]) if record["backup"] else None
+        if staged not in (None, record["new"]) or backup not in (None, record["old"]):
+            raise InstallError("Staged installation files changed; recovery files were retained.")
+        if transaction["phase"] == "committed":
+            if current != record["new"]:
+                raise InstallError("Installed files changed; recovery files were retained.")
+        elif current not in (None, record["old"], record["new"]) or (
+                record["old"] is not None and current != record["old"] and backup is None):
+            raise InstallError("Local files changed; recovery files were retained.")
+        if current == record["new"] and staged is not None:
+            raise InstallError("Conflicting installation files require manual recovery.")
+    for record in sorted(transaction["files"], key=lambda item: not item["target"].endswith(".srtb")):
+        target, temporary = root / record["target"], root / record["temp"]
+        backup = root / record["backup"] if record["backup"] else None
+        if transaction["phase"] == "installing":
+            current = _identity_at(root, target)
+            if current == record["new"]:
+                _move_absent(root, target, temporary)
+                if _file_identity(root, temporary) != record["new"]:
+                    # The user changed it between validation and the rename.
+                    _move_absent(root, temporary, target)
+                    raise InstallError("Local files changed during installation recovery.")
+                current = None
+            if current is None and backup is not None:
+                if _file_identity(root, backup) != record["old"]:
+                    raise InstallError("An original changed during installation recovery.")
+                _move_absent(root, backup, target)
+                target.chmod(record["oldMode"])
+                restored += 1
+            elif current != record["old"]:
+                raise InstallError("Local files changed during installation recovery.")
+        for path, expected in ((temporary, record["new"]), (backup, record["old"])):
+            if path is not None and os.path.lexists(path):
+                if _file_identity(root, path) != expected:
+                    raise InstallError("Recovery files changed and were retained.")
+                _unlink(root, path)
+    if transaction["phase"] == "committed":
+        archive = root / transaction["archive"]["path"]
+        if os.path.lexists(archive):
+            if _file_identity(root, archive) != transaction["archive"]["identity"]:
+                raise InstallError("The retained ZIP changed and was not removed.")
+            _unlink(root, archive)
+    _unlink(root, root / INSTALL_TRANSACTION_NAME)
+    return {"recovered": True, "filesRestored": restored}
+
+
+def recover_installation(target_dir):
+    """Recover one interrupted install; call only while directory mutations are idle."""
+    if not os.path.lexists(target_dir):
+        return {"recovered": False, "filesRestored": 0}
+    try:
+        root = _root(target_dir)
+        if not os.path.lexists(root / INSTALL_TRANSACTION_NAME):
+            return {"recovered": False, "filesRestored": 0}
+        return _recover_transaction(root, _read_transaction(root))
+    except (OSError, ValueError, TypeError, RecursionError, InstallError) as exc:
+        raise RecoveryError("An interrupted installation could not be recovered safely. Its recovery files were retained; close the game and check the chart folder before trying again.") from exc
+
+
 def _staged_chart_digest(root, path, max_chart_bytes):
     try:
         path = _owned(root, path)
@@ -396,6 +620,7 @@ def delete_chart_files(target_dir, file_reference, expected_hash, *, max_chart_b
 
 def install_archive(zip_path, target_dir, report=lambda update: None, limits=DEFAULT_LIMITS, deadline=None):
     root = _root(target_dir)
+    recover_installation(root)
     zip_path = _owned(root, zip_path)
     if not zip_path.is_file() or zip_path.stat().st_size > limits.max_archive_bytes:
         raise InstallError("The ZIP is missing or exceeds the archive size limit.")
@@ -418,36 +643,62 @@ def install_archive(zip_path, target_dir, report=lambda update: None, limits=DEF
                     _copy_member(archive, info, destination, deadline)
                     destination.flush()
                     os.fsync(destination.fileno())
-        # All bytes and CRCs are checked before any old payload is replaced.
+        # Persist the complete mapping before moving even the first original.
+        transaction = {"schemaVersion": 1, "phase": "installing",
+                       "archive": {"path": zip_path.relative_to(root).as_posix(),
+                                   "identity": _file_identity(root, zip_path, deadline)}, "files": []}
         for record in records:
             target = _owned(root, record["target"])
+            old, backup = None, None
             if target.exists():
                 record["old_mode"] = target.stat().st_mode
+                old = _file_identity(root, target, deadline)
                 descriptor, backup = _temporary(root, target.parent, ".spinshare-rollback-")
                 os.close(descriptor)
-                try:
-                    _replace(root, target, backup)
-                except Exception:
-                    _unlink(root, backup)
-                    raise
+                _unlink(root, backup)
+            transaction["files"].append({
+                "target": target.relative_to(root).as_posix(),
+                "temp": record["temp"].relative_to(root).as_posix(),
+                "backup": backup.relative_to(root).as_posix() if backup is not None else None,
+                "old": old, "new": _file_identity(root, record["temp"], deadline), "oldMode": record["old_mode"],
+            })
+        _write_transaction(root, transaction)
+        # All bytes, CRCs and recovery metadata are durable before replacement.
+        for record, saved in zip(records, transaction["files"]):
+            target = _owned(root, record["target"])
+            if _identity_at(root, target) != saved["old"]:
+                raise InstallError("The existing chart files changed during installation.")
+            if saved["backup"] is not None:
+                backup = root / saved["backup"]
+                _move_absent(root, target, backup)
                 record["backup"] = backup
                 overwritten += 1
-            _replace(root, record["temp"], target)
+            _move_absent(root, record["temp"], target)
             record["committed"] = True
             written += 1
             report({"state": "extracting", "message": "Replacing installed chart files.", "filesWritten": written})
+        completed = dict(transaction, phase="committed")
+        _write_transaction(root, completed)
     except Exception as exc:
-        rollback_errors = _rollback(root, records)
+        if os.path.lexists(root / INSTALL_TRANSACTION_NAME):
+            try:
+                committed = _read_transaction(root)["phase"] == "committed"
+                recover_installation(root)
+                if committed:
+                    return {"filesWritten": written, "overwrittenFiles": overwritten,
+                            "fileCount": len(records), "zipRemoved": True}
+                rollback_errors = []
+            except (OSError, ValueError, TypeError, RecursionError, InstallError):
+                rollback_errors = ["Recovery files were retained."]
+        else:
+            rollback_errors = _rollback(root, records)
         if rollback_errors:
             raise InstallError("Installation failed and some originals could not be restored. The ZIP and recovery files were retained; check for files locked by the game.") from exc
         report({"filesWritten": 0})
         message = str(exc) if isinstance(exc, InstallError) else "The ZIP is corrupt or a file write failed: " + str(exc)
         raise InstallError(message + " Original files are intact; the ZIP was retained.") from exc
     try:
-        for record in records:
-            if record["backup"] is not None:
-                _unlink(root, record["backup"])
-        _unlink(root, zip_path)
+        _recover_transaction(root, completed)
     except (OSError, InstallError) as exc:
         raise InstallError("Extraction completed, but cleanup failed. Check for locked ZIP or recovery files.") from exc
     return {"filesWritten": written, "overwrittenFiles": overwritten, "fileCount": len(records), "zipRemoved": True}
@@ -487,7 +738,7 @@ def download_archive(song_id, target_dir, report, limits=DEFAULT_LIMITS, deadlin
     opener = urllib.request.build_opener(OfficialRedirects())
     request = urllib.request.Request(
         "https://spinsha.re/api/song/" + str(song_id) + "/download",
-        headers={"User-Agent": "SpinShareBrowser/2.0.1", "Cache-Control": "no-store", "Pragma": "no-cache", "Accept": "application/zip"},
+        headers={"User-Agent": "SpinShareBrowser/2.1.0", "Cache-Control": "no-store", "Pragma": "no-cache", "Accept": "application/zip"},
     )
     temp = None
     try:

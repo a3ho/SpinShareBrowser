@@ -22,7 +22,7 @@ import time
 import installer
 import audio_preview
 
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 HOST = "127.0.0.1"
 CONFIG_NAME = "config.json"
 PAGE_NAME = "browser.html"
@@ -1068,6 +1068,25 @@ class PortableManager(installer.JobManager):
         # Retain IDs after job eviction for retry deduplication.
         self.accepted_requests = set()
         super().__init__(store.target_for(config))
+        # Recovery must not prevent browsing. The next inventory read or write
+        # retries it and exposes any retained recovery files through the UI.
+        with self.lock:
+            try:
+                self._recover_installation()
+            except APIError:
+                pass
+
+    def _recover_installation(self):
+        """Called under the manager lock, only while no install is active."""
+        if self.closed or self.exiting:
+            raise APIError(409, "shutting_down", "The app is exiting. Reopen SpinShareBrowser.exe.")
+        if self.active_count():
+            return
+        self.validate_target(self.target_dir)
+        try:
+            installer.recover_installation(self.target_dir)
+        except installer.RecoveryError as exc:
+            raise APIError(409, "installation_recovery_required", str(exc)) from exc
 
     @property
     def revision(self):
@@ -1157,6 +1176,7 @@ class PortableManager(installer.JobManager):
                 raise APIError(409, "settings_changed", "The installation directory changed in another page. Confirm it before submitting again.")
             if not self.config["installDirectoryConfirmed"]:
                 raise APIError(409, "directory_confirmation_required", "Confirm the chart installation directory before downloading.")
+            self._recover_installation()
             if len(self.accepted_requests) >= MAX_REQUEST_HISTORY:
                 raise APIError(429, "request_history_full", "Request history is full. Wait for installs to finish, then reopen the app.")
             job = super().submit(song_id, request_id)
@@ -1181,6 +1201,7 @@ class PortableManager(installer.JobManager):
                 raise APIError(409, "settings_changed", "Settings changed in another page. Refresh settings before retrying.")
             if self.closed:
                 raise APIError(409, "shutting_down", "The app is exiting. Reopen SpinShareBrowser.exe.")
+            self._recover_installation()
             active = {job["songId"] for job in self.jobs.values() if job["state"] in installer.ACTIVE_STATES}
             results = []
             for chart in charts:
@@ -1189,9 +1210,12 @@ class PortableManager(installer.JobManager):
                     try:
                         raw = _read_bytes(self.target_dir / (chart["fileReference"] + ".srtb"), limit=MAX_CHART_BYTES)
                         raw.decode("utf-8")
-                        installed = hmac.compare_digest(hashlib.md5(raw, usedforsecurity=False).hexdigest(), chart["updateHash"].lower())
-                    except (OSError, PortableError, UnicodeError):
+                        matches = hmac.compare_digest(hashlib.md5(raw, usedforsecurity=False).hexdigest(), chart["updateHash"].lower())
+                        installed = True if matches else "different"
+                    except (FileNotFoundError, PortableError, UnicodeError):
                         pass
+                    except OSError as exc:
+                        raise APIError(500, "invalid_installations", "The chart file could not be read. Close programs using it and retry.") from exc
                 results.append({"songId": chart["songId"], "installed": installed})
             return {"settingsRevision": self.revision, "installations": results}
 
@@ -1205,6 +1229,7 @@ class PortableManager(installer.JobManager):
                 raise APIError(409, "installer_busy", "Wait for installs to finish before checking the installation index.")
             if self.closed or self.exiting:
                 raise APIError(409, "shutting_down", "The app is exiting. Reopen SpinShareBrowser.exe.")
+            self._recover_installation()
             installations, seen = {}, set()
             scanned = total_bytes = 0
             deadline = time.monotonic() + INSTALLATION_INDEX_TIMEOUT_SECONDS
@@ -1237,7 +1262,7 @@ class PortableManager(installer.JobManager):
                             raw.decode("utf-8")
                         except APIError:
                             raise
-                        except (OSError, PortableError, UnicodeError):
+                        except (FileNotFoundError, PortableError, UnicodeError):
                             continue
                         if len(installations) >= INSTALLATION_INDEX_MAX_ENTRIES:
                             raise APIError(413, "invalid_installations", "The installation index contains too many charts.")
@@ -1270,6 +1295,7 @@ class PortableManager(installer.JobManager):
             if self.closed or self.exiting:
                 raise APIError(409, "shutting_down", "The app is exiting. Reopen SpinShareBrowser.exe.")
             self.validate_target(self.target_dir)
+            self._recover_installation()
             try:
                 raw = _read_bytes(self.target_dir / (file_reference + ".srtb"), limit=MAX_CHART_BYTES)
                 raw.decode("utf-8")

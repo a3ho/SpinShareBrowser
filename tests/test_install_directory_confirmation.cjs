@@ -25,7 +25,7 @@ class Element {
 const row = id => [id, `Song ${id}`, '', '', '', '', '', 20, {dlc: false}];
 const settings = (revision, directory, confirmed = false) => ({
   revision, targetDirectory: directory, defaultDirectory: 'C:\\Game\\Custom', customDirectory: directory,
-  closeBehavior: 'ask', installDirectoryConfirmed: confirmed, version: '2.0.1', exiting: false,
+  closeBehavior: 'ask', installDirectoryConfirmed: confirmed, version: '2.1.0', exiting: false,
 });
 
 function harness() {

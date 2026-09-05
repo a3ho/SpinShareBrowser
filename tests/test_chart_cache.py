@@ -904,6 +904,33 @@ class ChartCacheTests(unittest.TestCase):
                 events.append("yield")
         self.assertEqual(events, ["lock", "process", "shutdown", "exited", "exited", "lock", "yield", "close"])
 
+    def test_maintenance_returns_to_retry_prompt_when_the_app_or_its_lock_keeps_waiting(self):
+        runtime = {"pid": 123, "port": 456, "instanceId": "a" * 32}
+        config = {"token": "b" * 64}
+        install = self.root / "program"
+        for process_exited in (False, True):
+            with self.subTest(process_exited=process_exited):
+                clock = [0.0]
+                lock = mock.Mock()
+                lock.try_acquire.return_value = False
+                with (mock.patch.object(maintenance, "gate_name", return_value="gate"),
+                      mock.patch.object(maintenance, "_read_config", return_value=config),
+                      mock.patch.object(maintenance, "_locations", return_value=(self.state, install, [])),
+                      mock.patch.object(portable, "InstanceLock", return_value=lock),
+                      mock.patch.object(portable, "read_runtime", return_value=runtime),
+                      mock.patch.object(maintenance, "_process", return_value=contextlib.nullcontext(lambda: process_exited)),
+                      mock.patch.object(maintenance, "_shutdown") as shutdown,
+                      mock.patch.object(maintenance.time, "monotonic", side_effect=lambda: clock[0]),
+                      mock.patch.object(maintenance.time, "sleep", side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay))):
+                    with self.assertRaises(maintenance.MaintenanceError) as failure:
+                        with maintenance._idle_state(self.state, install):
+                            self.fail("A running process or held lock must not permit installation")
+                self.assertEqual(failure.exception.exit_code, 10)
+                self.assertGreaterEqual(clock[0], 5)
+                self.assertLess(clock[0], 5.1)
+                shutdown.assert_called_once_with(runtime, config["token"])
+                lock.close.assert_called_once()
+
     @unittest.skipUnless(os.name == "nt", "The real process-handle lifecycle is Windows-specific")
     def test_maintenance_gracefully_stops_a_real_idle_local_process(self):
         state = self.root / "lifecycle-state"

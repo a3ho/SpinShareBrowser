@@ -11,7 +11,7 @@
   #error ProgramFilesInclude must name the generated program file list.
 #endif
 #ifndef AppVersion
-  #define AppVersion "2.0.1"
+  #define AppVersion "2.1.0"
 #endif
 #ifndef AppId
   #define AppId "SpinShareBrowser"
@@ -81,8 +81,8 @@ en.ConfirmUninstall={#AppName} and its settings, caches, and other local app dat
 zh_CN.ConfirmUninstall=将删除 {#AppName} 程序及其设置、缓存等本地工具数据。您已下载或安装的谱面将保留
 
 [CustomMessages]
-en.MaintenanceBusy={#AppName} is busy or is still closing. Finish any downloads, close the app from its tray menu, and try again
-zh_CN.MaintenanceBusy={#AppName} 正忙或正在退出。请等待下载完成，从托盘菜单退出工具，然后重试
+en.MaintenanceBusy={#AppName} is busy or has not finished closing. Finish any downloads and close the app from its tray menu. Retry to continue, or Cancel to stop this setup
+zh_CN.MaintenanceBusy={#AppName} 正忙或尚未退出。请等待下载完成，并从托盘菜单退出工具。选择“重试”继续，或“取消”退出本次安装
 en.MaintenanceUnsafe=The app folders contain an unexpected path or file. Resolve the reported folder issue before continuing
 zh_CN.MaintenanceUnsafe=工具目录中存在异常路径或文件。请处理提示中的目录问题后重试
 en.MaintenanceIO=Some app files are in use or cannot be accessed. Close programs using these files and check folder permissions, then try again
@@ -109,8 +109,12 @@ en.DotNetRequired=Microsoft .NET Framework 4.8 or later is required. Install Win
 zh_CN.DotNetRequired=需要 Microsoft .NET Framework 4.8 或更高版本。请安装 Windows 更新或启用 .NET Framework，然后重新运行安装程序
 en.WebView2Required=Microsoft Edge WebView2 Runtime 123.0.2420.47 or later is required. Setup could not install or update it. Check your internet connection and try again, or use Microsoft's Evergreen Standalone Installer
 zh_CN.WebView2Required=需要 Microsoft Edge WebView2 Runtime 123.0.2420.47 或更高版本。安装或更新失败，请检查网络连接后重试，或使用微软 Evergreen 独立安装包
-en.PreparingFiles=Preparing app files…
-zh_CN.PreparingFiles=正在准备工具文件…
+en.PreparingFiles=Extracting setup files. This may take a moment…
+zh_CN.PreparingFiles=正在解压安装文件，可能需要片刻…
+en.CheckingRunningApp=Checking the running app and waiting for it to close safely…
+zh_CN.CheckingRunningApp=正在检查运行状态，并等待工具安全退出…
+en.CheckingProgramFiles=Checking the app files to be updated…
+zh_CN.CheckingProgramFiles=正在检查需要更新的程序文件…
 en.InstallingWebView2=Installing or updating Microsoft Edge WebView2 Runtime…
 zh_CN.InstallingWebView2=正在安装或更新 Microsoft Edge WebView2 Runtime…
 en.UpdateWelcomeTitle=Update {#AppName}
@@ -191,6 +195,8 @@ function FindNextProgramFile(Handle: THandle; var Data: TProgramFindData): BOOL;
   external 'FindNextFileW@kernel32.dll stdcall';
 function CloseProgramFind(Handle: THandle): BOOL;
   external 'FindClose@kernel32.dll stdcall';
+function UpdateWindow(Handle: HWND): BOOL;
+  external 'UpdateWindow@user32.dll stdcall';
 
 #include ProgramFilesInclude
 
@@ -405,7 +411,6 @@ begin
   if not Result and not SilentOperation then
   begin
     MaintenanceCancelRequested := True;
-    WizardForm.Close;
   end;
 end;
 
@@ -598,6 +603,16 @@ begin
   end;
 end;
 
+procedure ShowPreparationStatus(const MessageKey: String);
+begin
+  WizardForm.PreparingLabel.Caption := CustomMessage(MessageKey);
+  WizardForm.PreparingLabel.Visible := True;
+  WizardForm.AdjustLabelHeight(WizardForm.PreparingLabel);
+  { Paint this phase before synchronous extraction or a child-process wait. }
+  UpdateWindow(WizardForm.PreparingLabel.Handle);
+  Log('Preparation phase: ' + MessageKey);
+end;
+
 function InstallWebView2: String;
 var
   ExitCode: Integer;
@@ -606,7 +621,7 @@ begin
   Result := '';
   if WebView2Available then
     Exit;
-  WizardForm.PreparingLabel.Caption := CustomMessage('InstallingWebView2');
+  ShowPreparationStatus('InstallingWebView2');
   ExtractTemporaryFile('MicrosoftEdgeWebview2Setup.exe');
   Bootstrapper := ExpandConstant('{tmp}\MicrosoftEdgeWebview2Setup.exe');
   if WebView2Available then
@@ -660,6 +675,12 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
+  if (CurPageID = wpPreparing) and MaintenanceCancelRequested then
+  begin
+    { PrepareToInstall has returned its error and Inno has re-enabled Cancel. }
+    WizardForm.Close;
+    Exit;
+  end;
   if ExistingInstall then
   begin
     if CurPageID = wpWelcome then
@@ -675,13 +696,13 @@ begin
   Result := CustomMessage('MaintenanceGateFailed');
   if not GateOwned then
     Exit;
-  WizardForm.PreparingLabel.Caption := CustomMessage('PreparingFiles');
-  WizardForm.PreparingLabel.Visible := True;
   try
     if not PayloadReady then
     begin
+      ShowPreparationStatus('PreparingFiles');
       ExtractTemporaryFiles('{tmp}\SpinShareBrowser\*');
       PayloadReady := True;
+      Log('Temporary application files extracted.');
     end;
   except
     Result := CustomMessage('PayloadFailed');
@@ -689,12 +710,17 @@ begin
   end;
   repeat
     try
+      ShowPreparationStatus('CheckingRunningApp');
       Result := RunMaintenance(ExpandConstant('{tmp}\SpinShareBrowser\SpinShareBrowser.exe'), 'prepare');
     except
       Result := CustomMessage('MaintenanceFailed');
     end;
     if Result = '' then
+    begin
+      ShowPreparationStatus('CheckingProgramFiles');
       Result := CheckProgramFiles;
+      Log('Program file checks complete.');
+    end;
     if Result = '' then
     begin
       try
@@ -708,8 +734,7 @@ begin
       ReleaseProgramDirectories;
       if not RetryPreparation(Result) then
       begin
-        if not SilentOperation then
-          Result := '';
+        { A nonempty result must block installation in both interactive and silent mode. }
         Exit;
       end;
     end;

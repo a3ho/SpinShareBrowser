@@ -23,6 +23,7 @@ COMPONENTS = {"WebView2": "webview2", "Temp": "temp"}
 MAX_PAGE_BYTES = 4 * 1024 * 1024
 MAX_COMPONENT_ENTRIES = 100000
 MAINTENANCE_TIMEOUT_SECONDS = 120
+APP_EXIT_WAIT_SECONDS = 5
 TEMP_NAME = re.compile(r"\.spinshare-(?:(config\.json|runtime\.json|browser\.html|charts-cache\.json)-)?[a-z0-9_]{8}\.tmp")
 
 
@@ -291,7 +292,8 @@ def _idle_state(state_dir, install_dir, *, cleanup=False):
                 raise MaintenanceError("Maintenance must run in a separate process.", 10)
             with _process(runtime["pid"]) as exited:
                 _shutdown(runtime, config["token"])
-                deadline = time.monotonic() + 15
+                # Return to Retry/Cancel promptly; a slow exit can finish before the next retry.
+                deadline = time.monotonic() + APP_EXIT_WAIT_SECONDS
                 while not exited():
                     if time.monotonic() >= deadline:
                         raise MaintenanceError("The application has not finished closing. Retry after it exits.", 10)

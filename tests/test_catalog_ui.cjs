@@ -140,8 +140,8 @@ function applyHarness() {
     CATALOG_STALE_MS: 43200000, CATALOG_STATUS_POLL_MS: 500, CHART_ERROR_TEXT: {}, INSTALLER_ERROR_TEXT: {},
     currentRows: [], filtered: [], lastAppliedCriteria: null, appliedText: '', page: 1, visibleCount: 20, scrollBatchSize: 20,
     textSearchWork: null, textSearchProblem: '', textFilterTimer: null,
-    searchFields: {title: 1, subtitle: 2, artist: 3, creator: 4}, searchScopes: new Set(['title']),
-    reviewCounts: new Map(), reviewCache: new Map(), profileCache: new Map(), userSearchCache: new Map(),
+    searchFields: {title: 1, subtitle: 2, artist: 3, creator: 4}, searchScopes: new Set(['title', 'subtitle', 'artist', 'creator']),
+    reviewCounts: new Map(), reviewCache: new Map(), profileCache: new Map(), profileRequests: new Map(), userSearchCache: new Map(),
     installedCharts: new Map(), presenceQueue: new Map(), cacheGeneration: 0, presenceGeneration: 0,
     selectedTags: new Map(), tagCatalog: new Map(), tagResultCounts: new Map(), installationCandidates: [], pendingTagAnchor: null,
     readCriteria: () => ({...criteria, diffs: [...criteria.diffs]}), filtersChanged: () => false,
@@ -149,7 +149,6 @@ function applyHarness() {
     playMotion() { return null; }, motionAllowed() { return false; }, number: value => String(value),
     MOTION_MS: {feedback: 150, standard: 180, panel: 220, expressive: 280},
     installationFilterMode: () => 'all', captureTagViewport: () => ({viewport: true}), dismissChartTags() {}, flyTag() {}, pulseTag() {},
-    readUserSearch() { assert.fail('Title and tag filtering must not fetch uploader profiles'); },
     setStatus(message = '', error = false) { statuses.push({message, error}); },
     render() {
       renders.push({phase: app.phase, rows: Array.from(app.filtered, row => row[0])}); app.syncFilters();
@@ -157,9 +156,13 @@ function applyHarness() {
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, {callback, delay, due: now + delay}); return id; },
     clearTimeout: id => timers.delete(id),
     fetch(url, options) {
-      assert.equal(url, app.INSTALL_ORIGIN + '/v1/charts', 'Filtering may only read the authenticated local catalog endpoint');
-      assert.equal(options.method, 'GET'); assert.equal(options.mode, 'same-origin'); assert.equal(options.redirect, 'error');
-      assert.equal(options.headers['X-SpinShare-Key'], app.INSTALL_KEY);
+      if (url === 'https://spinsha.re/api/searchUsers') {
+        assert.equal(options.method, 'POST'); assert.equal(options.mode, 'cors'); assert.equal(options.credentials, 'omit');
+      } else {
+        assert.equal(url, app.INSTALL_ORIGIN + '/v1/charts', 'Catalog filtering may only read the authenticated local endpoint');
+        assert.equal(options.method, 'GET'); assert.equal(options.mode, 'same-origin'); assert.equal(options.redirect, 'error');
+        assert.equal(options.headers['X-SpinShare-Key'], app.INSTALL_KEY);
+      }
       const request = {url, options, ignoreAbort: false, ...deferred()}; requests.push(request);
       options.signal.addEventListener('abort', () => {
         if (!request.ignoreAbort) request.reject(new DOMException('Aborted', 'AbortError'));
@@ -178,10 +181,15 @@ function applyHarness() {
     extract('function tagKey(', 'function positionTagPanel('),
     extract('function addTagFilter(', 'function removeTagFilter('),
     extract('function stopTextSearch(', 'function changeSearchScope('),
+    extract('function changeSearchScope(', 'function resetFilters('),
     extract('function countValue(', 'const defaultAvatarURL='),
+    extract('const defaultAvatarURL=', 'function makeAvatar('),
+    extract('async function readSharedUser(', 'async function readUserProfile('),
+    extract('async function readUserSearch(', 'function prunePageDetails('),
     extract('function sortRows(', 'function changePage('),
     extract('function compact(', 'async function readReviews('),
     extract('async function apply(', "for(const field of Object.keys(searchFields))"),
+    extract("$('search-retry').addEventListener(", "$('installation-filter').addEventListener("),
     extract("$('local-search').addEventListener('input'", "for(const suffix of ['','-bottom'])"),
   ].join('\n'), app);
   node('sort').value = 'date'; node('sort-direction').value = 'desc'; app.syncFilters();
@@ -319,6 +327,33 @@ async function checkApplyFlows() {
     assert.strictEqual(h.app.catalog, saved); assert.equal(h.app.catalogFetchedAt, fetchedAt); assertDerivedCaches(h, caches, false);
     assert.deepEqual(h.ids(), [2, 1]); assert.equal(h.app.phase, 'ready'); assert.equal(h.timers.size, 0);
   });
+  await check('default search retains local matches when online uploader lookup fails and retries without a catalog update', async () => {
+    const h = applyHarness();
+    await restoreCatalog(h, [
+      {...chart(1, 'Piano solo'), uploader: 11}, {...chart(2, 'Drum solo'), uploader: 22},
+      {...chart(3, 'A third song'), charter: 'Piano charter', uploader: 33},
+    ]);
+    assert.deepEqual([...h.app.searchScopes], ['title', 'subtitle', 'artist', 'creator'], 'Exercise the shipped default field selection');
+    h.app.syncSearchControls(); assert.equal(h.node('search-network-hint').hidden, false);
+    h.node('local-search').value = 'piano';
+    const search = h.trigger('chart-search-form', 'submit'), lookup = h.requests.at(-1);
+    assert.equal(lookup.url, 'https://spinsha.re/api/searchUsers');
+    assert.deepEqual(JSON.parse(lookup.options.body), {searchQuery: 'piano'});
+    assert.deepEqual(h.ids(), [3, 1], 'Local title and charter matches appear before uploader lookup finishes');
+    assert.equal(h.node('local-search').disabled, false);
+    lookup.reject(new TypeError('Synthetic offline connection')); await search;
+    assert.equal(h.app.phase, 'ready'); assert.deepEqual(h.ids(), [3, 1]);
+    assert.equal(h.node('local-search').value, 'piano'); assert.equal(h.node('search-retry').hidden, false);
+    assert.equal(h.node('search-message').textContent, catalog['zh-CN']['Uploader lookup failed. Showing local matches only.']);
+    const retry = h.trigger('search-retry', 'click');
+    h.respond({status: 200, data: [{id: 22, username: 'Piano uploader'}]}, h.requests.at(-1)); await retry;
+    assert.deepEqual(h.ids(), [3, 2, 1]); assert.equal(h.node('search-feedback').hidden, true);
+    assert.equal(h.requests.filter(request => request.url === h.app.INSTALL_ORIGIN + '/v1/charts').length, 1, 'Uploader lookup never updates catalog data');
+    assert.equal(h.requests.length, 3);
+    h.app.changeSearchScope('creator'); assert.equal(h.node('search-network-hint').hidden, true);
+    assert.deepEqual(h.ids(), [1]); assert.equal(h.requests.length, 3, 'Title-only searches do not use the online account lookup');
+    assert.equal(h.timers.size, 0);
+  });
   await check('without any saved catalog, service failure and timeout stay errors', async () => {
     for (const failure of ['network', 'timeout']) {
       const h = applyHarness(), work = h.apply();
@@ -421,6 +456,13 @@ async function main() {
   api.appExiting = false; api.syncCatalogRefresh(); assert.equal(node('refresh-data').disabled, false);
 
   const revision = 'b'.repeat(32), requestId = 'c'.repeat(32);
+  responses.push({status: 409, body: {code: 'installation_recovery_required', error: 'Internal recovery information'}});
+  await assert.rejects(api.installerRequest('POST', '/v1/installations/index', {expectedRevision: revision}), error => {
+    assert.equal(error.code, 'installation_recovery_required');
+    assert.match(api.renderUI(api.errorText(error), 'zh-CN'), /恢复.*重试.*备份/);
+    assert.match(api.renderUI(api.errorText(error), 'en'), /needs recovery.*retry.*Backups/);
+    return true;
+  });
   for (const detail of [
     'The install queue is full (128 tasks). Wait for a task to finish.',
     'Check the install folder in Settings, then try again.',

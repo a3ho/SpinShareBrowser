@@ -218,6 +218,67 @@ async function staleFailureExplainsCachedResultsWithoutDeadRetry() {
   assert.equal(h.calls.length, calls, 'Changing installation filters reuses the same validated inventory');
 }
 
+async function allModeFailuresAreVisibleAndRecoverable() {
+  for (const previouslyChecked of [false, true]) {
+    const h = harness([song(1)], new Set([1]));
+    if (previouslyChecked) { await h.api.rebuild(false); await idle(h); }
+    h.service(() => { throw new Error('Synthetic inventory failure'); });
+    if (previouslyChecked) h.api.refreshInstallationChecks(); else await h.api.rebuild(false);
+    await idle(h);
+    assert.equal(h.api.installationFilterMode(), 'all');
+    assert.equal(h.api.installationViews.get(1).presence.textContent, previouslyChecked ? 'Installed' : 'Installation status unknown');
+    assert.equal(h.node('installation-filter-feedback').hidden, false, 'All mode must expose genuine inventory failures');
+    assert.equal(h.node('installation-filter-retry').hidden, false);
+    assert.match(h.node('installation-filter-message').textContent, /could not be updated/);
+    h.service((method, route, body) => h.reply(body));
+    h.node('installation-filter-retry').emit('click'); await idle(h);
+    assert.equal(h.api.installationPresence(h.api.currentRows[0]), true);
+    assert.equal(h.node('installation-filter-feedback').hidden, true);
+    assert.equal(h.node('installation-filter-retry').hidden, true);
+  }
+  const h = harness([song(1)]), message = 'An interrupted installation needs recovery. Close apps using its files, then retry. Backups are kept.';
+  h.service(() => { const error = h.api.uiError(h.api.m(message)); error.code = 'installation_recovery_required'; throw error; });
+  await h.api.rebuild(false); await idle(h);
+  assert.equal(h.node('installation-filter-message').textContent, catalog.en[message], 'Recovery instructions survive the shared inventory failure path');
+  assert.equal(h.node('installation-filter-retry').hidden, false, 'The existing retry triggers local recovery');
+}
+
+async function differentFilesRemainInstalledButCannotBeDeleted() {
+  const h = harness([song(1), song(2), song(3)]);
+  h.service((method, route, body) => ({settingsRevision: body.expectedRevision, installations: [
+    {fileReference: 'spinshare_1', updateHash: 'a'.repeat(32)},
+    {fileReference: 'spinshare_2', updateHash: 'b'.repeat(32)},
+  ]}));
+  await h.api.rebuild(false); await idle(h);
+  const row = h.api.currentRows.find(row => row[0] === 2), view = h.api.installationViews.get(2), calls = h.calls.length;
+  assert.equal(h.api.installationPresence(row), 'different');
+  assert.equal(view.presence.textContent, 'Local files differ');
+  assert.equal(view.label.textContent, 'Install again');
+  assert.match(view.note.textContent, /replaces the local chart and any local edits/);
+  assert.match(view.button.getAttribute('aria-description'), /replaces the local chart/);
+  assert.equal(view.deleteButton.hidden, true);
+  h.api.startDeletion(row); assert.equal(h.calls.length, calls, 'A differing local file can never enter one-click deletion');
+  h.mode('installed'); await idle(h); assert.deepEqual(h.ids(), [2, 1]);
+  h.mode('different'); await idle(h); assert.deepEqual(h.ids(), [2]);
+  assert.equal(h.node('count').textContent, '1 charts'); assert.equal(h.api.tagResultCounts.get('fast'), 1);
+  h.mode('uninstalled'); await idle(h); assert.deepEqual(h.ids(), [3]);
+  assert.equal(h.calls.length, calls, 'Changing among all four states reuses the existing inventory');
+  h.mode('different'); await idle(h);
+  vm.runInContext("uiLanguage='zh-CN';", h.api); h.api.updateInstallationView(2);
+  assert.equal(h.api.installationViews.get(2).presence.textContent, '本地内容不同');
+  assert.match(h.api.installationViews.get(2).note.textContent, /覆盖本地谱面/);
+  const payload = value => ({settingsRevision: h.api.settingsRevision, installations: [{songId: 2, installed: value}]});
+  assert.equal(h.api.readInstallationCheck(payload('different'), row, h.api.settingsRevision), 'different');
+  for (const value of ['true', 'outdated', null, 1]) assert.throws(() => h.api.readInstallationCheck(payload(value), row, h.api.settingsRevision));
+  h.service(() => { throw new Error('Synthetic inventory failure'); });
+  h.api.refreshInstallationChecks(); await idle(h);
+  assert.equal(h.api.installationPresence(row), 'different', 'A failed refresh preserves the known local difference');
+  h.mode('all'); await idle(h); h.api.render();
+  assert.equal(h.node('installation-filter-feedback').hidden, false, 'Changing the display mode does not clear an unresolved failure');
+  assert.equal(h.node('installation-filter-retry').hidden, false);
+  assert.equal(h.api.installationViews.get(2).presence.textContent, '本地内容不同');
+}
+
 async function dlcMetadataAndOrdinaryPresence() {
   const dlc = {id: 1, identifier: 'monstercat', title: 'Monstercat DLC', storeLink: 'https://store.steampowered.com/app/1058830/Spin_Rhythm_XD__Monstercat_DLC/'};
   const h = harness([song(1, {dlc, tags: ['Rock', 'DLC']}), song(2, {dlc: true}), song(3)], new Set([1]));
@@ -255,7 +316,8 @@ async function directoryAndMetadataRace() {
   const requests = h.calls.length;
   h.api.currentRows = [updated]; h.mode('uninstalled'); await tick();
   assert.equal(h.deferred.length, 0); assert.equal(h.calls.length, requests, 'The index can compare a changed catalog fingerprint without another filesystem request');
-  await idle(h); assert.deepEqual(h.ids(), [2]);
+  await idle(h); assert.deepEqual(h.ids(), [], 'A changed local fingerprint is no longer grouped with missing installations');
+  h.mode('different'); await idle(h); assert.deepEqual(h.ids(), [2]);
 }
 
 async function changingCandidatesDuringCheck() {
@@ -364,19 +426,24 @@ async function installationCompletionRace() {
   h.api.installationActivityIds = new Map([[1, 'c'.repeat(32)], [2, 'e'.repeat(32)]]); h.api.activityJobs = [{songId: 2, id: 'e'.repeat(32)}];
   const callsBeforeCatalogChange = h.calls.length; h.api.refreshInstallationActivity(); await idle(h);
   assert.equal(h.calls.length, callsBeforeCatalogChange + 1, 'A changed catalog fingerprint is rechecked when the completed activity retires');
-  assert.equal(h.api.installationPresence(changedRow), false, 'A completed result for the previous fingerprint cannot certify a newer catalog version');
+  assert.equal(h.api.installationPresence(changedRow), 'different', 'A completed result for the previous fingerprint cannot certify a newer catalog version');
 }
 
 async function installationHashMismatchIsNotInstalled() {
   const h = harness([song(1)]); await h.api.rebuild(false); await idle(h);
   h.service((method, route, body) => {
     if (route === '/v1/install') return {job: {id: 'c'.repeat(32), songId: body.songId, state: 'complete', zipRemoved: true, targetDirectory: h.api.INSTALL_DIRECTORY}};
-    if (route === '/v1/installations/check') return h.checkReply(body, new Set());
+    if (route === '/v1/installations/check') return {settingsRevision: body.expectedRevision, installations: [{songId: 1, installed: 'different'}]};
     return h.reply(body, new Set());
   });
   await h.api.startInstallation(h.api.currentRows[0]); await idle(h);
-  assert.equal(h.api.installationPresence(h.api.currentRows[0]), false, 'A completed job with a mismatched local hash is not reported as installed');
+  assert.equal(h.api.installationPresence(h.api.currentRows[0]), 'different', 'A completed job with a mismatched local hash is not reported as an exact installation');
+  assert.equal(h.api.installationViews.get(1).deleteButton.hidden, true);
   assert.equal(h.api.installationIndex, null, 'A mismatched targeted check invalidates the broader hash inventory instead of pretending the file is absent');
+  h.api.installationActivityIds = new Map([[1, 'c'.repeat(32)]]);
+  const calls = h.calls.length; h.api.refreshInstallationActivity(); await idle(h);
+  assert.equal(h.calls.length, calls, 'Retiring a completed activity keeps its already verified differing state without another scan');
+  assert.equal(h.api.installationPresence(h.api.currentRows[0]), 'different');
 }
 
 async function activityCompletionAndStaleSettings() {
@@ -467,6 +534,8 @@ async function main() {
   assert.match(markup, /<option value="all" data-ui-static="All installation states">All<\/option>/);
   assert.equal(catalog.en['All installation states'], 'All');
   assert.equal(catalog['zh-CN']['All installation states'], '全部');
+  assert.match(markup, /<option value="different" data-ui-static="Local files differ">Local files differ<\/option>/);
+  assert.equal(catalog['zh-CN']['Local files differ'], '本地内容不同');
   assert.match(markup, /<p id="filter-dirty" class="sr-only" role="status" aria-live="polite" aria-atomic="true"><\/p>/);
   assert.match(css, /\.filter-apply\s*\{[^}]*min-width:\s*132px/s);
   assert.match(css, /@media \(max-width: 680px\)[\s\S]*?\.filter-actions \.button\s*\{[^}]*width:\s*100%/);
@@ -476,7 +545,7 @@ async function main() {
   assert.deepEqual(Array.from(sortMarkup[1].matchAll(/<option value="([^"]+)"/g), match => match[1]), ['date', 'views', 'downloads', 'level', 'title']);
   assert.doesNotMatch(markup, /id="(?:ranking-panel|ranking-status|cancel-ranking)"/);
   assert.doesNotMatch(markup, /id="results-note"/, 'The repeated installation explanation is not part of the result layout');
-  filterChangeButtonState(); await fullCandidateFilter(); await combinedFilters(); await unknownIsNotUninstalled(); await staleFailureExplainsCachedResultsWithoutDeadRetry(); await dlcMetadataAndOrdinaryPresence();
+  filterChangeButtonState(); await fullCandidateFilter(); await combinedFilters(); await unknownIsNotUninstalled(); await staleFailureExplainsCachedResultsWithoutDeadRetry(); await allModeFailuresAreVisibleAndRecoverable(); await differentFilesRemainInstalledButCannotBeDeleted(); await dlcMetadataAndOrdinaryPresence();
   await directoryAndMetadataRace(); await changingCandidatesDuringCheck(); await backgroundChecksPreserveCards();
   await inventoryRefreshUpdatesOffscreenCache(); await inventoryMutationRace(); await installationCompletionRace(); await installationHashMismatchIsNotInstalled();
   await activityCompletionAndStaleSettings();

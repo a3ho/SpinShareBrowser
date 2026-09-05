@@ -4,6 +4,28 @@ SpinShare Browser maintains and supports only the latest stable release. Update 
 
 SpinShare Browser 仅维护和支持最新稳定版。请升级到最新版本以获得修复与问题支持。
 
+## 2.1.0 — 2026-09-06
+
+### English
+
+- Fix the installer continuing after Cancel in a preparation failure prompt. Keep the preparation error until Inno Setup restores cancellation, then exit without copying application files. Show separate extraction, running-app and file-check phases; allow up to five seconds for a requested app exit before returning to Retry/Cancel.
+- Distinguish exact installations, locally differing chart contents, missing charts, and failed checks. The installed filter includes differing local charts; the dedicated filter finds them without presenting every difference as an available update. Reinstallation explains that local edits will be replaced; one-click deletion still requires an exact match.
+- File-sharing locks, permission errors and read failures no longer produce successful "not installed" results. All browsing modes expose actual inventory failures and Retry while retaining the last confirmed state.
+- Clarify that chart fields are searched locally while unknown uploader accounts are looked up online as needed. Failed uploader lookups preserve local matches and remain retryable; regression checks cover the default search scopes.
+- Persist an installation transaction before replacing originals. Interrupted installs can recover on startup or a later idle operation; conflicts preserve backups and explain recovery failure. Committed transactions only finish cleanup. Existing unrecorded legacy temporary files and chart deletion transactions are not migrated.
+- Add exact dependency preflight, clean-source and unpublished-version release gates, exclusive build locking, compilation from the source snapshot, and a build manifest with source, environment, tool and artifact hashes. Repeatable unpublished builds use a separate QA output directory.
+- Add Windows CI for offline regressions, isolated headless Edge interface checks, and packaging. Dedicated hosted-runner checks exercise real installation, upgrade, desktop hosting and uninstallation without operating a developer's desktop.
+
+### 简体中文
+
+- 修复安装准备失败弹窗点击“取消”后仍继续安装的问题：保留准备失败状态，等 Inno Setup 恢复取消操作后退出，不复制程序文件。分别显示解压、运行状态和文件检查阶段；请求程序退出后最多等待五秒，再返回“重试／取消”。
+- 区分精确已安装、本地内容不同、未安装与核对失败。“仅已安装”包含内容不同的本地谱面，另提供独立筛选，不把所有差异都称为可用更新。重装说明会覆盖个人修改，一键删除仍要求精确匹配。
+- 文件共享锁、权限和读取错误不再成功返回“未安装”；所有浏览模式均显示实际核对失败与重试，并保留最近确认的状态。
+- 明确谱面字段本地搜索、未知上传者账号按需联网补全的边界；补全失败保留本地匹配并可重试，回归检查覆盖默认搜索范围。
+- 替换原文件前持久保存安装事务，启动或后续空闲操作可恢复中断安装；冲突时保留备份并说明恢复失败。已提交事务仅完成清理。不迁移旧版没有映射的临时文件，也不改变谱面删除事务。
+- 新增精确依赖预检、干净源码与未发布版本门禁、构建互斥、源码快照编译，以及记录来源、环境、工具和产物哈希的构建清单。可重复的未发布构建使用独立 QA 输出目录。
+- 新增 Windows CI，覆盖离线回归、隔离无界面 Edge 界面检查和打包；专用托管 runner 检查真实安装、升级、桌面宿主和卸载，不操作开发者的桌面。
+
 ## 2.0.1 — 2026-09-05
 
 ### English
