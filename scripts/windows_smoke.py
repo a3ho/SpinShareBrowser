@@ -169,14 +169,22 @@ def desktop_smoke(executable, state):
         if len(windows) != 1:
             raise RuntimeError("Expected one visible SpinShare Browser window owned by the test process.")
         window = windows[0]
-        for action, check in (("maximize", lambda: bool(user.IsZoomed(window))),
-                              ("maximize", lambda: not user.IsZoomed(window) and not user.IsIconic(window)),
-                              ("minimize", lambda: bool(user.IsIconic(window)))):
+        # A fresh config starts maximized; the maximize command toggles that state.
+        wait_until(lambda: bool(user.IsZoomed(window)) and not user.IsIconic(window),
+                   "The fresh native window did not start maximized.", process)
+        print("Native window stage passed: default maximized state.")
+        for action, stage, check in (
+                ("maximize", "restore", lambda: not user.IsZoomed(window) and not user.IsIconic(window)),
+                ("maximize", "maximize", lambda: bool(user.IsZoomed(window))),
+                ("minimize", "minimize", lambda: bool(user.IsIconic(window)))):
             api_request(state, "POST", "/v1/desktop/window", {"action": action})
-            wait_until(check, f"The native window did not finish {action}.", process)
+            wait_until(check, f"The native window did not finish {stage}.", process)
+            print(f"Native window stage passed: {stage}.")
         api_request(state, "POST", "/v1/desktop/show", {})
-        wait_until(lambda: bool(user.IsWindowVisible(window)) and not user.IsIconic(window),
-                   "The native window did not restore.", process)
+        wait_until(lambda: bool(user.IsWindowVisible(window)) and bool(user.IsZoomed(window))
+                   and not user.IsIconic(window),
+                   "The native window did not show in its previous maximized state.", process)
+        print("Native window stage passed: show maximized window.")
         # Capture only this application's descendants; keep process handles so PID reuse cannot fool exit checks.
         result = subprocess.run([
             "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
