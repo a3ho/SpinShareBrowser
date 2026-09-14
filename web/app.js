@@ -83,6 +83,7 @@ let installationIndex=null,presenceProblem=false,installationMutationGeneration=
 const CHART_ENDPOINTS=Object.freeze({cache:'/v1/charts',manual:'/v1/charts/manual',automatic:'/v1/charts/automatic',status:'/v1/charts/status'});
 const CATALOG_STALE_MS=12*60*60*1000,CATALOG_STATUS_POLL_MS=500;
 let catalogNextAllowedAt=0,catalogAutomaticNextAllowedAt=0,catalogFetchedAt=null;
+let catalogInstallRecheck=false;
 let catalogStartupBusy=true,catalogManualBusy=false,catalogAutomaticBusy=false,catalogAutomaticTimer=null,catalogStartupWork=null;
 let catalogFailureHasData=false;
 let catalogStatusPoll=null,catalogDialogCloseTimer=null,catalogToastTimer=null,catalogToastMotion=null,catalogToastStartedAt=0,catalogToastRemaining=0,catalogPendingToast=null;
@@ -175,7 +176,7 @@ const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not co
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
-  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.1.0'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
+  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.1.1'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
   if(valid){try{const url=new URL(config.origin);valid=url.protocol==='http:'&&url.hostname==='127.0.0.1'&&Number(url.port)>=1&&Number(url.port)<=65535&&url.origin===config.origin&&globalThis.location?.origin===config.origin&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}catch{valid=false;}}
   if(valid)valid=typeof config.settingsRevision==='string'&&/^[a-f0-9]{32}$/.test(config.settingsRevision);
   if(valid)valid=['zh-CN','en'].includes(config.language);
@@ -201,7 +202,7 @@ function refreshSettingsControls(){
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){
   const settings=payload?.settings;
-  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.1.0')throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.1.1')throw uiError(m("Settings could not be loaded. Reopen Settings."));
   if(settings.targetDirectory!==(settings.customDirectory===null?settings.defaultDirectory:settings.customDirectory))throw uiError(m("Open Settings and choose the install folder again."));
   if(settings.closeBehavior!==undefined&&!['ask','exit','tray'].includes(settings.closeBehavior))throw uiError(m("Settings could not be loaded. Reopen Settings."));
   return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',installDirectoryConfirmed:settings.installDirectoryConfirmed,exiting:settings.exiting===true};
@@ -2022,6 +2023,11 @@ async function settleInstallationPresence(state){
     const currentRow=currentRows.find(item=>item[0]===state.songId);if(currentRow&&installationKey(currentRow)!==installationKey(row)){queueInstallationChecks([currentRow],true);refreshInstallationResults();return;}
     if(installed===true)noteInstallationMutation(row,true);else{installationMutationGeneration++;installationIndex=null;}
     installedCharts.set(state.songId,{key:installationKey(row),value:installed,pending:false});presenceQueue.delete(state.songId);updateInstallationView(state.songId);syncInstallationFilter();refreshInstallationResults();
+    if(installed==='different'&&!state.catalogRecheckRequested){
+      // The download can be newer than the cached catalog. Recheck the catalog,
+      // then let the normal local hash comparison decide whether it matches.
+      state.catalogRecheckRequested=true;catalogInstallRecheck=true;scheduleAutomaticCatalogSync();
+    }
   }catch{
     if(installationStates.get(state.songId)===state&&!installationPending(state.songId)){queueInstallationChecks([state.row],true);refreshInstallationResults();}
   }
@@ -2542,10 +2548,10 @@ function updateCatalogDeadlines(result){
   if(Number.isFinite(result?.automaticNextAllowedAt))catalogAutomaticNextAllowedAt=Math.max(0,result.automaticNextAllowedAt);
   syncCatalogRefresh();
 }
-async function requestCatalog(kind,signal,onProgress){
+async function requestCatalog(kind,signal,onProgress,afterInstall=false){
   const path=CHART_ENDPOINTS[kind];if(!path||!['cache','manual','automatic'].includes(kind))throw uiError(m('Chart data could not be loaded'));
   const method=kind==='cache'?'GET':'POST',headers={'X-SpinShare-Key':INSTALL_KEY};if(method==='POST')headers['Content-Type']='application/json';
-  const response=await fetch(INSTALL_ORIGIN+path,{method,mode:'same-origin',credentials:'omit',cache:'no-store',redirect:'error',targetAddressSpace:'loopback',headers,...(method==='POST'?{body:'{}'}:{}),signal});
+  const response=await fetch(INSTALL_ORIGIN+path,{method,mode:'same-origin',credentials:'omit',cache:'no-store',redirect:'error',targetAddressSpace:'loopback',headers,...(method==='POST'?{body:JSON.stringify(kind==='automatic'&&afterInstall?{afterInstall:true}:{})}:{}),signal});
   const length=Number(response.headers.get('Content-Length')),contentLength=Number.isFinite(length)&&length>0?length:null;
   const result=await readJSONResponse({ok:true,headers:response.headers,body:response.body},responseLimit+64*1024,bytes=>onProgress?.({phase:'receiving',bytesReceived:bytes,contentLength}));
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
@@ -2559,10 +2565,10 @@ async function loadRemote(signal){
   // GET is deliberately cache-only. Network updates use the two explicit POST endpoints.
   return requestCatalog('cache',signal,status=>{if(!signal.aborted&&Number.isFinite(status.bytesReceived))setStatus(m('Receiving chart data: ')+number(Math.round(status.bytesReceived/100000)/10)+m(' MB.'));});
 }
-async function timedCatalogRequest(kind,onProgress){
+async function timedCatalogRequest(kind,onProgress,afterInstall=false){
   const request=new AbortController();let timedOut=false;
   const timer=setTimeout(()=>{timedOut=true;request.abort();},requestTimeout);
-  try{return await requestCatalog(kind,request.signal,onProgress);}
+  try{return await requestCatalog(kind,request.signal,onProgress,afterInstall);}
   catch(error){
     if(timedOut)throw uiError(m(kind==='cache'?'Loading charts timed out. Try again.':'Updating chart data timed out. Try again.'));
     if(error instanceof TypeError)throw uiError(m('Cannot reach the local chart service. Reopen SpinShareBrowser.exe and try again.'));
@@ -2577,11 +2583,9 @@ function invalidateCatalogDerived(){
 function publishCatalogResult(result){
   if(!catalogResultAvailable(result))return {available:Array.isArray(catalog),changed:false};
   const fetchedAt=Number.isFinite(result.fetchedAt)?result.fetchedAt:null;
-  // A hidden WebView can miss the native tray worker's completed refresh.  On
-  // return, the automatic endpoint reports that the disk cache is already
-  // fresh (changed=false for this request), while fetchedAt identifies a newer
-  // cache generation than the one rendered by this client.
-  const externalRefresh=catalog!==null&&result.outcome==='fresh'&&fetchedAt!==catalogFetchedAt;
+  // A cache read or cooldown response can carry a newer tray-owned generation
+  // even when this request did not change the server data.
+  const externalRefresh=catalog!==null&&fetchedAt!==null&&fetchedAt!==catalogFetchedAt;
   const serverChanged=catalog!==null&&result.changed===true;
   const changed=serverChanged||externalRefresh;
   catalog=result.data;catalogFetchedAt=fetchedAt;indexCatalogTags(catalog);if(changed)invalidateCatalogDerived();
@@ -2716,7 +2720,7 @@ function useLocalCatalog(){
   if(!catalogFailureHasData||!Array.isArray(catalog))return;catalogStartupBusy=false;syncFilters();closeCatalogSyncDialog();scheduleAutomaticCatalogSync(60000);
 }
 function automaticCatalogDueAt(){
-  const staleAt=Number.isFinite(catalogFetchedAt)?catalogFetchedAt+CATALOG_STALE_MS:Date.now();return Math.max(staleAt,catalogAutomaticNextAllowedAt||0);
+  const staleAt=!catalogInstallRecheck&&Number.isFinite(catalogFetchedAt)?catalogFetchedAt+CATALOG_STALE_MS:Date.now();return Math.max(staleAt,catalogAutomaticNextAllowedAt||0,catalogNextAllowedAt||0);
 }
 function maybeRunAutomaticCatalogSync(){
   if(hostVisible&&!document.hidden&&!catalogStartupBusy&&!catalogManualBusy&&!catalogAutomaticBusy&&automaticCatalogDueAt()<=Date.now())return automaticCatalogSync(false);
@@ -2727,14 +2731,16 @@ function scheduleAutomaticCatalogSync(minimumDelay=1000){
 }
 async function automaticCatalogSync(startup=false){
   if(catalogAutomaticBusy||catalogManualBusy||appExiting)return false;catalogAutomaticBusy=true;syncCatalogRefresh();if(startup){showCatalogSyncLoading(!Array.isArray(catalog));startCatalogStatusPolling();}
+  const afterInstall=catalogInstallRecheck,fetchedAt=catalogFetchedAt;catalogInstallRecheck=false;
   try{
-    const result=await timedCatalogRequest('automatic',startup?updateCatalogSyncProgress:undefined);stopCatalogStatusPolling();const published=publishCatalogResult(result);await rebuildPublishedCatalog(published.changed);
+    const result=await timedCatalogRequest('automatic',startup?updateCatalogSyncProgress:undefined,afterInstall);stopCatalogStatusPolling();const published=publishCatalogResult(result);await rebuildPublishedCatalog(published.changed);
     if(catalogUpdateFailed(result)||result.stale===true||!published.available)throw catalogPayloadError(result,m('Chart data could not be updated.'));
     if(startup){catalogStartupBusy=false;syncFilters();showCatalogSyncSuccess();}
     else if(published.serverChanged)showCatalogToast(m('Chart data was updated.'));
     scheduleAutomaticCatalogSync();return true;
   }catch(error){
     stopCatalogStatusPolling();const published=publishCatalogResult(error.catalogResult);await rebuildPublishedCatalog(published.changed);
+    if(afterInstall&&catalogFetchedAt===fetchedAt)catalogInstallRecheck=true;
     if(!Number.isFinite(catalogAutomaticNextAllowedAt)||catalogAutomaticNextAllowedAt<=Date.now())catalogAutomaticNextAllowedAt=Date.now()+5*60*1000;
     const available=Array.isArray(catalog);if(startup)showCatalogSyncError(available,error);else if(available)showCatalogToast(catalogToastFailure(error,'automatic'),'error');
     if(available)scheduleAutomaticCatalogSync();return false;
@@ -2742,6 +2748,7 @@ async function automaticCatalogSync(startup=false){
 }
 async function manualCatalogSync(startup=false){
   if(catalogManualBusy||catalogAutomaticBusy||!startup&&catalogStartupBusy||appExiting)return false;catalogManualBusy=true;syncCatalogRefresh();if(startup){showCatalogSyncLoading(!Array.isArray(catalog));startCatalogStatusPolling();}
+  const afterInstall=catalogInstallRecheck,fetchedAt=catalogFetchedAt;catalogInstallRecheck=false;
   try{
     const result=await timedCatalogRequest('manual',startup?updateCatalogSyncProgress:undefined);stopCatalogStatusPolling();const published=publishCatalogResult(result);await rebuildPublishedCatalog(published.changed);
     if(catalogUpdateFailed(result)||!published.available)throw catalogPayloadError(result,m('Chart data could not be updated.'));
@@ -2749,8 +2756,9 @@ async function manualCatalogSync(startup=false){
     scheduleAutomaticCatalogSync();return true;
   }catch(error){
     stopCatalogStatusPolling();const published=publishCatalogResult(error.catalogResult);await rebuildPublishedCatalog(published.changed);
+    if(afterInstall&&catalogFetchedAt===fetchedAt)catalogInstallRecheck=true;
     if(startup)showCatalogSyncError(Array.isArray(catalog),error);else showCatalogToast(catalogToastFailure(error,'manual'),'error');return false;
-  }finally{catalogManualBusy=false;syncCatalogRefresh();}
+  }finally{catalogManualBusy=false;syncCatalogRefresh();if(catalogInstallRecheck)scheduleAutomaticCatalogSync();}
 }
 async function startCatalogRuntime(){
   if(catalogStartupWork)return catalogStartupWork;

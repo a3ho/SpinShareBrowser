@@ -67,6 +67,7 @@ function harness(songs, installed = new Set()) {
     startTextSearch: text => { assert.equal(text, '', 'A presence refresh must not start uploader lookup'); },
     stopTextSearch() {}, scopeSearchUsers() {}, needsUserSearch: () => false,
     loadingIndicator(node, active) { node.classList.toggle('is-loading', active); }, updateTaskProgress() {}, refreshSettingsControls() {}, syncCloseOptions() {}, renderActivity() {}, refreshActivity() {},
+    catalogInstallRecheck: false, scheduleAutomaticCatalogSync() {},
     syncCatalogRefresh() {}, filtersChanged: () => dirty, syncResultTools() {}, syncTagControls() {}, syncSearchControls() {}, setStatus() {}, applyDatePreset() {},
     prepareTagAnchor() {}, dismissChartTags() {}, dismissChartDescription() {}, scheduleChartDescriptions() {}, stopPageDetails() {}, prunePageDetails() {}, queueEntry() {}, pruneEntries() {},
     renderPageLinks() {}, syncReviewVisibility() {}, watchMore() {}, syncCovers() {}, restoreTagAnchor() {}, disposePreview() {},
@@ -410,6 +411,7 @@ async function installationCompletionRace() {
   const check = h.calls.find(call => call.route === '/v1/installations/check');
   assert.deepEqual(JSON.parse(JSON.stringify(check.body)), {expectedRevision: 'a'.repeat(32), charts: [{songId: 1, fileReference: 'spinshare_1', updateHash: 'a'.repeat(32)}]}, 'A completed chart is verified locally without waiting for the whole queue');
   assert.equal(h.api.installationPresence(h.api.currentRows[0]), true, 'The completed card updates as soon as its own hash is confirmed');
+  assert.equal(h.api.catalogInstallRecheck, false, 'An exact installation does not request a catalog refresh');
   h.api.installationActivityIds = new Map([[1, 'c'.repeat(32)], [2, 'e'.repeat(32)]]); h.api.activityJobs = [{songId: 2, id: 'e'.repeat(32)}];
   const callsBeforeActivityRetires = h.calls.length; h.api.refreshInstallationActivity();
   assert.equal(h.api.installationPresence(h.api.currentRows[0]), true, 'Retiring the completed activity must not discard its exact local result while other jobs remain active');
@@ -440,10 +442,23 @@ async function installationHashMismatchIsNotInstalled() {
   assert.equal(h.api.installationPresence(h.api.currentRows[0]), 'different', 'A completed job with a mismatched local hash is not reported as an exact installation');
   assert.equal(h.api.installationViews.get(1).deleteButton.hidden, true);
   assert.equal(h.api.installationIndex, null, 'A mismatched targeted check invalidates the broader hash inventory instead of pretending the file is absent');
+  assert.equal(h.api.catalogInstallRecheck, true, 'A new download with an old catalog hash schedules automatic reconciliation');
+  h.api.catalogInstallRecheck = false;
+  await h.api.settleInstallationPresence(h.api.installationStates.get(1));
+  assert.equal(h.api.catalogInstallRecheck, false, 'The same completed job requests at most one catalog reconciliation');
   h.api.installationActivityIds = new Map([[1, 'c'.repeat(32)]]);
   const calls = h.calls.length; h.api.refreshInstallationActivity(); await idle(h);
   assert.equal(h.calls.length, calls, 'Retiring a completed activity keeps its already verified differing state without another scan');
   assert.equal(h.api.installationPresence(h.api.currentRows[0]), 'different');
+  const refreshed = h.api.compact([song(1, {updateHash: 'b'.repeat(32)})], criteria)[0];
+  h.api.currentRows = [refreshed];
+  h.service((method, route, body) => {
+    assert.equal(route, '/v1/installations/index');
+    return {settingsRevision: body.expectedRevision, installations: [{fileReference: 'spinshare_1', updateHash: 'b'.repeat(32)}]};
+  });
+  await h.api.rebuild(false); await idle(h);
+  assert.equal(h.api.installationPresence(refreshed), true, 'The refreshed catalog must match the actual downloaded hash before reporting installed');
+  assert.equal(h.api.installationViews.get(1).deleteButton.hidden, false);
 }
 
 async function activityCompletionAndStaleSettings() {

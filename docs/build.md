@@ -15,14 +15,14 @@ The first build downloads Inno Setup, the Microsoft WebView2 SDK, and the runtim
 
 ## Outputs
 
-The source version is 2.1.0. Repeatable verification builds use `build/qa`; `--qa --output-dir .qa/my-build` selects a separate QA directory. These builds do not overwrite published `dist` artifacts. Without `--qa`, a formal build writes to `dist` and requires a clean Git source tree, exact pinned dependencies, an unpublished version/tag, and no existing same-version artifacts. Increment the version before preparing the next formal release.
+The source version is 2.1.1. Repeatable verification builds use `build/qa`; `--qa --output-dir .qa/my-build` selects a separate QA directory. These builds do not overwrite published `dist` artifacts. Without `--qa`, a formal build writes to `dist` and requires a clean Git source tree, exact pinned dependencies, an unpublished version/tag, and no existing same-version artifacts. Increment the version before preparing the next formal release.
 
 | File | Contents |
 | --- | --- |
-| `SpinShareBrowser-2.1.0-windows-x64-setup.exe` | Windows installer |
-| `SpinShareBrowser-2.1.0-windows-x64-setup.exe.sha256` | Installer checksum |
-| `SpinShareBrowser-2.1.0-source.zip` | Source archive |
-| `SpinShareBrowser-2.1.0-build.json` | Source, environment, tools and artifact hashes |
+| `SpinShareBrowser-2.1.1-windows-x64-setup.exe` | Windows installer |
+| `SpinShareBrowser-2.1.1-windows-x64-setup.exe.sha256` | Installer checksum |
+| `SpinShareBrowser-2.1.1-source.zip` | Source archive |
+| `SpinShareBrowser-2.1.1-build.json` | Source, environment, tools and artifact hashes |
 
 The unpacked QA application files are in `build/qa-work/windows/SpinShareBrowser`; formal builds use `build/windows/SpinShareBrowser`. QA compilation files stay in `build/qa-work/pyinstaller`. Third-party license files are included in the installed application.
 
@@ -72,17 +72,17 @@ For a local formal build, commit the final source and run `scripts/build.py --pr
 Build once more after the final source and documentation changes. Verify that the installer matches its generated SHA-256 sidecar and that the source archive contains the release documentation and primary source files:
 
 ```powershell
-$installer = "dist\SpinShareBrowser-2.1.0-windows-x64-setup.exe"
+$installer = "dist\SpinShareBrowser-2.1.1-windows-x64-setup.exe"
 $expected = ((Get-Content "$installer.sha256" -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
 $actual = (Get-FileHash $installer -Algorithm SHA256).Hash
 if ($actual -ne $expected) { throw "Installer SHA-256 mismatch" }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = (Resolve-Path "dist\SpinShareBrowser-2.1.0-source.zip").Path
+$archive = (Resolve-Path "dist\SpinShareBrowser-2.1.1-source.zip").Path
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
 try {
     $entries = $zip.Entries.FullName
-    $prefix = "SpinShareBrowser-2.1.0/"
+    $prefix = "SpinShareBrowser-2.1.1/"
     $required = "CHANGELOG.md", "README.md", "PRODUCT.md", "DESIGN.md", "src/spinshare_portable.py", "web/app.js"
     $missing = $required |
         ForEach-Object { "$prefix$_" } |

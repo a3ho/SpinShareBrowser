@@ -4,6 +4,11 @@ SpinShare Browser maintains and supports only the latest stable release. Update 
 
 SpinShare Browser 仅维护和支持最新稳定版。请升级到最新版本以获得修复与问题支持。
 
+## 2.1.1 — 2026-09-14
+
+- Recheck the catalog when a newly installed chart differs from its cached version. Batch these automatic checks, retain refresh cooldowns and failure backoff, and compare the actual local hash again after refreshing. New cache generations also invalidate displayed installation states when returned by cache-only or cooldown responses.
+- 新下载的谱面与缓存列表不一致时，自动更新列表再核对实际文件；合并批量安装的更新请求，保留刷新间隔与失败退避。只读缓存或冷却响应带回新版列表时，也同步更新安装状态，避免旧哈希造成误报。
+
 ## 2.1.0 — 2026-09-06
 
 ### English

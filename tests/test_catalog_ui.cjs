@@ -41,7 +41,7 @@ const api = vm.createContext({
   $: node, document: {activeElement: null, hidden: false, documentElement: {clientWidth: 1200, clientHeight: 800}, addEventListener() {}}, Date: {now: () => now},
   setTimeout: (callback, delay) => { const id = ++nextTimer; timers.set(id, {callback, delay}); return id; },
   clearTimeout: id => timers.delete(id),
-  phase: 'idle', applied: null, appExiting: false, catalogNextAllowedAt: 0, catalogAutomaticNextAllowedAt: 0,
+  phase: 'idle', applied: null, appExiting: false, catalogInstallRecheck: false, catalogNextAllowedAt: 0, catalogAutomaticNextAllowedAt: 0,
   catalogStartupBusy: false, catalogManualBusy: false, catalogAutomaticBusy: false, catalogAutomaticTimer: null,
   catalogStartupWork: null, catalogFailureHasData: false, catalogStatusPoll: null, catalogHelpTimer: null,
   catalogDialogCloseTimer: null, catalogToastTimer: null, catalogToastMotion: null, catalogToastStartedAt: 0,

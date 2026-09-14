@@ -68,7 +68,7 @@ function harness({now = 2_000_000_000_000, visible = true, hidden = false, catal
     CATALOG_STALE_MS: 12 * 60 * 60 * 1000, CATALOG_STATUS_POLL_MS: 500, requestTimeout: 120000,
     CHART_ERROR_TEXT: {charts_network_error: 'Could not connect to the chart server'},
     CHART_TOAST_ERROR_TEXT: {charts_network_error: 'Could not connect to the chart server', charts_cache_error: 'Local chart data could not be read or saved'}, INSTALLER_ERROR_TEXT: {},
-    catalog, catalogFetchedAt: fetchedAt, catalogNextAllowedAt: 0, catalogAutomaticNextAllowedAt: 0,
+    catalog, catalogFetchedAt: fetchedAt, catalogInstallRecheck: false, catalogNextAllowedAt: 0, catalogAutomaticNextAllowedAt: 0,
     catalogStartupBusy: true, catalogManualBusy: false, catalogAutomaticBusy: false, catalogAutomaticTimer: null, catalogStartupWork: null,
     catalogFailureHasData: false, catalogStatusPoll: null, catalogHelpTimer: null, catalogDialogCloseTimer: null,
     catalogToastTimer: null, catalogToastMotion: null, catalogToastStartedAt: 0, catalogToastRemaining: 0, catalogPendingToast: null,
@@ -278,7 +278,7 @@ function checkChangedAuthority() {
   const saved = [chart(1)], h = harness({catalog: saved, fetchedAt: 100}), names = ['reviewCounts', 'reviewCache', 'profileCache', 'userSearchCache', 'installedCharts', 'presenceQueue'];
   for (const name of names) h.api[name].set(17, name);
   h.api.deletionStates.set(17, {phase: 'error'}); h.api.deletionStates.set(18, {phase: 'deleting'});
-  let result = h.api.publishCatalogResult({data: saved, cached: true, stale: false, fetchedAt: 200, changed: false});
+  let result = h.api.publishCatalogResult({data: saved, cached: true, stale: false, fetchedAt: 100, changed: false});
   assert.equal(result.changed, false); assert.equal(result.serverChanged, false); assert.equal(h.api.cacheGeneration, 0); assert.equal(h.api.presenceGeneration, 0);
   for (const name of names) assert.equal(h.api[name].get(17), name, `${name} survives changed=false`);
   assert.equal(h.api.deletionStates.has(17), true, 'Unchanged catalog keeps a current deletion error');
@@ -363,6 +363,67 @@ async function checkManualAndForegroundAutomatic() {
   }
 }
 
+async function checkInstallationReconciliation() {
+  const old = [chart(1)], h = harness({catalog: old, fetchedAt: 2_000_000_000_000 - 3600000});
+  h.api.catalogStartupBusy = false; h.api.phase = 'ready'; h.api.applied = {};
+  let rebuilt = 0; h.api.rebuild = async () => { rebuilt++; };
+  h.api.installedCharts.set(1, {value: 'different'});
+  h.api.catalogInstallRecheck = true; h.api.scheduleAutomaticCatalogSync();
+  const firstTimer = h.api.catalogAutomaticTimer;
+  h.api.catalogInstallRecheck = true; h.api.scheduleAutomaticCatalogSync();
+  assert.equal(h.timers.has(firstTimer), false, 'Completed installs share one scheduled catalog check');
+  h.enqueue({data: [chart(1, 'Updated chart')], cached: false, stale: false, fetchedAt: h.api.Date.now(), changed: true, outcome: 'updated'});
+  await h.api.maybeRunAutomaticCatalogSync();
+  assert.equal(h.requests.length, 1);
+  assert.deepEqual(JSON.parse(h.requests[0].options.body), {afterInstall: true});
+  assert.equal(h.api.catalogInstallRecheck, false);
+  assert.equal(rebuilt, 1);
+  assert.equal(h.api.installedCharts.size, 0, 'New metadata invalidates the old comparison; it cannot certify a local file');
+  assert.equal(h.api.maybeRunAutomaticCatalogSync(), undefined, 'Successful reconciliation returns to the regular schedule');
+
+  for (const outcome of ['backoff', 'failed']) {
+    const r = harness({catalog: old, fetchedAt: h.api.Date.now() - 60000});
+    r.api.catalogStartupBusy = false; r.api.catalogInstallRecheck = true;
+    const retryAt = r.api.Date.now() + 540000;
+    r.enqueue({data: old, cached: true, stale: false, fetchedAt: r.api.catalogFetchedAt, changed: false, outcome,
+      automaticNextAllowedAt: retryAt, automaticRetryAfterSeconds: 540,
+      ...(outcome === 'failed' ? {refreshError: 'Offline', errorCode: 'charts_network_error'} : {})});
+    assert.equal(await r.api.maybeRunAutomaticCatalogSync(), false);
+    assert.equal(r.api.catalogInstallRecheck, true, 'Cooldown and network failure retain the installation check');
+    assert.equal(r.api.automaticCatalogDueAt(), retryAt, 'Retry follows the allowed interval rather than waiting 12 hours');
+    assert.equal(r.api.maybeRunAutomaticCatalogSync(), undefined);
+    r.setNow(retryAt);
+    r.enqueue({data: old, cached: false, stale: false, fetchedAt: retryAt, changed: false, outcome: 'unchanged', automaticNextAllowedAt: retryAt});
+    assert.equal(await r.api.maybeRunAutomaticCatalogSync(), true);
+    assert.equal(r.requests.length, 2);
+    assert.equal(r.api.catalogInstallRecheck, false, 'One successful refresh ends the attempt even when data is unchanged');
+  }
+
+  for (const outcome of ['local', 'manual_cooldown', 'backoff']) {
+    const r = harness({catalog: old, fetchedAt: 100});
+    r.api.catalogInstallRecheck = true;
+    r.api.installedCharts.set(1, {value: 'different'});
+    const result = r.api.publishCatalogResult({data: [chart(2)], cached: true, fetchedAt: 200, changed: false, outcome});
+    assert.equal(result.changed, true, 'Every newer cache generation invalidates old installation comparisons');
+    assert.equal(r.api.installedCharts.size, 0);
+    assert.equal(r.api.catalogInstallRecheck, true, 'Publishing a response alone must not consume a later installation request');
+  }
+
+  for (const channel of ['automatic', 'manual']) {
+    const r = harness({catalog: old, fetchedAt: 100});
+    r.api.catalogStartupBusy = false; r.api.catalogInstallRecheck = true;
+    let finish;
+    r.api.timedCatalogRequest = () => new Promise(resolve => { finish = resolve; });
+    const syncing = channel === 'automatic' ? r.api.automaticCatalogSync() : r.api.manualCatalogSync();
+    assert.equal(r.api.catalogInstallRecheck, false, 'The request consumes only checks that existed when it started');
+    r.api.catalogInstallRecheck = true;
+    finish({data: old, cached: false, stale: false, fetchedAt: r.api.Date.now(), changed: false, outcome: 'unchanged'});
+    await syncing;
+    assert.equal(r.api.catalogInstallRecheck, true, 'A download completed during a slow catalog request still gets a later check');
+    assert.equal(r.api.automaticCatalogDueAt(), r.api.Date.now());
+  }
+}
+
 function checkProgressModes() {
   const h = harness();
   h.api.updateCatalogSyncProgress({phase: 'receiving', bytesReceived: 1_200_000, contentLength: null});
@@ -410,7 +471,7 @@ function checkClassifiedErrorsInBothLanguages() {
 
 async function main() {
   checkMarkupAndMotion(); checkHelpPopoverInteractions(); await checkEndpointContract(); checkChangedAuthority(); await checkStartupFreshAndStale();
-  await checkStartupFailureAndManualRetry(); await checkNoCacheFailure(); await checkManualAndForegroundAutomatic(); checkProgressModes(); checkClassifiedErrorsInBothLanguages();
+  await checkStartupFailureAndManualRetry(); await checkNoCacheFailure(); await checkManualAndForegroundAutomatic(); await checkInstallationReconciliation(); checkProgressModes(); checkClassifiedErrorsInBothLanguages();
   console.log('PASS: cache-only startup, focused automatic sync, foreground manual retry/cooldown, nonblocking updates, visibility ownership, authoritative changed flags, classified bilingual errors, progress modes, hover help behavior and reduced motion.');
 }
 

@@ -18,7 +18,7 @@ import urllib.request
 import zipfile
 
 PROJECT = Path(__file__).resolve().parent.parent
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 SOURCE_DATE_EPOCH = "1788048000"
 WEB_FILES = ("web/index.html", "web/interface.css", "web/chart-card.js", "web/app.js", "web/locales.json")
 SOURCE_FILES = (

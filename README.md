@@ -6,15 +6,12 @@ A third-party Windows app for browsing, installing, and managing local [SpinShar
 
 ![Browse and manage local SpinShare charts](docs/images/overview-en.png)
 
-## Version 2.1.0
+## Version 2.1.1
 
-Released September 6, 2026. Screenshots and demonstrations show the current interface with isolated example data.
+Released September 14, 2026. Screenshots and demonstrations show the current interface with isolated example data.
 
-- See when local chart contents differ from the listed chart, with a dedicated filter and a warning before replacing local edits.
-- Retry failed installation checks in every browsing view.
-- Recover interrupted installations while preserving files that need attention.
-- See when uploader search needs an online lookup; local matches remain available if it fails.
-- Cancel an update from a preparation error prompt without continuing installation.
+- Fix newly downloaded charts showing **Local files differ** when the saved chart list is older than the download. The app updates the list and checks again when updates are available.
+- Keep installation indicators in sync when newer chart data is loaded from the background cache.
 
 [Read the changelog](CHANGELOG.md)
 
@@ -35,7 +32,7 @@ Released September 6, 2026. Screenshots and demonstrations show the current inte
 
 **[Download for Windows](https://github.com/a3ho/SpinShareBrowser/releases/latest)**
 
-1. On the release page, download `SpinShareBrowser-2.1.0-windows-x64-setup.exe` under **Assets**. Source archives are for building the app.
+1. On the release page, download `SpinShareBrowser-2.1.1-windows-x64-setup.exe` under **Assets**. Source archives are for building the app.
 2. Run the installer and follow Setup. It installs for your Windows account, adds a Start Menu entry, and offers a desktop shortcut.
 
 Requires **Windows 10 version 1903 or later, or Windows 11 (x64)**, and **.NET Framework 4.8 or later**. Python and the app libraries are bundled.
@@ -79,6 +76,8 @@ Select **Download and install** on a chart card. The first time, confirm the cha
 Installed charts are marked **Installed**. Select **Install again** to replace one with the listed version. DLC charts use the same install, reinstall, and delete actions; their requirement label can open the relevant Steam page.
 
 **Local files differ** means the local chart differs from the listed version and may contain your own edits. These charts appear in **Installed only** and have a dedicated filter. Installing again replaces those local edits; deletion is available only for an exact match.
+
+If this appears immediately after a download, the chart list may be out of date. The app schedules a data update and checks again when updates are available; you can also select **Update data**.
 
 When an installed chart shows **Delete**, selecting it immediately and permanently removes that chart's custom chart, cover, and audio files without another confirmation. Other files and Steam DLC files are left untouched. You can select **Delete** on several charts to queue them.
 

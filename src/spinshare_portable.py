@@ -22,7 +22,7 @@ import time
 import installer
 import audio_preview
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 HOST = "127.0.0.1"
 CONFIG_NAME = "config.json"
 PAGE_NAME = "browser.html"
@@ -876,7 +876,7 @@ class ChartCatalogCache:
             return self._metadata(cached=False, attempted=True, outcome="updated" if changed else "unchanged",
                                   changed=changed, channel="manual")
 
-    def automatic_update(self):
+    def automatic_update(self, *, after_install=False):
         with self.lock:
             try:
                 self._load()
@@ -886,10 +886,20 @@ class ChartCatalogCache:
                                       refresh_error=message, error_code="charts_cache_error")
             state = self.state
             metadata = self._metadata(cached=state["data"] is not None, channel="automatic")
-            if not metadata["stale"]:
+            if not after_install and not metadata["stale"]:
                 return self._metadata(cached=True, outcome="fresh", channel="automatic")
             if metadata["retryAfterSeconds"]:
                 return self._metadata(cached=state["data"] is not None, outcome="manual_cooldown", channel="automatic")
+            if after_install and state["fetchedAt"] is not None:
+                # An installation can expose a newer server version within the
+                # normal 12-hour freshness window. Coalesce those checks without
+                # recording a successful refresh as an automatic failure.
+                next_allowed = max(metadata["automaticNextAllowedAt"],
+                                   state["fetchedAt"] + CHART_REFRESH_INTERVAL_MS)
+                remaining = next_allowed - metadata["serverNow"]
+                if remaining > 0:
+                    return dict(metadata, outcome="backoff", automaticNextAllowedAt=next_allowed,
+                                automaticRetryAfterSeconds=(remaining + 999) // 1000)
             if metadata["automaticRetryAfterSeconds"]:
                 return self._metadata(cached=state["data"] is not None, outcome="backoff", channel="automatic")
             previous = state
@@ -1729,11 +1739,13 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                 self._respond(200, self.server.manager.resolve_preview(data["fileReference"], data["updateHash"]))
                 return
             if self.path in {"/v1/charts/manual", "/v1/charts/automatic"}:
-                if data:
+                manual = self.path.endswith("/manual")
+                if (manual and data or not manual and
+                        (set(data) - {"afterInstall"} or type(data.get("afterInstall", False)) is not bool)):
                     raise APIError(400, "invalid_body", "Chart update requests do not accept additional fields.")
-                update = (self.server.chart_cache.manual_update if self.path.endswith("/manual") else
-                          self.server.chart_cache.automatic_update)
-                self._respond(200, update())
+                result = (self.server.chart_cache.manual_update() if manual else
+                          self.server.chart_cache.automatic_update(after_install=data.get("afterInstall", False)))
+                self._respond(200, result)
                 return
             if self.path == "/v1/desktop/dialog":
                 if (not {"id", "action"} <= set(data) <= {"id", "action", "remember"} or
@@ -1936,8 +1948,8 @@ class PortableApplication:
     def update_chart_catalog(self):
         return self.chart_cache.manual_update()
 
-    def check_chart_catalog_automatically(self):
-        return self.chart_cache.automatic_update()
+    def check_chart_catalog_automatically(self, *, after_install=False):
+        return self.chart_cache.automatic_update(after_install=after_install)
 
     def bootstrap(self, config=None):
         config = self.manager.config if config is None else config

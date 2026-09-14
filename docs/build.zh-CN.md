@@ -15,14 +15,14 @@ py -3.12 -m venv .venv
 
 ## 构建产物
 
-当前源码版本为 2.1.0。可重复验证的构建输出到 `build/qa`；可用 `--qa --output-dir .qa/my-build` 指定独立 QA 目录，不覆盖 `dist` 中的既有发布产物。不带 `--qa` 时正式构建输出到 `dist`，要求 Git 源码干净、依赖精确匹配、版本／标签尚未发布且没有同版本产物。准备下一个正式版本前须先递增版本号。
+当前源码版本为 2.1.1。可重复验证的构建输出到 `build/qa`；可用 `--qa --output-dir .qa/my-build` 指定独立 QA 目录，不覆盖 `dist` 中的既有发布产物。不带 `--qa` 时正式构建输出到 `dist`，要求 Git 源码干净、依赖精确匹配、版本／标签尚未发布且没有同版本产物。准备下一个正式版本前须先递增版本号。
 
 | 文件 | 内容 |
 | --- | --- |
-| `SpinShareBrowser-2.1.0-windows-x64-setup.exe` | Windows 安装包 |
-| `SpinShareBrowser-2.1.0-windows-x64-setup.exe.sha256` | 安装包校验文件 |
-| `SpinShareBrowser-2.1.0-source.zip` | 源码包 |
-| `SpinShareBrowser-2.1.0-build.json` | 来源、环境、工具及产物哈希清单 |
+| `SpinShareBrowser-2.1.1-windows-x64-setup.exe` | Windows 安装包 |
+| `SpinShareBrowser-2.1.1-windows-x64-setup.exe.sha256` | 安装包校验文件 |
+| `SpinShareBrowser-2.1.1-source.zip` | 源码包 |
+| `SpinShareBrowser-2.1.1-build.json` | 来源、环境、工具及产物哈希清单 |
 
 QA 打包后的程序目录为 `build/qa-work/windows/SpinShareBrowser`，正式构建为 `build/windows/SpinShareBrowser`；QA 编译中间文件位于 `build/qa-work/pyinstaller`。第三方许可文件随程序安装。
 
@@ -72,17 +72,17 @@ QA 构建后，运行 `python scripts/installer_cancel_smoke.py --compiler build
 源码和文档全部定稿后再执行一次构建。校验安装包与自动生成的 SHA-256 文件一致，并确认源码包包含发布文档和主要源码：
 
 ```powershell
-$installer = "dist\SpinShareBrowser-2.1.0-windows-x64-setup.exe"
+$installer = "dist\SpinShareBrowser-2.1.1-windows-x64-setup.exe"
 $expected = ((Get-Content "$installer.sha256" -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
 $actual = (Get-FileHash $installer -Algorithm SHA256).Hash
 if ($actual -ne $expected) { throw "Installer SHA-256 mismatch" }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = (Resolve-Path "dist\SpinShareBrowser-2.1.0-source.zip").Path
+$archive = (Resolve-Path "dist\SpinShareBrowser-2.1.1-source.zip").Path
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
 try {
     $entries = $zip.Entries.FullName
-    $prefix = "SpinShareBrowser-2.1.0/"
+    $prefix = "SpinShareBrowser-2.1.1/"
     $required = "CHANGELOG.md", "README.md", "PRODUCT.md", "DESIGN.md", "src/spinshare_portable.py", "web/app.js"
     $missing = $required |
         ForEach-Object { "$prefix$_" } |
