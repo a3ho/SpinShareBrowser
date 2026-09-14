@@ -10,9 +10,9 @@ on:
         type: boolean
         default: false
       previous_tag:
-        description: Previous stable release used for upgrade verification
+        description: Upgrade baseline tag (empty uses the currently published latest stable release)
         type: string
-        default: v2.0.1
+        default: ''
 
 permissions:
   contents: read
@@ -98,6 +98,10 @@ jobs:
           PREVIOUS_TAG: ${{ inputs.previous_tag }}
         shell: pwsh
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:PREVIOUS_TAG)) {
+            $env:PREVIOUS_TAG = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq .tagName
+            if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the currently published stable release.' }
+          }
           if ($env:PREVIOUS_TAG -notmatch '^v?[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Use a stable version tag.' }
           gh release download $env:PREVIOUS_TAG --repo $env:GITHUB_REPOSITORY --dir build/previous --pattern '*-windows-x64-setup.exe' --pattern '*-windows-x64-setup.exe.sha256'
           if ($LASTEXITCODE -ne 0) { throw 'Could not download the previous release.' }

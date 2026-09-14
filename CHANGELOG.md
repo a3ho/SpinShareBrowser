@@ -1,8 +1,8 @@
 # Changelog
 
-SpinShare Browser maintains and supports only the latest stable release. Update to the latest release for fixes and support.
+SpinShare Browser retains, maintains, and supports only the latest stable release. Older releases, downloadable assets, and version tags are removed after the replacement is verified and published. The entries below remain as development history.
 
-SpinShare Browser 仅维护和支持最新稳定版。请升级到最新版本以获得修复与问题支持。
+SpinShare Browser 仅保留、维护和支持最新稳定版。新版验证并发布后，删除全部旧版发布页、下载附件和版本标签，旧版本不再保留。以下条目仅记录开发历史。
 
 ## 2.1.1 — 2026-09-14
 

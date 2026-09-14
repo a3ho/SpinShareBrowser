@@ -15,7 +15,7 @@ Released September 14, 2026. Screenshots and demonstrations show the current int
 
 [Read the changelog](CHANGELOG.md)
 
-> Only the latest stable release is maintained and supported. Update to the latest release for fixes and support.
+> Only the latest stable release is retained, maintained, and supported. Older releases, downloads, and version tags are removed after a new release is verified and published. Always download the latest release.
 
 ## Features
 

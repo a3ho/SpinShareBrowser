@@ -12,4 +12,6 @@
 
 - Use Semantic Versioning for every formal release containing program changes: increment PATCH for fixes and other compatible maintenance changes, MINOR for compatible new features, and MAJOR for breaking changes.
 - Documentation-only updates do not require a version increment.
-- Never overwrite published tags or same-version release artifacts. Publish changed program builds under a new version and tag, and preserve existing release assets.
+- Publish changed program builds under a new version and tag. Never reuse a previously released version number or overwrite same-version release artifacts.
+- Keep only the latest stable GitHub release, its assets, and its version tag. After a new release passes verification and its public downloads are checked, delete every older release with its assets and version tag. Do not retain old releases. This supersedes the previous rule to preserve existing release assets.
+- Complete upgrade verification against the currently published stable release before publishing its replacement and removing the old release. Preserve Git commit history.
