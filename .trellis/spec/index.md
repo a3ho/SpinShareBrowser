@@ -17,6 +17,7 @@ Python 本地服务（127.0.0.1 随机端口）+ WebView2 单页界面（四个 
 | [frontend/](frontend/index.md) | 改任何 `web/*` 之前（状态模型、渲染管线、播放器、安装状态、评论） |
 | [release/](release/index.md) | 构建、发版、打包、测试、CI 之前 |
 | [guides/](guides/index.md) | 本地调试怎么做、红线是什么 |
+| [external/](external/index.md) | 碰任何 spinsha.re 接口之前（端点契约、Connect 体系、政策红线） |
 
 ## 一图流（数据从哪来到哪去）
 
