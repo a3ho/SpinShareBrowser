@@ -1,0 +1,29 @@
+{
+  "id": "notifications",
+  "name": "notifications",
+  "title": "通知读取与清除",
+  "description": "通知读取与清除：会话页解析通知列表，/notification/clear/{id} 与 /notification/clearAll，仅用户打开时刷新（无后台轮询）",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-23",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "6/8",
+    "depends": "session-client"
+  }
+}

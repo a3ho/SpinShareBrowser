@@ -1,0 +1,29 @@
+{
+  "id": "home-recentering",
+  "name": "home-recentering",
+  "title": "首页重心迁移：登录后的我的",
+  "description": "产品重心迁移：登录后首页变为我的收藏（歌单）+通知+快捷入口，导航重构，未登录保持现状，设计语言全面对齐",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-23",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "7/8",
+    "depends": "playlists-favorites,reviews-write,notifications"
+  }
+}

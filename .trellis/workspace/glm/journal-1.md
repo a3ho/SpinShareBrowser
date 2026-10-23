@@ -117,3 +117,37 @@ Researched whether SpinShare Browser can integrate the SpinShare user system. Ve
 ### Next Steps
 
 - If user obtains a ConnectApp ApiKey via SpinShare Discord, implement per report section 5 sketch
+
+---
+
+## Session 5: Session-channel roadmap + frontend build pipeline (phase 1/8)
+
+**Date**: 2026-10-23
+**Task**: 10-23-frontend-build-pipeline (+ roadmap decomposition for 8-phase session-client blueprint)
+**Branch**: `main`
+
+### Summary
+
+User rulings absorbed: favorites==Playlists, session channel is permanent (assume Connect API never fixed), frontend UX is the top priority (memory + AGENTS.md section added). Decomposed the full-client blueprint into 8 Trellis tasks with complete PRDs (frontend-UX gate baked into every UI task). Implemented phase 1: web/ four-file runtime inline assembly replaced by modular sources web/src (25 JS modules + 13 CSS layers) assembled by zero-dependency scripts/build_web.py into the same signed-in artifacts (banner + byte-identical concatenation; --check drift gate). Runtime contract unchanged (server still inlines five files into browser.html). build.py gains dynamic WEB_SRC_FILES glob; .gitignore whitelist opened for web/src. Cross-verified upstream master for the playlist form channel (create requires cover else silent no-op; add-song replace-set by array index; remove-song route is view-free) and recorded in external spec.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: modular web sources with build-time assembly (8-task roadmap PRDs included) |
+
+### Testing
+
+- [OK] splitter: byte-identical reassembly of app.js (3169 lines/25 modules) + interface.css (920/13)
+- [OK] python -m unittest discover: 154 OK
+- [OK] 12/12 node test_*.cjs
+- [OK] build.py --qa: 111 source snapshot files incl. 38 web/src modules; installer built
+- [OK] isolated instance E2E: real catalog sync, filter interaction, cards render; visual check PASS
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Phase 2/8: session-client module (embedded login, DPAPI cookie store, form driver, serial write queue)

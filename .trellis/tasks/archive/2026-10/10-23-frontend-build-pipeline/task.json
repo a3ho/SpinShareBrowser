@@ -1,0 +1,29 @@
+{
+  "id": "frontend-build-pipeline",
+  "name": "frontend-build-pipeline",
+  "title": "前端构建管线：模块化源码与构建期拼装",
+  "description": "用真正的构建管线替换 web/ 四文件运行时内联拼装：模块化源码在构建期打包，运行时产物保持单文件 browser.html 契约不变，为会话功能带来的 UI 面积扩张铺路",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-23",
+  "completedAt": "2026-10-23",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "1/8",
+    "depends": "none"
+  }
+}

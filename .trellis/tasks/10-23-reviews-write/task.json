@@ -1,0 +1,29 @@
+{
+  "id": "reviews-write",
+  "name": "reviews-write",
+  "title": "评论发布与删除",
+  "description": "原生界面发布/删除自己的评论：POST /song/{id} submitReview（浏览量+1 固有成本）、删评走专用路由，与既有评论读取面板整合，含已评状态切换",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-23",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "5/8",
+    "depends": "session-client"
+  }
+}

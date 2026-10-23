@@ -1,0 +1,29 @@
+{
+  "id": "chart-upload",
+  "name": "chart-upload",
+  "title": "谱面上传",
+  "description": "创作者面：原生上传表单（backup zip/tags/description/dlc/publicationStatus/isExplicit）走 POST /upload，我的谱面列表与管理",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-23",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "8/8",
+    "depends": "session-client"
+  }
+}

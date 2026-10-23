@@ -15,8 +15,20 @@
 - **流程**：用户官网个人设置取 6 位 ConnectCode（15s 轮换、一次性）→ `GET /api/connect/getToken?connectCode=&connectAppApiKey=` → 32hex `connectToken`（长期有效至用户撤销，`validateToken` 校验）。token 走**查询串**。
 - **硬门槛**：`connectAppApiKey` 必须命中官方登记的 ConnectApp（私下审批，Discord #development 申请）。未登记一律 404。
 - 端点：`profile`（当前用户+通知数）· `reviews/{songID}/get|add|remove`（add body `{recommended:bool, comment:string}`——源码读 **recommended**，文档误写 recommend）· `playlists`（只读）· `notifications|clearNotification|clearAllNotifications` · `savePlaylists/{songID}`（**服务端损坏**：逻辑注释、恒 200 空数据，勿用）。
-- **收藏不存在**：favorites/favorite/bookmark 在服务端源码 0 命中；新旧客户端亦无。"收藏"最接近替代 = 播放列表（但写入已坏）。
+- **收藏不存在**：favorites/favorite/bookmark 在服务端源码 0 命中；新旧客户端亦无。**用户需求中的"收藏"即指 Playlists**（2026-10-23 用户澄清）→ 读可行、写被官方坏端点卡死；本地收藏（状态目录存储）是现成替代方向，上游修复后可加同步。savePlaylists 损坏状态 2026-10-23 复核 master 依旧（逻辑全注释 + 活的 var_dump + 作者 "FUCK THIS, THIS IS BROKEN" 留言）；Connect API 无建/删列表端点，网站的 create/edit/delete/歌曲增删全走会话表单路由（`/playlist/*`、`PlaylistController`）。
 - 网站独占（无 API，勿模拟会话）：上传、账号设置、建/删播放列表、SpinPlays 提交、举报。
+- **网站 UI 实证（2026-10-23 用户登录截图核对）**：头像下拉 = My Charts / My Playlists / My Reviews / My SpinPlays / Settings / Logout，**无收藏入口**（佐证 favorites 不存在）；铃铛面板 = NOTIFICATIONS + CLEAR ALL（即 `clearAllNotifications` 的 UI）；Upload 页为纯网站表单（backup ZIP 拖放 + Markdown 描述 + 逗号分隔 tags + DLC/发布状态下拉 + explicit 复选），无 API 对应。
+
+## 网站表单通道（歌单写操作，2026-10-23 源码核实，红线 1 例外已获所有者裁定）
+
+写操作走"本人会话 + 官方表单端点"（红线修订见 guides/red-lines.md）。服务端真实机制：
+
+- **创建** `POST /playlist/create`：Symfony 表单（需先 GET 页面取 `form[_token]` CSRF），字段 `form[title|description|coverPath|save]`。**致命细节：persist 写在 `if($coverFile)` 里面——不上传封面 = 静默 no-op（重渲染表单、无错误）**。客户端必须生成并 multipart 上传一张封面 PNG；新歌单 id 从重定向 Location 取。`SongPlaylist` 实体**无 visibility 字段，歌单一律公开**显示在用户主页（"收藏夹=公开"是产品事实）。
+- **删除歌单** `GET /playlist/{id}/delete`：无 CSRF、无确认（确认分支被官方注释掉），一次 GET 即删，owner 校验。
+- **加歌** `POST /song/{id}`（songDetail 动作，`submitPlaylist`）：**进门无条件 `views+1`（GET/POST 都加，无法绕过）**；**替换集语义**——先把歌从用户全部歌单移除，再把 `playlist_{index}=on` 勾选的加回；**键是服务端 findBy 结果的数组下标而非歌单 id**，稳妥做法 = 解析渲染页 checkbox（名称+标题+勾选态）。表单是手写 HTML 非 Symfony Form，**无 CSRF 字段**。陈旧缓存写入会复活已删成员关系 → **写前强制新鲜读**。
+- **移除歌曲** `GET /playlist/{playlistId}/song/{songId}/delete`：无 CSRF，owner/版主校验，**不经过 /song/{id}，零浏览量成本**。加歌才烧 views，移除免费。
+- **读回（公开无鉴权）**：`GET /api/user/{id}/playlists`（全部歌单）、`GET /api/playlist/{id}`（单列表写后校验）；getJSON 含 songs[]/cover URL/user。
+- 会话：内嵌登录窗（独立 WebView2）建会话，CoreWebView2 CookieManager 取 cookie，本地加密存储、可断开；写响应返回登录页 HTML/重定向 = 会话失效信号。
 
 ## 政策（Usage Policy）
 
