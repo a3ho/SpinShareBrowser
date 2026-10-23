@@ -66,3 +66,23 @@ Designed and shipped the player volume control end to end: quiet speaker button 
 ### Next Steps
 
 - Release task: bump to 2.2.0 per release/index.md checklist, fold in release-notes-draft.md
+
+
+## Session 3: Volume feature accepted by user
+<!-- trellis-session: v=2 fp=c37f28b96700a03b -->
+
+**Date**: 2026-10-23
+**Task**: Volume feature accepted by user
+**Branch**: `main`
+
+### Summary
+
+User accepted the header-player volume control after live review. Demo instance shut down cleanly, temp state removed. Feature awaits release as 2.2.0 (draft changelog entry in .trellis/tasks/archive/2026-10/10-23-player-volume/release-notes-draft.md).
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
