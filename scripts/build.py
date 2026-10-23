@@ -21,6 +21,13 @@ PROJECT = Path(__file__).resolve().parent.parent
 VERSION = "2.1.1"
 SOURCE_DATE_EPOCH = "1788048000"
 WEB_FILES = ("web/index.html", "web/interface.css", "web/chart-card.js", "web/app.js", "web/locales.json")
+# Modular authoring sources assembled into web/app.js and web/interface.css by
+# scripts/build_web.py; shipped in the source snapshot, not bundled at runtime.
+WEB_SRC_FILES = tuple(
+    path.relative_to(PROJECT).as_posix()
+    for path in sorted((PROJECT / "web" / "src").rglob("*"))
+    if path.is_file()
+)
 SOURCE_FILES = (
     ".gitattributes", ".gitignore", "AGENTS.md", "LICENSE", "README.md", "README.zh-CN.md", "CHANGELOG.md",
     "PRODUCT.md", "DESIGN.md",
@@ -38,7 +45,7 @@ SOURCE_FILES = (
     "tests/test_player_volume.py",
     "tests/test_installation_status.py", "tests/test_install_recovery.py",
     "tests/test_build.py", "scripts/windows_smoke.py", "scripts/installer_cancel_smoke.py", "scripts/browser_smoke.cjs", ".github/workflows/verify.yml",
-    *WEB_FILES, "scripts/build.py", "scripts/windows.iss",
+    *WEB_FILES, "scripts/build.py", "scripts/windows.iss", "scripts/build_web.py", *WEB_SRC_FILES,
     "assets/spinshare-browser.png", "assets/spinshare-browser-favicon.png",
     "assets/spinshare-browser.ico",
     "assets/windows-version.txt", "assets/README.md", "assets/README.zh-CN.md",

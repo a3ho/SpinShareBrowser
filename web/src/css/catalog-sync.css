@@ -1,0 +1,57 @@
+/* Catalog updates have two distinct surfaces: startup focus and quiet runtime feedback. */
+.catalog-sync-dialog { width: min(500px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 0; border-radius: 16px; background: #1b1c21; color: var(--text); box-shadow: 0 28px 90px #000c; overflow: hidden; }
+.catalog-sync-dialog::backdrop { background: #090a0ec2; backdrop-filter: blur(5px); opacity: 1; transition: opacity var(--motion-panel) ease; }
+.catalog-sync-dialog.is-closing::backdrop { opacity: 0; }
+@starting-style { .catalog-sync-dialog[open]::backdrop { opacity: 0; } }
+.catalog-sync-card { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0 18px; padding: 30px; }
+.catalog-sync-mark { grid-row: 1 / span 2; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 14px; background: #342530; color: #ffb9da; box-shadow: 0 12px 28px #0a070a8c; transition: background var(--motion-standard), color var(--motion-standard); }
+.catalog-sync-mark .icon { grid-area: 1 / 1; width: 27px; height: 27px; }
+.catalog-sync-success-icon, .catalog-sync-error-icon { display: none; }
+.catalog-sync-dialog[data-state="success"] .catalog-sync-mark { background: #25352d; color: var(--green); }
+.catalog-sync-dialog[data-state="success"] .catalog-sync-loading-icon { display: none; }
+.catalog-sync-dialog[data-state="success"] .catalog-sync-success-icon { display: block; }
+.catalog-sync-dialog[data-state="error"] .catalog-sync-mark { background: #3c252b; color: #ffb0bd; }
+.catalog-sync-dialog[data-state="error"] .catalog-sync-loading-icon { display: none; }
+.catalog-sync-dialog[data-state="error"] .catalog-sync-error-icon { display: block; }
+.catalog-sync-loading-icon { animation: catalog-sync-spin 1.5s linear infinite; }
+.catalog-sync-copy { min-width: 0; align-self: center; }
+.catalog-sync-copy h2 { color: #f4f4f7; font-family: var(--font-display); font-size: var(--type-title); font-weight: var(--weight-display); line-height: 1.3; letter-spacing: -.18px; text-wrap: balance; }
+.catalog-sync-copy p { max-width: 42ch; margin-top: 6px; color: #c1c4cf; font-size: var(--type-body); line-height: var(--leading-reading); overflow-wrap: anywhere; }
+.catalog-sync-meter { grid-column: 1 / -1; position: relative; height: 3px; margin-top: 25px; border-radius: 3px; background: #ffffff12; overflow: hidden; }
+.catalog-sync-meter > span { position: absolute; inset: 0; border-radius: inherit; background: var(--pink); transform-origin: left center; }
+.catalog-sync-meter.is-indeterminate > span { width: 36%; animation: catalog-sync-travel 1.3s var(--ease-out) infinite; }
+.catalog-sync-meter.is-determinate > span { transform: scaleX(0); transition: transform var(--motion-standard) var(--ease-out); }
+.catalog-sync-dialog[data-state="success"] .catalog-sync-meter > span { width: 100%; transform: scaleX(1); animation: none; background: var(--green); }
+.catalog-sync-dialog[data-state="error"] .catalog-sync-meter { display: none; }
+.catalog-sync-progress { grid-column: 1 / -1; min-height: 18px; margin-top: 9px; color: var(--text-quiet); font-size: var(--type-meta); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; line-height: var(--leading-body); }
+.catalog-sync-progress:empty { display: none; }
+.catalog-sync-detail { grid-column: 1 / -1; display: grid; gap: 7px; margin-top: 18px; padding: 13px 14px; border: 1px solid #ffffff0d; border-radius: 10px; background: #ffffff08; }
+.catalog-sync-detail[hidden] { display: none; }
+.catalog-sync-detail > div { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; gap: 14px; }
+.catalog-sync-detail dt, .catalog-sync-detail dd { font-size: var(--type-control); line-height: var(--leading-body); }
+.catalog-sync-detail dt { color: var(--text-quiet); font-weight: var(--weight-medium); }
+.catalog-sync-detail dd { min-width: 0; margin: 0; color: #e0e2e9; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.catalog-sync-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 9px; margin-top: 22px; }
+.catalog-sync-actions .button { min-height: 38px; white-space: normal; }
+
+.catalog-sync-toast { position: fixed; right: 20px; bottom: 20px; z-index: 70; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 11px; width: min(360px, calc(100vw - 24px)); min-height: 62px; padding: 13px 15px; border-radius: 12px; background: #292a31; color: #e8e9ee; box-shadow: 0 16px 46px #000a; }
+.catalog-sync-toast:hover { background: #2e3038; }
+.catalog-sync-toast-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: #25372e; color: var(--green); }
+.catalog-sync-toast-mark .icon { grid-area: 1 / 1; width: 19px; height: 19px; }
+.catalog-sync-toast-notice { display: none; }
+.catalog-sync-toast[data-kind="error"] .catalog-sync-toast-mark { background: #3c282e; color: #ffadba; }
+.catalog-sync-toast[data-kind="error"] { align-items: start; }
+.catalog-sync-toast[data-kind="error"] .catalog-sync-toast-success { display: none; }
+.catalog-sync-toast[data-kind="error"] .catalog-sync-toast-notice { display: block; }
+.catalog-sync-toast-copy { min-width: 0; }
+.catalog-sync-toast-copy > strong { display: block; color: inherit; font-size: var(--type-control); font-weight: var(--weight-semibold); line-height: var(--leading-body); overflow-wrap: anywhere; }
+.catalog-sync-toast-facts { display: grid; gap: 3px; margin: 6px 0 0; }
+.catalog-sync-toast-facts[hidden], .catalog-sync-toast-facts > div[hidden] { display: none; }
+.catalog-sync-toast-facts > div { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; gap: 10px; }
+.catalog-sync-toast-facts dt, .catalog-sync-toast-facts dd { font-size: var(--type-meta); line-height: var(--leading-body); }
+.catalog-sync-toast-facts dt { color: #aeb2bf; font-weight: var(--weight-medium); }
+.catalog-sync-toast-facts dd { min-width: 0; margin: 0; color: #e2e4eb; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+body:has(#app-activity:not([hidden])) .catalog-sync-toast { bottom: 112px; }
+@keyframes catalog-sync-spin { to { transform: rotate(360deg); } }
+@keyframes catalog-sync-travel { from { transform: translateX(-130%); } to { transform: translateX(390%); } }
+

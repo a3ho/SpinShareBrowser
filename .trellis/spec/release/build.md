@@ -1,4 +1,10 @@
-# 构建系统（scripts/build.py）
+# 构建系统（scripts/build.py + scripts/build_web.py）
+
+## 前端产物（build_web.py，零依赖）
+
+- `web/src/`（25 JS 模块 + 13 CSS 层）→ 拼接生成 `web/app.js` / `web/interface.css`（首行 generated 横幅）。产物签入仓库，应用不跑构建也能运行；`--check` 模式验证产物与源码无漂移（非零退出）。
+- build.py 的 SOURCE_FILES 通过 `WEB_SRC_FILES`（对 `web/src` 的 sorted rglob 动态收集）自动带上全部模块——**新增 web/src 文件无需改 build.py**，但必须先加进 .gitignore 白名单（正式构建要求全部 SOURCE_FILES 被 git 跟踪）。
+- 运行时契约不变：服务端仍读五文件（index.html/interface.css/chart-card.js/app.js/locales.json）内联成 browser.html；PyInstaller --add-data 只带五文件，不带 web/src（src 只进源码 zip）。
 
 ## 前置（每次构建都查）
 

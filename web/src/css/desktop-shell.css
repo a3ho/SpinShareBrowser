@@ -1,0 +1,6 @@
+/* Desktop shell. The content keeps a single document scroll container. */
+.topbar { position: fixed; inset: 0 0 auto; height: var(--top); z-index: 30; display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(220px, min(760px, 52vw)) minmax(max-content, 1fr); align-items: center; gap: 16px; padding: 0 24px; background: var(--sidebar); border-bottom: 1px solid var(--line); }
+.brand { grid-column: 1; justify-self: start; display: flex; align-items: center; gap: 10px; flex: none; }
+.brand img { width: 34px; height: 34px; display: block; object-fit: contain; transition: opacity var(--motion-feedback); }
+.brand-name { white-space: nowrap; font-family: var(--font-display); font-size: var(--type-subtitle); line-height: 1.15; font-weight: var(--weight-display); letter-spacing: -.28px; }
+body:has(.back-to-top.is-visible) .brand img { opacity: 0; }

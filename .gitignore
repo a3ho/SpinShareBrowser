@@ -21,6 +21,8 @@
 !/web/interface.css
 !/web/chart-card.js
 !/web/app.js
+!/web/src/
+!/web/src/**
 !/PRODUCT.md
 !/DESIGN.md
 !/tests/read_web_template.cjs
@@ -37,6 +39,7 @@
 
 !/scripts/
 !/scripts/build.py
+!/scripts/build_web.py
 !/scripts/windows.iss
 
 !/tests/

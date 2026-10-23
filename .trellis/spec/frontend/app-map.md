@@ -1,4 +1,13 @@
-# app.js 地图（3076 行，无模块化的单作用域）
+# app.js 地图（3169 行单作用域；源码已模块化）
+
+## 源码布局（2026-10-23 构建管线改造）
+
+- **编辑 `web/src/js/*`（25 模块）与 `web/src/css/*`（13 层），不要直接改 `web/app.js` / `web/interface.css`**——它们是 `scripts/build_web.py` 按清单拼接的签入产物（首行有 generated 横幅）。改完跑 `python scripts/build_web.py`；`--check` 验证无漂移。
+- 拼接是纯顺序连接：全部模块同处一个作用域（无 import/export），顶层 `const/let` 互相可见，函数靠 hoisting 与惰性引用。**新增前端模块：建文件 + 在 build_web.py 的 MANIFEST 里按依赖无关的行序登记**（顺序只影响可读性，不影响正确性，但别打断一条语句）。
+- 模块切分（按行序）：prologue / i18n / core-state（共享状态声明集中地）/ motion / status / settings / dialogs / settings-panel / window-regions / filters / search-tags / choice-menus / format-covers / preview-player（含音量）/ chart-popovers / installer-client / installation / activity / reviews / pagination / render / catalog-sync / json-response / page-details / apply-boot（启动序列在尾部）。
+- CSS 13 层按既有分节注释切：base / desktop-shell / title-bar / volume / filters / search / cards / tag-layer / window-chrome / queue-dock / catalog-sync / utility / reflow。
+
+## 核心状态（顶部分组声明）
 
 ## 核心状态（顶部分组声明）
 

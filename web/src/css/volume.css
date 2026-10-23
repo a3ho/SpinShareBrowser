@@ -1,0 +1,37 @@
+/* Volume: one quiet icon in the timing group; the slider lives in an anchored
+   popover below the header, outside the native drag region. */
+.volume-popover { position: fixed; inset: auto; width: max-content; padding: 13px 15px; border: 0; border-radius: 12px; background: #2a2b33; box-shadow: 0 14px 40px #0009; overscroll-behavior: contain; opacity: 0; transform: translateY(4px); transition: opacity var(--motion-feedback) ease, transform var(--motion-standard) var(--ease-out), display var(--motion-standard) allow-discrete, overlay var(--motion-standard) allow-discrete; }
+.volume-popover:popover-open { opacity: 1; transform: none; }
+.volume-popover:not(:popover-open) { pointer-events: none; }
+.volume-slider { --volume-level: 100%; appearance: none; width: 112px; height: 18px; padding: 0; border-radius: 0; background: linear-gradient(90deg, var(--pink) 0 var(--volume-level), #ffffff1a var(--volume-level) 100%) center / 100% 3px no-repeat; cursor: pointer; }
+.volume-slider::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #f3d9e6; box-shadow: 0 0 0 1px #0f1014, 0 1px 5px #0008; transition: transform var(--motion-feedback) var(--ease-out), background var(--motion-feedback); }
+.volume-slider:hover::-webkit-slider-thumb, html[data-input-modality=keyboard] .volume-slider:focus-visible::-webkit-slider-thumb { background: #fff; transform: scale(1.18); }
+.volume-slider:disabled { opacity: .45; cursor: default; }
+.preview-glyphs { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: linear-gradient(180deg, #08090d18, #08090d9c); color: #fff; }
+.global-player-cover .preview-glyphs { opacity: 0; transition: opacity var(--motion-feedback); }
+.global-player-cover:hover .preview-glyphs, html[data-input-modality=keyboard] .global-player-cover:focus-visible .preview-glyphs, .global-player-cover.is-loading .preview-glyphs, .global-player-cover.is-error .preview-glyphs, .global-player-cover.is-shortcut-feedback .preview-glyphs { opacity: 1; }
+.preview-glyphs::before { content: ""; grid-area: 1 / 1; width: 30px; height: 30px; border-radius: 50%; background: #111219b8; box-shadow: 0 4px 14px #0008; transform: scale(.94); transition: transform var(--motion-standard) var(--ease-out), background var(--motion-feedback); }
+.preview-toggle:hover .preview-glyphs::before, html[data-input-modality=keyboard] .preview-toggle:focus-visible .preview-glyphs::before { background: #171821dc; transform: scale(1); }
+.global-player-cover.is-shortcut-feedback .preview-glyphs::before { transform: scale(1); animation: preview-shortcut-pulse var(--motion-panel) var(--ease-out); }
+.preview-glyph { grid-area: 1 / 1; z-index: 1; width: 17px; height: 17px; opacity: 0; transform: scale(.78); transition: opacity var(--motion-feedback), transform var(--motion-standard) var(--ease-out); }
+.preview-glyph-play { margin-left: 1px; fill: currentColor; stroke: none; opacity: 1; transform: scale(1); }
+.preview-toggle.is-playing .preview-glyph-play { opacity: 0; transform: scale(.75) rotate(-7deg); }
+.preview-toggle.is-playing .preview-glyph-pause { opacity: 1; transform: scale(1); }
+.preview-toggle.is-error .preview-glyph-play, .preview-toggle.is-error .preview-glyph-pause { opacity: 0; transform: scale(.75); }
+.preview-toggle.is-error .preview-glyph-error { opacity: 1; transform: scale(1); }
+.preview-spinner { grid-area: 1 / 1; z-index: 1; display: none; width: 17px; height: 17px; border: 2px solid #ffffff55; border-top-color: #fff; border-radius: 50%; animation: preview-spin 760ms linear infinite; }
+.preview-toggle.is-loading .preview-glyph { opacity: 0; transform: scale(.75); }
+.preview-toggle.is-loading .preview-spinner { display: block; }
+@keyframes preview-spin { to { transform: rotate(360deg); } }
+@keyframes preview-shortcut-pulse { from { opacity: .55; transform: scale(.78); } 70% { opacity: 1; transform: scale(1.06); } to { opacity: 1; transform: scale(1); } }
+.player-shortcut-hint { position: fixed; top: calc(var(--top) + 9px); left: 50%; z-index: 29; display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100vw - 28px); min-height: 42px; padding: 8px 11px; border: 1px solid #ffffff12; border-radius: 10px; background: #292a32; color: var(--text-secondary); box-shadow: 0 10px 28px #0008, inset 0 1px 0 #ffffff08; opacity: 1; transform: translate(-50%, 0); font-size: var(--type-meta); line-height: var(--leading-ui); pointer-events: none; user-select: none; }
+.player-shortcut-copy { color: var(--text); font-weight: var(--weight-semibold); white-space: nowrap; }
+.player-shortcut-pair { display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.player-shortcut-pair kbd { display: inline-grid; place-items: center; min-width: 36px; min-height: 24px; padding: 2px 7px; border: 1px solid #ffffff16; border-bottom-color: #ffffff25; border-radius: 6px; background: #1d1e24; color: #f2dbe7; box-shadow: inset 0 -1px 0 #0006; font-family: var(--font-ui); font-size: var(--type-micro); font-weight: var(--weight-semibold); line-height: 1; }
+.player-shortcut-divider { align-self: stretch; width: 1px; min-height: 20px; background: var(--line); }
+.app-layout { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; padding-top: var(--top); }
+body:has(#app-activity:not([hidden])) { --content-bottom: 120px; }
+.content { display: flex; flex: 1 0 auto; flex-direction: column; width: 100%; min-width: 0; max-width: 1640px; margin: 0 auto; padding: 24px 36px 0; }
+#chart-panel { display: flex; flex: 1 0 auto; flex-direction: column; margin-bottom: 30px; }
+.result-summary h2 { color: var(--text); font-size: var(--type-body); line-height: var(--leading-ui); font-weight: var(--weight-semibold); }
+

@@ -1,0 +1,17 @@
+/* Queue and feedback motion: one small, anchored dock. */
+.app-activity { position: fixed; left: 28px; right: 28px; bottom: 18px; z-index: 40; max-width: 760px; margin: 0 auto; padding: 12px 18px; background: #30303a; border: 0; border-radius: 12px; color: #e8eaf1; font-size: var(--type-control); line-height: var(--leading-ui); box-shadow: 0 10px 36px #0008; }
+.app-activity.is-exiting { background: #3d2d39; }
+.app-activity p { font-weight: var(--weight-semibold); }
+.app-activity #activity-jobs { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 6px; color: #c4c7d3; }
+.app-activity #activity-jobs:empty { display: none; }
+.activity-job { flex: 1 1 220px; min-width: 0; max-width: 100%; }
+.activity-job:last-child:first-child { flex-basis: 100%; }
+.activity-job-line { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.activity-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e8eaf1; }
+.activity-job-label { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--type-meta); }
+.activity-job-more { flex: 0 0 auto; align-self: center; font-size: var(--type-meta); }
+.activity-job .task-progress { margin-top: 6px; }
+.quiet-button { font-size: var(--type-control); font-weight: var(--weight-medium); padding: 6px 9px; color: #d5d8e2; background: #ffffff0b; }
+.quiet-button:hover { background: #ffffff14; color: #fff; }
+.app-activity .quiet-button { margin-top: 8px; }
+

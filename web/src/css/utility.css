@@ -1,0 +1,26 @@
+/* Keep the utility in the shell, clear of card actions at every scroll position. */
+.back-to-top { position: fixed; inset: 11px auto auto 20px; z-index: 35; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 8px; background: var(--surface); color: #d5d8e2; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(8px); transition: opacity var(--motion-feedback), transform var(--motion-standard) var(--ease-out), background var(--motion-feedback), visibility 0s var(--motion-standard); }
+.back-to-top.is-visible { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }
+.back-to-top:hover { background: #41404c; color: #fff; }
+.back-to-top .icon { width: 20px; height: 20px; }
+.desktop-chrome .back-to-top { app-region: no-drag; }
+.task-progress { display: block; appearance: none; width: 100%; height: 3px; border: 0; border-radius: 3px; overflow: hidden; margin-top: 7px; background: #ffffff15; accent-color: var(--pink); }
+.task-progress::-webkit-progress-bar { background: #ffffff15; border-radius: 3px; }
+.task-progress::-webkit-progress-value { background: var(--pink); border-radius: 3px; }
+.task-progress::-moz-progress-bar { background: var(--pink); border-radius: 3px; }
+.is-loading::before, .is-queued::before { content: ""; display: inline-block; flex: none; width: 11px; height: 11px; margin-right: 6px; vertical-align: -1px; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 50%; }
+.is-loading::before { border-right-color: transparent; opacity: 0; animation: loading-reveal 0s linear var(--motion-feedback) forwards, loading-spin .75s linear var(--motion-feedback) infinite; }
+.is-queued::before { background: linear-gradient(currentColor,currentColor) center 25%/1px 35% no-repeat, linear-gradient(currentColor,currentColor) 67% 58%/30% 1px no-repeat; }
+.download-button:has(.is-loading,.is-queued) > .icon { display: none; }
+@keyframes loading-reveal { to { opacity: 1; } }
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+html, .settings-panel { --scroll-thumb: #484a57; }
+.is-scrolling { --scroll-thumb: #9093a3 !important; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb, #535561); border: 2px solid transparent; background-clip: padding-box; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background-color: #a3a6b5; }
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.motion-paused *, .motion-paused *::before, .motion-paused *::after { animation-play-state: paused !important; transition: none !important; scroll-behavior: auto !important; }
+.motion-paused .settings-panel::backdrop { transition: none; }
+

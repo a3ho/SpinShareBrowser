@@ -1,0 +1,71 @@
+/* SpinShare Browser: a compact desktop library. Shared state uses the same
+   vocabulary in the browser, cards, tag overlays and native-window dialogs. */
+:root {
+  color-scheme: dark;
+  --bg: #101114;
+  --sidebar: #141519;
+  --card: #1c1d22;
+  --card-hover: #202127;
+  --surface: #24262d;
+  --surface-hover: #30323b;
+  --text: #f2f3f7;
+  --muted: #adb0bd;
+  --text-secondary: #c8cbd5;
+  --text-quiet: #9296a5;
+  --line: #ffffff12;
+  --pink: #eb5ba1;
+  --pink-soft: #eb5ba11c;
+  --focus-ring: #d77aa7;
+  --green: #8bdbb0;
+  --error: #ffabb9;
+  --top: 64px;
+  --radius: 12px;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --motion-feedback: 150ms;
+  --motion-standard: 180ms;
+  --motion-panel: 220ms;
+  --content-bottom: 24px;
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace;
+  --type-micro: 11px;
+  --type-meta: 12px;
+  --type-control: 13px;
+  --type-body: 14px;
+  --type-context: 15px;
+  --type-compact-title: 16px;
+  --type-brand-medium: 17px;
+  --type-subtitle: 18px;
+  --type-title: 20px;
+  --weight-regular: 400;
+  --weight-medium: 600;
+  --weight-semibold: 600;
+  --weight-display: 700;
+  --leading-tight: 1.25;
+  --leading-ui: 1.4;
+  --leading-body: 1.55;
+  --leading-reading: 1.68;
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: calc(var(--top) + 64px); scrollbar-gutter: stable; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: var(--type-body); font-weight: var(--weight-regular); line-height: var(--leading-body); font-optical-sizing: auto; font-kerning: normal; }
+a { color: inherit; text-decoration: none; }
+button, input, select { font: inherit; color: inherit; }
+button, input, select, summary { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; white-space: nowrap; }
+button, input, select { border: 0; border-radius: 7px; }
+button { transition: background var(--motion-feedback), color var(--motion-feedback), border-color var(--motion-feedback); }
+button:disabled { opacity: 1; color: #7f8290; cursor: default; }
+button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
+select:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; }
+html[data-input-modality=pointer] button:focus, html[data-input-modality=pointer] a:focus, html[data-input-modality=pointer] input:focus, html[data-input-modality=pointer] select:focus, html[data-input-modality=pointer] summary:focus, html[data-input-modality=pointer] [tabindex]:focus { outline: none; }
+p, h1, h2 { margin: 0; }
+fieldset { min-width: 0; }
+input::placeholder { color: var(--muted); opacity: 1; }
+input { caret-color: var(--pink); }
+::selection { background: #683a55; color: #fff; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.icon { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: middle; }
+.icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+

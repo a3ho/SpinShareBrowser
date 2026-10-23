@@ -1,3 +1,4 @@
+// Generated from web/src/js/* — edit the modules and run scripts/build_web.py.
 'use strict';
 const UI_CATALOG=__SPINSHARE_UI_CATALOG__;
 const UI_KEYS=Object.keys(UI_CATALOG.en),UI_KEY_INDEX=new Map(UI_KEYS.map((key,index)=>[key,index]));
