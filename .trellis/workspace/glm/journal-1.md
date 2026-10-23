@@ -86,3 +86,34 @@ User accepted the header-player volume control after live review. Demo instance 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: SpinShare user-system research
+<!-- trellis-session: v=2 fp=38d3f9a584f0902d -->
+
+**Date**: 2026-10-23
+**Task**: SpinShare user-system research
+**Branch**: `main`
+
+### Summary
+
+Researched whether SpinShare Browser can integrate the SpinShare user system. Verdict: Connect API (token via 6-digit code) is third-party-friendly but gated behind a privately approved ConnectApp ApiKey; reviews read/write fully feasible once approved; playlists read-only (write endpoint broken server-side); favorites do not exist in SpinShare at all; upload/settings are website-only. Report + external spec layer added; no product code touched.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6bf8560` | docs: research SpinShare user-system integration feasibility |
+| `de2a50f` | chore(task): archive 10-23-user-system-research |
+
+### Testing
+
+- [OK] 154 python tests OK (no code changes)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- If user obtains a ConnectApp ApiKey via SpinShare Discord, implement per report section 5 sketch
