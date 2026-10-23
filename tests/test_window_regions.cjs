@@ -9,9 +9,9 @@ const regionSource=source.slice(source.indexOf('let windowRegionsFrame='),source
 const node=(left,top,width,height,parent=null)=>({offsetLeft:left,offsetTop:top,offsetWidth:width,offsetHeight:height,offsetParent:parent,closest:()=>parent?player:null,getBoundingClientRect(){throw Error('Animated bounds must not drive the native frame');}});
 const brand=node(24,15,220,34),player=node(300,4,700,56),actions=node(1030,0,290,64);
 player.clientLeft=player.clientTop=1;
-const body=node(63,8,624,40,player),toggle=node(4,3,48,48,player),progress=node(40,22,544,18,body),retry=node(560,22,34,18,body);
+const body=node(63,8,624,40,player),toggle=node(4,3,48,48,player),progress=node(40,22,544,18,body),retry=node(560,22,34,18,body),volume=node(600,19,26,26,body);
 retry.offsetWidth=0;
-const nodes={'.brand':brand,'.topbar-actions':actions,'#preview-player-toggle':toggle,'#preview-player-progress':progress,'#preview-player-retry':retry};
+const nodes={'.brand':brand,'.topbar-actions':actions,'#preview-player-toggle':toggle,'#preview-player-progress':progress,'#preview-player-retry':retry,'#preview-player-volume':volume};
 const bar={offsetHeight:64,querySelector:selector=>nodes[selector]};
 const frames=[],requests=[];
 let modal=false,release=null;
@@ -28,14 +28,14 @@ async function frame(){assert.equal(frames.length,1);frames.shift()();await tick
   await frame();
   assert.equal(requests.length,1);
   assert.equal(requests[0].path,'/v1/desktop/window/regions');
-  assert.deepEqual(JSON.parse(JSON.stringify(requests[0].body)),{viewport:[1320,860],pixelRatio:1,headerHeight:64,excluded:[[24,15,220,34],[1030,0,290,64],[302,5,54,54],[401,32,550,24]]});
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[0].body)),{viewport:[1320,860],pixelRatio:1,headerHeight:64,excluded:[[24,15,220,34],[1030,0,290,64],[302,5,54,54],[401,32,550,24],[961,29,32,32]]});
   for(let i=0;i<100;i++)run('scheduleWindowRegions()');
   await frame();assert.equal(requests.length,1,'Unchanged layouts must not send per-frame requests');
-  progress.offsetWidth=0;retry.offsetWidth=34;run('scheduleWindowRegions()');await frame();
+  progress.offsetWidth=0;volume.offsetWidth=0;retry.offsetWidth=34;run('scheduleWindowRegions()');await frame();
   assert.deepEqual(Array.from(requests.at(-1).body.excluded.at(-1)),[921,32,40,24],'Error state replaces the hidden seek input with the retry target, including nested borders');
   retry.offsetLeft=520;run('scheduleWindowRegions()');await frame();
   assert.equal(requests.at(-1).body.excluded.at(-1)[0],881,'A translated error label moves its retry target');
-  toggle.offsetWidth=retry.offsetWidth=0;run('scheduleWindowRegions()');await frame();
+  toggle.offsetWidth=retry.offsetWidth=volume.offsetWidth=0;run('scheduleWindowRegions()');await frame();
   assert.equal(requests.at(-1).body.excluded.length,2,'A hidden player returns its empty area to the caption');
   modal=true;run('scheduleWindowRegions()');await frame();
   assert.equal(requests.at(-1).body.headerHeight,0,'A modal must not leave invisible caption hit targets above its backdrop');
@@ -60,7 +60,7 @@ async function frame(){assert.equal(frames.length,1);frames.shift()();await tick
   assert.equal(transport.length,1,'The new endpoint must not permit arbitrary native commands');
   // Wide desktop: the right grid track stretches, but only the actual controls are excluded.
   Object.assign(player,node(726,4,760,56));Object.assign(actions,node(1894,0,300,64));
-  toggle.offsetWidth=48;progress.offsetWidth=544;
+  toggle.offsetWidth=48;progress.offsetWidth=544;volume.offsetWidth=26;
   modal=false;context.innerWidth=2194;run('scheduleWindowRegions()');await frame();
   const wide=JSON.parse(transport.at(-1).options.body);
   const draggable=(x,y)=>y<wide.headerHeight&&!wide.excluded.some(([left,top,width,height])=>x>=left&&x<left+width&&y>=top&&y<top+height);
@@ -69,6 +69,7 @@ async function frame(){assert.equal(frames.length,1);frames.shift()();await tick
   assert.equal(draggable(800,42),true,'Time labels and player background can drag the window');
   assert.equal(draggable(750,30),false,'The cover button remains interactive');
   assert.equal(draggable(1000,42),false,'The seek input remains interactive');
+  assert.equal(draggable(1390,33),false,'The volume button remains interactive');
   assert.equal(draggable(732,6),false,'Hover and entry motion stay inside the stable control exclusion');
   assert.equal(draggable(2000,30),false,'Language/settings/window controls remain interactive');
   console.log('Window regions: batching, stable geometry, modal/hidden-player transitions, coalescing and real installerRequest allowlist/authentication passed.');

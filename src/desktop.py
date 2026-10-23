@@ -374,7 +374,7 @@ def valid_frame_layout(value):
             all(number(item, 1) for item in viewport) and
             number(value["pixelRatio"], 0.1, 8) and
             number(value["headerHeight"], maximum=min(256, viewport[1])) and
-            isinstance(excluded, list) and len(excluded) <= 5 and
+            isinstance(excluded, list) and len(excluded) <= 6 and
             all(isinstance(rect, list) and len(rect) == 4 and all(number(item) for item in rect)
                 for rect in excluded))
 

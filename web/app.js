@@ -183,8 +183,9 @@ function validateRuntimeConfig(config){
   if(valid)valid=config.closeBehavior===undefined||['ask','exit','tray'].includes(config.closeBehavior);
   if(valid)valid=typeof config.playerShortcutHintShown==='boolean';
   if(valid)valid=typeof config.installDirectoryConfirmed==='boolean';
+  if(valid)valid=typeof config.playerVolume==='number'&&Number.isFinite(config.playerVolume)&&config.playerVolume>=0&&config.playerVolume<=1;
   if(!valid){uiText($('status'),m("Unable to open the app. Reopen SpinShareBrowser.exe."));$('status').classList.add('error');throw uiError('Invalid SpinShare Browser runtime configuration');}
-  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed});
+  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed,playerVolume:config.playerVolume});
 }
 function settingsMessage(message,error=false){uiText($('settings-message'),message);$('settings-message').classList.toggle('is-error',error);loadingIndicator($('settings-message'),Boolean(message)&&Boolean(settingsBusy)&&!error);}
 function hasActiveInstallations(){return installationWorkActive()||deletionWorkActive();}
@@ -433,7 +434,7 @@ function setupWindowControls(){
     for(const node of [bar,...bar.children,...bar.querySelectorAll('.global-player button,.global-player input,.global-player-error > span')])observer.observe(node);
   }
   if(typeof MutationObserver==='function'){
-    const observer=new MutationObserver(scheduleWindowRegions);
+    const observer=new MutationObserver(()=>{scheduleWindowRegions();closeVolumePopover();});
     for(const dialog of document.querySelectorAll('dialog'))observer.observe(dialog,{attributes:true,attributeFilter:['open']});
   }
   globalThis.addEventListener?.('resize',scheduleWindowRegions);
@@ -458,7 +459,7 @@ async function publishWindowRegions(){
   const bar=document.querySelector('.topbar');
   if(!bar||!document.documentElement.classList.contains('desktop-chrome')||!globalThis.innerWidth||!globalThis.innerHeight)return;
   // Layout coordinates intentionally ignore player/cover animation transforms.
-  const excluded=['.brand','.topbar-actions','#preview-player-toggle','#preview-player-progress','#preview-player-retry'].map(selector=>bar.querySelector(selector))
+  const excluded=['.brand','.topbar-actions','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
     .filter(node=>node&&node.offsetWidth>0&&node.offsetHeight>0)
     .map(windowRegionRect);
   const layout={viewport:[innerWidth,innerHeight],pixelRatio:globalThis.devicePixelRatio||1,headerHeight:document.querySelector('dialog[open]')?0:bar.offsetHeight,excluded};
@@ -1215,6 +1216,8 @@ function makeCover(row){
 
 // One explicit, song-level stream. It never calls chart detail, view or download APIs.
 let previewTrack=null,previewState='idle',previewFormat='ogg',previewExpectedSource='',previewGeneration=0,previewPlayAttempt=0,previewReady=false,previewResumeAt=0,previewWantsPlay=false,previewPlaybackConfirmed=false,previewFrame=0,previewSourceTimer=null,previewSourceCleanup=null,previewResolveWork=null,previewErrorCode='',previewCoverToken=0,previewArtworkSlot=0,previewArtworkMotions=[],previewLastAnnouncement='',previewRenderedSecond=-1,previewRenderedLimit=-1,previewShortcutPending=0,previewShortcutTimer=null,previewShortcutHintShown=APP_CONFIG.playerShortcutHintShown,previewHintTimer=null,previewHintMotion=null;
+// Volume: one persisted level (0-1); zero doubles as the muted state.
+let previewVolume=APP_CONFIG.playerVolume,previewLastVolume=previewVolume>0?previewVolume:1,previewVolumeTimer=null,previewVolumePopoverOpen=false,previewVolumeLeaveTimer=null,previewVolumeAnnouncement='';
 function chartPreviewReference(row){
   const value=String(row?.[8]?.previewReference||row?.[8]?.fileReference||'');return PREVIEW_REFERENCE.test(value)?value:'';
 }
@@ -1299,11 +1302,11 @@ function syncPreviewButton(view){
 function syncPreviewButtons(){for(const view of coverViews.values())syncPreviewButton(view);}
 function syncPreviewInterface(){
   const player=$('preview-player');if(!player)return;
-  if(!previewTrack){player.hidden=true;syncPreviewButtons();return;}
+  if(!previewTrack){player.hidden=true;closeVolumePopover();syncPreviewButtons();return;}
   player.hidden=false;uiText($('preview-player-title'),previewTrack.title);uiText($('preview-player-artist'),previewTrack.artist||m('Unknown artist'));
   const toggle=$('preview-player-toggle'),active=previewWantsPlay&&['loading','playing'].includes(previewState),loading=previewState==='loading'&&previewWantsPlay;toggle.classList.toggle('is-playing',active);toggle.classList.toggle('is-loading',loading);toggle.classList.toggle('is-error',previewState==='error');toggle.disabled=appExiting;toggle.setAttribute('aria-pressed',String(active));toggle.setAttribute('aria-busy',String(loading));uiAttr(toggle,'aria-label',previewControlLabel());
   player.classList.toggle('is-playing',previewState==='playing');player.classList.toggle('is-error',previewState==='error');player.setAttribute('aria-busy',String(previewState==='loading'));
-  const failed=previewState==='error';$('preview-player-timeline').hidden=failed;$('preview-player-error').hidden=!failed;uiText($('preview-player-error-text'),failed?previewErrorText():'');uiAttr(toggle,'aria-description',failed?previewErrorText(true):'');uiAttr($('preview-player-retry'),'aria-label',m('Retry song: ')+previewTrack.title);uiAttr($('preview-player-retry'),'aria-description',failed?previewErrorText(true):'');$('preview-player-retry').disabled=appExiting;
+  const failed=previewState==='error';$('preview-player-timeline').hidden=failed;$('preview-player-error').hidden=!failed;if(failed)closeVolumePopover();uiText($('preview-player-error-text'),failed?previewErrorText():'');uiAttr(toggle,'aria-description',failed?previewErrorText(true):'');uiAttr($('preview-player-retry'),'aria-label',m('Retry song: ')+previewTrack.title);uiAttr($('preview-player-retry'),'aria-description',failed?previewErrorText(true):'');$('preview-player-retry').disabled=appExiting;
   $('preview-player-progress').disabled=!previewReady||previewState==='error'||appExiting;updatePreviewProgress();syncPreviewButtons();
 }
 function animatePreviewSelection(first){
@@ -1394,6 +1397,7 @@ function pausePreview(){
 }
 function disposePreview(){
   cancelPreviewResolve();previewErrorCode='';
+  closeVolumePopover();flushPreviewVolume();
   previewGeneration++;previewPlayAttempt++;previewWantsPlay=false;previewReady=false;previewPlaybackConfirmed=false;previewState='idle';previewExpectedSource='';previewLastAnnouncement='';previewRenderedSecond=-1;previewRenderedLimit=-1;previewTrack=null;previewCoverToken++;clearPreviewShortcutFeedback();dismissPreviewShortcutHint(false);clearPreviewWatchdog();stopPreviewFrame();clearPreviewSourceEvents();cancelPreviewArtworkMotions();
   const audio=$('preview-audio');if(audio){audio.pause();audio.removeAttribute('src');audio.load();}for(const image of [$('preview-player-image'),$('preview-player-image-next')])if(image){image.onload=null;image.onerror=null;image.classList.remove('is-visible');image.hidden=true;image.removeAttribute('src');}previewArtworkSlot=0;$('preview-player')?.setAttribute('hidden','');syncPreviewButtons();
 }
@@ -1434,11 +1438,100 @@ function handlePreviewSeekKey(event){
   if(!seekPreviewBy(event.key==='ArrowLeft'?-PREVIEW_SEEK_SECONDS:PREVIEW_SEEK_SECONDS))return;
   event.preventDefault();
 }
+function volumeGlyphState(){return previewVolume<=0?'mute':previewVolume<.5?'low':'high';}
+function announceVolumeMute(muted){
+  const key=muted?'Volume muted':'Volume restored',signature='volume:'+key;
+  if(signature===previewVolumeAnnouncement)return;
+  previewVolumeAnnouncement=signature;uiText($('preview-player-status'),m(key));
+}
+function syncVolumeInterface(){
+  const button=$('preview-player-volume-button'),slider=$('volume-slider'),muted=previewVolume<=0;
+  slider.value=String(previewVolume);
+  slider.style.setProperty('--volume-level',(previewVolume*100)+'%');
+  slider.setAttribute('aria-valuetext',Math.round(previewVolume*100)+'%');
+  for(const glyph of button.querySelectorAll('.volume-glyph'))glyph.classList.toggle('is-active',glyph.dataset.volume===volumeGlyphState());
+  uiAttr(button,'aria-label',muted?m('Unmute playback'):m('Mute playback'));
+  button.setAttribute('aria-pressed',String(muted));
+  button.disabled=appExiting;slider.disabled=appExiting;
+}
+function flushPreviewVolume(){if(previewVolumeTimer===null)return;clearTimeout(previewVolumeTimer);persistPreviewVolume();}
+function persistPreviewVolume(){previewVolumeTimer=null;installerRequest('POST','/v1/player-volume',{volume:previewVolume}).catch(()=>{});}
+function schedulePreviewVolume(immediate=false){
+  clearTimeout(previewVolumeTimer);
+  if(immediate)persistPreviewVolume();else previewVolumeTimer=setTimeout(persistPreviewVolume,600);
+}
+function setPreviewVolume(value,immediate=false){
+  const next=Math.round(Math.max(0,Math.min(1,Number(value)||0))*100)/100,wasMuted=previewVolume<=0;
+  if(next>0)previewLastVolume=next;
+  previewVolume=next;
+  $('preview-audio').volume=previewVolume;
+  syncVolumeInterface();schedulePreviewVolume(immediate);
+  if((previewVolume<=0)!==wasMuted)announceVolumeMute(previewVolume<=0);
+}
+function togglePreviewMute(){setPreviewVolume(previewVolume<=0?previewLastVolume:0,true);}
+function positionVolumePopover(){
+  const panel=$('volume-popover');if(!panel.matches(':popover-open'))return;
+  const anchor=$('preview-player-volume-button'),rect=anchor.getBoundingClientRect();
+  const width=document.documentElement.clientWidth,height=document.documentElement.clientHeight,edge=12,gap=8;
+  const ceiling=(document.querySelector('.topbar')?.getBoundingClientRect().bottom||0)+gap;
+  if(!anchor.isConnected||rect.bottom<=0||rect.top>=height){closeVolumePopover();return;}
+  panel.style.left=Math.max(edge,Math.min(rect.right-panel.offsetWidth,width-edge-panel.offsetWidth))+'px';
+  panel.style.top=Math.max(ceiling,rect.bottom+gap)+'px';
+}
+function openVolumePopover(){
+  if(previewVolumePopoverOpen||appExiting||document.hidden)return;
+  clearTimeout(previewVolumeLeaveTimer);previewVolumeLeaveTimer=null;
+  previewVolumePopoverOpen=true;
+  const panel=$('volume-popover');if(!panel.matches(':popover-open'))panel.showPopover();
+  positionVolumePopover();
+}
+function closeVolumePopover(restoreFocus=false){
+  clearTimeout(previewVolumeLeaveTimer);previewVolumeLeaveTimer=null;
+  if(!previewVolumePopoverOpen)return;
+  previewVolumePopoverOpen=false;
+  const panel=$('volume-popover');if(panel.matches(':popover-open'))panel.hidePopover();
+  flushPreviewVolume();
+  if(restoreFocus)$('preview-player-volume-button').focus({preventScroll:true});
+}
+function leaveVolumePopover(){
+  clearTimeout(previewVolumeLeaveTimer);
+  previewVolumeLeaveTimer=setTimeout(()=>{
+    previewVolumeLeaveTimer=null;
+    const button=$('preview-player-volume-button'),panel=$('volume-popover'),focused=document.activeElement;
+    const keyboardFocused=document.documentElement.dataset.inputModality==='keyboard'&&focused?.matches?.(':focus-visible');
+    if(button.matches(':hover')||panel.matches(':hover')||keyboardFocused&&(button.contains(focused)||panel.contains(focused)))return;
+    closeVolumePopover();
+  },160);
+}
+function wheelPreviewVolume(event){
+  if(event.ctrlKey)return;
+  event.preventDefault();event.stopPropagation();
+  setPreviewVolume(previewVolume+(event.deltaY<0?.05:-.05));
+}
 function setupAudioPreview(){
   const audio=$('preview-audio'),progress=$('preview-player-progress');$('preview-player-toggle').addEventListener('click',toggleCurrentPreview);
   $('preview-player-retry').addEventListener('click',()=>{if(previewState!=='error')return;const focused=document.activeElement===$('preview-player-retry');if(toggleCurrentPreview()&&focused)$('preview-player-toggle').focus({preventScroll:true});});
   progress.addEventListener('input',()=>{if(!previewTrack||!previewReady)return;const limit=previewLimit();if(!(limit>0))return;const value=Math.max(0,Math.min(Number(progress.value)||0,limit));try{audio.currentTime=value;}catch{}if(value>=limit-.015){if(previewState==='ended')updatePreviewProgress(limit,true);else finishPreview();return;}if(previewState==='ended'){previewState='paused';previewWantsPlay=false;}updatePreviewProgress(value,true);syncPreviewInterface();});
-  document.addEventListener('keydown',handlePreviewSpace);document.addEventListener('keydown',handlePreviewSeekKey);document.addEventListener('visibilitychange',()=>{if(document.hidden)pausePreview();});globalThis.addEventListener?.('pagehide',disposePreview);syncPreviewInterface();
+  const volumeButton=$('preview-player-volume-button'),volumeSlider=$('volume-slider'),volumePanel=$('volume-popover');
+  audio.volume=previewVolume;
+  volumeButton.addEventListener('click',()=>{if(!appExiting)togglePreviewMute();});
+  volumeButton.addEventListener('pointerenter',openVolumePopover);
+  volumeButton.addEventListener('pointerleave',leaveVolumePopover);
+  volumeButton.addEventListener('focus',()=>{if(document.documentElement.dataset.inputModality==='keyboard'&&volumeButton.matches(':focus-visible'))openVolumePopover();});
+  volumeButton.addEventListener('blur',leaveVolumePopover);
+  volumeButton.addEventListener('wheel',wheelPreviewVolume,{passive:false});
+  volumePanel.addEventListener('pointerenter',()=>{clearTimeout(previewVolumeLeaveTimer);previewVolumeLeaveTimer=null;});
+  volumePanel.addEventListener('pointerleave',leaveVolumePopover);
+  volumePanel.addEventListener('wheel',wheelPreviewVolume,{passive:false});
+  volumeSlider.addEventListener('input',()=>{if(!appExiting)setPreviewVolume(Number(volumeSlider.value));});
+  volumeSlider.addEventListener('change',()=>flushPreviewVolume());
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented&&previewVolumePopoverOpen){event.preventDefault();event.stopPropagation();closeVolumePopover(true);}});
+  document.addEventListener('pointerdown',event=>{if(previewVolumePopoverOpen&&!volumePanel.contains(event.target)&&!volumeButton.contains(event.target))closeVolumePopover();},true);
+  globalThis.addEventListener?.('blur',()=>closeVolumePopover());
+  globalThis.addEventListener?.('resize',positionVolumePopover);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)closeVolumePopover();});
+  syncVolumeInterface();
+  document.addEventListener('keydown',handlePreviewSpace);document.addEventListener('keydown',handlePreviewSeekKey);document.addEventListener('visibilitychange',()=>{if(document.hidden)pausePreview();});globalThis.addEventListener?.('pagehide',()=>{flushPreviewVolume();disposePreview();});syncPreviewInterface();
 }
 const CHART_DISCLOSURE_CONFIG={
   description:{budgetLines:5,previewLines:4.5,idPrefix:'chart-description-',label:'Chart description',read:'Read the full note for ',collapse:'Collapse the note for ',readHelp:'Click or press Enter to read the full note.',collapseHelp:'Click or press Enter to collapse the note.',shortRole:'region'},
@@ -1705,7 +1798,7 @@ function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIREC
   return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
 }
 async function installerRequest(method,path,body,revision='',signal=null){
-  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/preview/resolve','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
   if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
   if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
   const request=new AbortController();let timedOut=false;

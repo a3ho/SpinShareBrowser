@@ -23,7 +23,7 @@
 | POST | `/v1/installations/check`（≤30 首）、`/index`（整目录清单）、`/delete` | 安装状态与删除 |
 | POST | `/v1/preview/resolve` | 解析游戏音频 → 发放短期 URL |
 | GET/HEAD | `/v1/preview/audio/<48hex>` | OGG 只读流（Range 支持、OggS 魔数校验） |
-| POST | `/v1/language`、`/v1/close-behavior`、`/v1/player-shortcuts-seen`、`/v1/install-directory-confirmation` | 设置项 |
+| POST | `/v1/language`、`/v1/close-behavior`、`/v1/player-shortcuts-seen`、`/v1/player-volume`、`/v1/install-directory-confirmation` | 设置项（player-volume 体 `{volume:0-1}`，拒 bool；错误码 invalid_player_volume） |
 | POST | `/v1/desktop/window`、`/window/regions`、`/dialog`、`/show`(native)、`/exit` | 窗口协作 |
 | POST | `/v1/shutdown` | 空闲时优雅退出（native/维护用） |
 

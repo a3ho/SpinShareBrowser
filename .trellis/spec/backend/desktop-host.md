@@ -16,7 +16,7 @@
 - 方案：禁用动态非客户区；`_install_frame` 用 comctl32 `SetWindowSubclass` 子类化主窗口 + 一个透明 STATIC 覆盖子窗口（`_frame_overlay`）：
   - 主窗口 `WM_NCCALCSIZE` 返回 0（客户区铺满）→ 无系统标题栏；
   - `WM_NCHITTEST`：覆盖窗命中 = HTCAPTION（Windows 原生拖动/贴边/双击最大化），主窗口边缘 = 8 向缩放（SM_CXFRAME+SM_CXPADDEDBUFFER 边宽）；
-  - `_update_frame_region`：`SetWindowRgn` 把覆盖窗裁成"标题栏高度 - 排除矩形"——排除矩形来自前端 `/v1/desktop/window/regions` 上报的 brand/右侧控件/播放器封面按钮/进度条/重试按钮（±3px 容差盖住入场动效）。
+  - `_update_frame_region`：`SetWindowRgn` 把覆盖窗裁成"标题栏高度 - 排除矩形"——排除矩形来自前端 `/v1/desktop/window/regions` 上报的 brand/右侧控件/播放器封面按钮/进度条/重试按钮/音量按钮（±3px 容差盖住入场动效）；`valid_frame_layout` 上限 **6** 个矩形（2026-10-23 为音量按钮从 5 扩到 6）。
   - **视口/DPI 未匹配时只留窗口边缘**，防旧矩形盖住新控件；模态对话框打开时 headerHeight=0 让出顶栏。MaximizedBounds 按工作区修正防遮挡任务栏。
 - 失败安全：任何异常回滚到系统边框（custom_chrome=False，前端也不显示自绘窗口按钮）。
 

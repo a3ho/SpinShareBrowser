@@ -29,7 +29,7 @@ PAGE_NAME = "browser.html"
 RUNTIME_NAME = "runtime.json"
 CONFIG_DEFAULTS = {"language": "zh-CN", "closeBehavior": "ask", "trayNoticeShown": False,
                    "playerShortcutHintShown": False, "installDirectoryConfirmed": False,
-                   "windowSize": None}
+                   "playerVolume": 1.0, "windowSize": None}
 CONFIG_FIELDS = {"schemaVersion", "token", "customDirectory", "revision", *CONFIG_DEFAULTS}
 LANGUAGES = {"zh-CN", "en"}
 CLOSE_BEHAVIORS = {"ask", "exit", "tray"}
@@ -84,6 +84,11 @@ def default_state_directory():
     else:
         base = Path.home() / ".local" / "share"
     return base / "SpinShareBrowser"
+
+
+def valid_player_volume(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool) and
+            0 <= value <= 1)
 
 
 def valid_window_size(value):
@@ -471,6 +476,7 @@ class ConfigStore:
                 type(config.get("trayNoticeShown")) is not bool or
                 type(config.get("playerShortcutHintShown")) is not bool or
                 type(config.get("installDirectoryConfirmed")) is not bool or
+                not valid_player_volume(config.get("playerVolume")) or
                 not valid_window_size(config.get("windowSize")) or
                 (config.get("customDirectory") is not None and not isinstance(config["customDirectory"], str))):
             raise PortableError("The local settings format is invalid.")
@@ -1391,6 +1397,17 @@ class PortableManager(installer.JobManager):
                 self._persist_config(dict(self.config, playerShortcutHintShown=True))
             return True
 
+    def update_player_volume(self, volume):
+        if not valid_player_volume(volume):
+            raise APIError(400, "invalid_player_volume", "Provide a volume between 0 and 1.")
+        volume = float(volume)
+        with self.lock:
+            if self.closed or self.exiting:
+                raise APIError(409, "shutting_down", "The app is exiting. Reopen SpinShareBrowser.exe.")
+            if volume != self.config["playerVolume"]:
+                self._persist_config(dict(self.config, playerVolume=volume))
+            return volume
+
     def confirm_install_directory(self, expected_revision):
         with self.lock:
             if expected_revision != self.revision:
@@ -1555,7 +1572,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"} and
+        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"} and
                 not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
@@ -1728,7 +1745,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"}:
+        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
@@ -1824,6 +1841,11 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                     raise APIError(400, "invalid_body", "The shortcut hint endpoint does not accept additional fields.")
                 self.server.manager.mark_player_shortcut_hint_shown()
                 self._respond(200, {"shown": True})
+                return
+            if self.path == "/v1/player-volume":
+                if set(data) != {"volume"}:
+                    raise APIError(400, "invalid_player_volume", "The volume endpoint accepts only volume.")
+                self._respond(200, {"volume": self.server.manager.update_player_volume(data["volume"])})
                 return
             if self.path == "/v1/install-directory-confirmation":
                 if (set(data) != {"expectedRevision"} or
@@ -1958,6 +1980,7 @@ class PortableApplication:
                 "settingsRevision": config["revision"], "language": config["language"],
                 "closeBehavior": config["closeBehavior"],
                 "playerShortcutHintShown": config["playerShortcutHintShown"],
+                "playerVolume": config["playerVolume"],
                 "installDirectoryConfirmed": config["installDirectoryConfirmed"], "version": VERSION}
 
     def render_page(self):

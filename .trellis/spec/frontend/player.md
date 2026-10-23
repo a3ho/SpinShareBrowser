@@ -29,3 +29,14 @@
 ## 出错呈现
 
 error 态：进度条替换为错误行（简短恢复方向 + Retry 按钮，原有高度不变）；完整原因走 aria-description；Retry 成功后焦点回封面按钮（preventScroll）。错误码 → 文案映射 `previewErrorText`：game_audio_not_found="检查游戏文件"、preview_lookup_failed="无法加载音频"、其它="音频不可用"。
+
+## 音量控件（2026-10-23 加入）
+
+- 状态：`previewVolume`（0–1，启动时取 `APP_CONFIG.playerVolume`，默认 1）+ `previewLastVolume`（会话内最近非零值）；**音量 0 即静音态**，无独立 mute 字段。
+- 形态：时间行右端 26px 喇叭按钮（三态图标 high/low/mute 透明度切换）；悬停/键盘聚焦展开锚定浮层（顶栏下 8px、右对齐、夹紧视口）内 112px 滑块——复刻进度条轨道/拇指配方与 catalog-help 表面。
+- 调节：滑块拖动（input 实时 + change 立即持久化）、滚轮 ±5%（按钮与浮层上都行，preventDefault）、点击/Enter/Space 切静音（恢复到 lastVolume）、滑块原生键盘。
+- 持久化：`POST /v1/player-volume {volume}`；拖动 600ms 防抖，静音/松手立即；失败静默。弹层收起（`closeVolumePopover`）时 flush。
+- 收起时机：指针离开（160ms 延迟，悬停在按钮/弹层/键盘聚焦则保持）、Escape（焦点回按钮 preventScroll）、外点、window blur、页面隐藏、模态 dialog 打开（setupWindowControls 的 MutationObserver）、无曲目/错误态（syncPreviewInterface 联动）、disposePreview。
+- 无障碍：按钮动态 aria-label（静音/取消静音）+ aria-pressed；滑块 aria-label + aria-valuetext 百分比；静音切换播报 `Volume muted/restored` 到 `#preview-player-status`。
+- 原生协作：`#preview-player-volume` 加入 `publishWindowRegions` 排除列表（共 6 个，后端上限 6）；浮层固定定位在顶栏之下，天然避开拖动覆盖层。
+- 测试锚点：test_audio_player.cjs 的 volumeHarness（7 个用例）+ tests/test_player_volume.py（端点/校验/迁移）。

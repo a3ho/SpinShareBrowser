@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/player.md", "reason": "播放器状态机与生命周期，音量状态要并入"}
+{"file": ".trellis/spec/frontend/app-map.md", "reason": "installerRequest 白名单、渲染与事件挂载模式"}
+{"file": ".trellis/spec/backend/local-api.md", "reason": "新端点要同步三处白名单"}
+{"file": ".trellis/spec/backend/desktop-host.md", "reason": "排除矩形契约与弹层避开拖动区"}
+{"file": ".trellis/spec/guides/red-lines.md", "reason": "红线（无 title、aria、布局）"}

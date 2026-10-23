@@ -35,6 +35,7 @@ SOURCE_FILES = (
     "tests/test_install_queue.py", "tests/test_install_pipeline.py", "tests/test_download_transport.py",
     "tests/read_web_template.cjs", "tests/test_web_resources.py",
     "tests/test_install_directory_confirmation.py", "tests/test_install_directory_confirmation.cjs",
+    "tests/test_player_volume.py",
     "tests/test_installation_status.py", "tests/test_install_recovery.py",
     "tests/test_build.py", "scripts/windows_smoke.py", "scripts/installer_cancel_smoke.py", "scripts/browser_smoke.cjs", ".github/workflows/verify.yml",
     *WEB_FILES, "scripts/build.py", "scripts/windows.iss",

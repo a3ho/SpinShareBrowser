@@ -21,6 +21,8 @@
 | `WebView2/`（含 `.spinshare-owner.json` 标记 + `profile/`） | 内嵌浏览器数据 |
 | `Temp/`（含标记） | 原子写临时文件专用目录（`maintenance.prepare_temp_directory`） |
 
+config 字段：language、closeBehavior、trayNoticeShown、playerShortcutHintShown、installDirectoryConfirmed、**playerVolume**（0–1 数字、拒 bool，2026-10-23 加入；旧配置经 `dict(CONFIG_DEFAULTS, **config)` 自动迁移默认 1.0；maintenance._parse_config 容忍缺失）、windowSize、customDirectory、revision。改字段三处同步：`CONFIG_DEFAULTS`/`validate_config`/`maintenance._parse_config` + bootstrap 下发 + 前端 `validateRuntimeConfig`。
+
 关键：`_atomic_write` 对 config/runtime/charts-cache/browser.html 这四个名字的临时文件**必须**落在受标记保护的 `Temp/` 里（防止卸载清理误删别家文件、也防止状态文件写到一半混入未知文件）。
 
 ## 目录校验（`_directory_syntax` / `validate_directory`）

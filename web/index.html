@@ -46,6 +46,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <symbol id="icon-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></symbol>
   <symbol id="icon-pause" viewBox="0 0 24 24"><path d="M8 6v12M16 6v12"/></symbol>
   <symbol id="icon-audio-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v5M12 16v.01"/></symbol>
+  <symbol id="icon-volume-high" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4Z"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6"/><path d="M18 6.5a8 8 0 0 1 0 11"/></symbol>
+  <symbol id="icon-volume-low" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4Z"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6"/></symbol>
+  <symbol id="icon-volume-mute" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4Z"/><path d="m15.5 9.5 5 5m0-5-5 5"/></symbol>
   <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
   <symbol id="icon-notice" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16v1"/></symbol>
   <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
@@ -61,7 +64,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     </button>
     <div class="global-player-body">
       <div class="global-player-copy"><span id="preview-player-title" class="global-player-title"></span><span class="global-player-separator" aria-hidden="true">·</span><span id="preview-player-artist" class="global-player-artist"></span></div>
-      <div id="preview-player-timeline" class="global-player-timeline"><output id="preview-player-current">0:00</output><input id="preview-player-progress" type="range" min="0" max="1" step="0.01" value="0" aria-label="Song progress" data-ui-attr-aria-label="Song progress"><output id="preview-player-duration">0:00</output></div>
+      <div id="preview-player-timeline" class="global-player-timeline"><output id="preview-player-current">0:00</output><input id="preview-player-progress" type="range" min="0" max="1" step="0.01" value="0" aria-label="Song progress" data-ui-attr-aria-label="Song progress"><span class="global-player-timing"><output id="preview-player-duration">0:00</output><span id="preview-player-volume" class="volume-control"><button id="preview-player-volume-button" class="volume-button" type="button" aria-label="Volume" data-ui-attr-aria-label="Volume" aria-pressed="false"><svg class="icon volume-glyph" data-volume="high"><use href="#icon-volume-high"/></svg><svg class="icon volume-glyph" data-volume="low"><use href="#icon-volume-low"/></svg><svg class="icon volume-glyph" data-volume="mute"><use href="#icon-volume-mute"/></svg></button></span></span></div>
       <div id="preview-player-error" class="global-player-error" hidden><span id="preview-player-error-text"></span><button id="preview-player-retry" type="button" data-ui-static="Retry">Retry</button></div>
     </div>
     <p id="preview-player-status" class="sr-only" role="status" aria-live="polite"></p>
@@ -82,6 +85,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <span class="player-shortcut-divider" aria-hidden="true"></span>
   <span class="player-shortcut-pair"><kbd>← / →</kbd><span data-ui-static="Rewind or fast-forward">Rewind or fast-forward 5 seconds</span></span>
 </aside>
+<div id="volume-popover" class="volume-popover" popover="manual" role="dialog" aria-label="Volume" data-ui-attr-aria-label="Volume"><input id="volume-slider" class="volume-slider" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" data-ui-attr-aria-label="Volume"></div>
 <audio id="preview-audio" preload="none" hidden></audio>
 <div id="language-feedback" class="language-feedback" hidden><p id="language-message" role="status" aria-live="polite"></p><button id="language-retry" type="button" data-ui-static="Retry saving language">Retry saving language</button></div>
 <div class="app-layout">

@@ -99,8 +99,15 @@ body:has(.back-to-top.is-visible) .brand img { opacity: 0; }
 .global-player-title { flex: 0 1 auto; color: var(--text); font-size: var(--type-control); line-height: var(--leading-tight); font-weight: var(--weight-semibold); }
 .global-player-separator { flex: none; color: #676a77; }
 .global-player-artist { flex: 1 1 96px; min-width: clamp(52px, 28%, 96px); color: var(--muted); font-size: var(--type-meta); line-height: var(--leading-tight); }
-.global-player-timeline { display: grid; grid-template-columns: 32px minmax(48px, 1fr) 32px; align-items: center; gap: 8px; min-width: 0; color: var(--text-quiet); font-size: var(--type-micro); font-weight: var(--weight-medium); line-height: 1; font-variant-numeric: tabular-nums; }
-.global-player-timeline output:last-child { text-align: right; }
+.global-player-timeline { display: grid; grid-template-columns: 32px minmax(48px, 1fr) auto; align-items: center; gap: 8px; min-width: 0; color: var(--text-quiet); font-size: var(--type-micro); font-weight: var(--weight-medium); line-height: 1; font-variant-numeric: tabular-nums; }
+.global-player-timing { display: flex; align-items: center; justify-self: end; gap: 7px; min-width: 0; }
+.global-player-timing output { text-align: right; }
+.volume-control { display: flex; align-items: center; flex: none; }
+.volume-button { position: relative; display: grid; place-items: center; flex: none; width: 26px; height: 26px; padding: 0; background: transparent; color: var(--muted); }
+.volume-button:hover:not(:disabled) { background: #ffffff0c; color: var(--text); }
+.volume-button:disabled { cursor: default; }
+.volume-glyph { grid-area: 1 / 1; width: 16px; height: 16px; opacity: 0; transition: opacity var(--motion-feedback); }
+.volume-glyph.is-active { opacity: 1; }
 .global-player-error { display: flex; align-items: center; gap: 8px; min-width: 0; height: 18px; color: var(--error); font-size: var(--type-control); line-height: 18px; font-weight: var(--weight-regular); }
 .global-player-error > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 .global-player-error > button { flex: none; padding: 0; color: var(--text); background: transparent; font: inherit; text-decoration: underline; text-underline-offset: 3px; }
@@ -109,6 +116,15 @@ body:has(.back-to-top.is-visible) .brand img { opacity: 0; }
 #preview-player-progress::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #f3d9e6; box-shadow: 0 0 0 1px #0f1014, 0 1px 5px #0008; transition: transform var(--motion-feedback) var(--ease-out), background var(--motion-feedback); }
 #preview-player-progress:hover::-webkit-slider-thumb, html[data-input-modality=keyboard] #preview-player-progress:focus-visible::-webkit-slider-thumb { background: #fff; transform: scale(1.18); }
 #preview-player-progress:disabled { opacity: .45; cursor: default; }
+/* Volume: one quiet icon in the timing group; the slider lives in an anchored
+   popover below the header, outside the native drag region. */
+.volume-popover { position: fixed; inset: auto; width: max-content; padding: 13px 15px; border: 0; border-radius: 12px; background: #2a2b33; box-shadow: 0 14px 40px #0009; overscroll-behavior: contain; opacity: 0; transform: translateY(4px); transition: opacity var(--motion-feedback) ease, transform var(--motion-standard) var(--ease-out), display var(--motion-standard) allow-discrete, overlay var(--motion-standard) allow-discrete; }
+.volume-popover:popover-open { opacity: 1; transform: none; }
+.volume-popover:not(:popover-open) { pointer-events: none; }
+.volume-slider { --volume-level: 100%; appearance: none; width: 112px; height: 18px; padding: 0; border-radius: 0; background: linear-gradient(90deg, var(--pink) 0 var(--volume-level), #ffffff1a var(--volume-level) 100%) center / 100% 3px no-repeat; cursor: pointer; }
+.volume-slider::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #f3d9e6; box-shadow: 0 0 0 1px #0f1014, 0 1px 5px #0008; transition: transform var(--motion-feedback) var(--ease-out), background var(--motion-feedback); }
+.volume-slider:hover::-webkit-slider-thumb, html[data-input-modality=keyboard] .volume-slider:focus-visible::-webkit-slider-thumb { background: #fff; transform: scale(1.18); }
+.volume-slider:disabled { opacity: .45; cursor: default; }
 .preview-glyphs { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: linear-gradient(180deg, #08090d18, #08090d9c); color: #fff; }
 .global-player-cover .preview-glyphs { opacity: 0; transition: opacity var(--motion-feedback); }
 .global-player-cover:hover .preview-glyphs, html[data-input-modality=keyboard] .global-player-cover:focus-visible .preview-glyphs, .global-player-cover.is-loading .preview-glyphs, .global-player-cover.is-error .preview-glyphs, .global-player-cover.is-shortcut-feedback .preview-glyphs { opacity: 1; }

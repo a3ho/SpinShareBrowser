@@ -200,7 +200,7 @@ function playerHarness(options = {}) {
     __coverViews: coverViews,
     $: node, document, URL, Number, Promise, AbortController,
     INSTALL_ORIGIN: 'http://127.0.0.1:54901',
-    APP_CONFIG: Object.freeze({playerShortcutHintShown: options.hintShown !== false}),
+    APP_CONFIG: Object.freeze({playerShortcutHintShown: options.hintShown !== false, playerVolume: options.volume ?? 1}),
     cacheGeneration: 'test',
     appExiting: false,
     MOTION_MS: Object.freeze({feedback: 150, standard: 180, panel: 220, expressive: 280}),
@@ -1100,4 +1100,104 @@ test('chart titles are text and one separate external link owns official navigat
     assert.equal(fallback.tagName, 'span'); assert.equal(fallback.textContent, 'Requires DLC'); assert.equal(fallback.href, undefined);
     assert.equal(fallback.getAttribute('aria-label'), 'Requires DLC');
   }
+});
+
+// --- Volume control ---------------------------------------------------------
+function volumeHarness(options = {}) {
+  const h = playerHarness(options);
+  const panel = h.node('volume-popover'), button = h.node('preview-player-volume-button'), slider = h.node('volume-slider');
+  panel.popoverOpen = false;
+  panel.showPopover = () => { panel.popoverOpen = true; };
+  panel.hidePopover = () => { panel.popoverOpen = false; };
+  panel.matches = selector => selector === ':popover-open' ? panel.popoverOpen : Element.prototype.matches.call(panel, selector);
+  button.isConnected = true;
+  button.getBoundingClientRect = () => ({left: 100, right: 126, top: 30, bottom: 56, width: 26, height: 26});
+  h.document.documentElement = h.document;
+  h.document.clientWidth = 1280; h.document.clientHeight = 720;
+  for (const [state, name] of [['high', 'icon-volume-high'], ['low', 'icon-volume-low'], ['mute', 'icon-volume-mute']]) {
+    const glyph = new Element('svg'); glyph.className = 'icon volume-glyph'; glyph.dataset.volume = state; button.append(glyph);
+  }
+  h.setup();
+  const run = (expression, values = {}) => { Object.assign(h.context, values); return vm.runInContext(expression, h.context); };
+  h.run = run;
+  const volumeState = () => run(`({volume:previewVolume,last:previewLastVolume,open:previewVolumePopoverOpen,
+    timer:previewVolumeTimer,glyph:[...$('preview-player-volume-button').querySelectorAll('.volume-glyph')].find(g=>g.classList.contains('is-active'))?.dataset.volume,
+    pressed:$('preview-player-volume-button').getAttribute('aria-pressed'),label:$('preview-player-volume-button').getAttribute('aria-label'),
+    sliderValue:$('volume-slider').value,valuetext:$('volume-slider').getAttribute('aria-valuetext')})`);
+  return {h, panel, button, slider, volumeState};
+}
+test('volume starts from the persisted config and drives the audio element', () => {
+  const {h, volumeState} = volumeHarness({volume: 0.35});
+  assert.equal(volumeState().volume, 0.35);
+  assert.equal(h.audio.volume, 0.35);
+  assert.equal(volumeState().glyph, 'low');
+  assert.equal(volumeState().sliderValue, '0.35');
+  assert.equal(volumeState().valuetext, '35%');
+});
+test('wheel steps clamp to 0-1, update glyphs, and debounce persistence', () => {
+  const {h, volumeState} = volumeHarness();
+  const wheel = {deltaY: -1, ctrlKey: false, preventDefault() {}, stopPropagation() {}};
+  h.run('wheelPreviewVolume(__event)', {__event: wheel});
+  assert.equal(volumeState().volume, 1);
+  h.run('wheelPreviewVolume(__event)', {__event: {...wheel, deltaY: 1}});
+  assert.equal(volumeState().volume, 0.95);
+  const persist = h.requests.find(request => request.path === '/v1/player-volume');
+  assert.equal(persist, undefined, 'dragging-style changes wait for the debounce');
+  h.advance(600);
+  const persisted = h.requests.filter(request => request.path === '/v1/player-volume');
+  assert.equal(persisted.length, 1); assert.equal(persisted[0].body.volume, 0.95);
+  for (let index = 0; index < 30; index++) h.run('wheelPreviewVolume(__event)', {__event: {...wheel, deltaY: 1}});
+  assert.equal(volumeState().volume, 0); assert.equal(volumeState().glyph, 'mute');
+});
+test('mute toggle remembers the last positive volume and persists immediately', () => {
+  const {h, button, volumeState} = volumeHarness();
+  h.run('setPreviewVolume(0.4)');
+  h.advance(600);
+  button.emit('click');
+  assert.equal(volumeState().volume, 0); assert.equal(volumeState().pressed, 'true');
+  assert.equal(volumeState().label, 'Unmute playback');
+  assert.equal(h.requests.filter(request => request.path === '/v1/player-volume').at(-1).body.volume, 0);
+  button.emit('click');
+  assert.equal(volumeState().volume, 0.4); assert.equal(volumeState().pressed, 'false');
+  assert.equal(h.requests.filter(request => request.path === '/v1/player-volume').at(-1).body.volume, 0.4);
+  assert.equal(h.node('preview-player-status').textContent, 'Volume restored');
+});
+test('slider input applies live and change flushes persistence', () => {
+  const {h, slider, volumeState} = volumeHarness();
+  slider.value = '0.72'; slider.emit('input');
+  assert.equal(volumeState().volume, 0.72); assert.equal(h.audio.volume, 0.72);
+  slider.emit('change');
+  const persisted = h.requests.filter(request => request.path === '/v1/player-volume');
+  assert.equal(persisted.at(-1).body.volume, 0.72);
+});
+test('popover opens on hover and keyboard focus, closes on escape with focus return', () => {
+  const {h, panel, button, volumeState} = volumeHarness();
+  button.emit('pointerenter');
+  assert.equal(volumeState().open, true); assert.equal(panel.popoverOpen, true);
+  const keydown = h.document.emit('keydown', {key: 'Escape', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}});
+  assert.equal(keydown.defaultPrevented, true);
+  assert.equal(volumeState().open, false); assert.equal(panel.popoverOpen, false);
+  assert.equal(button.focused, true); assert.equal(button.focusOptions.preventScroll, true);
+  h.document.activeElement = button;
+  button.emit('pointerenter'); assert.equal(volumeState().open, true);
+  h.document.emit('pointerdown', {target: h.node('rows')}, true);
+  assert.equal(volumeState().open, false);
+});
+test('popover hides with the player: no track, error state, and dispose all close it', async () => {
+  const {h, panel, button, volumeState} = volumeHarness();
+  h.start(h.row(71));
+  button.emit('pointerenter'); assert.equal(volumeState().open, true);
+  h.run('failPreview()');
+  assert.equal(volumeState().open, false, 'error state hides the timeline row and the popover');
+  h.run('toggleCurrentPreview()'); // retry from error reloads the track
+  button.emit('pointerenter'); assert.equal(volumeState().open, true);
+  h.dispose();
+  assert.equal(volumeState().open, false); assert.equal(panel.popoverOpen, false);
+  const persisted = h.requests.filter(request => request.path === '/v1/player-volume').length;
+  assert.equal(persisted, 0, 'no volume change happened, nothing persisted');
+});
+test('publishWindowRegions excludes six stable header controls including volume', () => {
+  const regions = extract(appSource, 'function publishWindowRegions(){', 'const dialogControls=');
+  assert.match(regions, /'#preview-player-volume'/);
+  assert.equal((regions.match(/\.map\(selector=>bar\.querySelector\(selector\)\)/g) || []).length, 1);
 });
