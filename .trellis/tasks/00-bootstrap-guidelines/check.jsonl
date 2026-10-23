@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/red-lines.md", "reason": "验收时核对红线未被触碰"}
+{"file": ".trellis/spec/release/testing.md", "reason": "验收时按此运行本地测试套件"}

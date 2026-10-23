@@ -75,6 +75,12 @@
 !/.github/workflows/
 !/.github/workflows/verify.yml
 
+# Trellis agent harness (workflow, specs, tasks, journals) and ZCode adapter
+!/.trellis/
+!/.trellis/**
+!/.zcode/
+!/.zcode/**
+
 !/licenses/
 !/licenses/runtime-notices.txt
 !/licenses/spinshare-icon-GPL-3.0.txt

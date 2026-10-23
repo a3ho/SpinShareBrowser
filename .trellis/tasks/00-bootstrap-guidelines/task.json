@@ -1,0 +1,28 @@
+{
+  "id": "00-bootstrap-guidelines",
+  "name": "00-bootstrap-guidelines",
+  "title": "Build GLM deep project knowledge base",
+  "description": "把 GLM 对 SpinShare Browser 的深度认知持久化为 .trellis/spec/ 分层知识库，替换 init 生成的通用占位模板",
+  "status": "in_progress",
+  "dev_type": "docs",
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-23",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/spec/"
+  ],
+  "notes": "用户指定的第一个 trellis 任务：为 GLM 建立本项目超级深度认知。合并了 init 自带的 bootstrap 占位任务。",
+  "meta": {}
+}
