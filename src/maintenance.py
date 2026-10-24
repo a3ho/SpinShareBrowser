@@ -138,6 +138,7 @@ def _parse_config(raw):
             type(config.get("trayNoticeShown", False)) is not bool or
             type(config.get("playerShortcutHintShown", False)) is not bool or
             type(config.get("installDirectoryConfirmed", False)) is not bool or
+            type(config.get("autoUpdateCharts", False)) is not bool or
             not portable.valid_player_volume(config.get("playerVolume", 1.0)) or
             config.get("customDirectory") is not None and
             (not isinstance(config["customDirectory"], str) or not config["customDirectory"])):

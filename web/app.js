@@ -185,9 +185,10 @@ function validateRuntimeConfig(config){
   if(valid)valid=typeof config.playerShortcutHintShown==='boolean';
   if(valid)valid=typeof config.installDirectoryConfirmed==='boolean';
   if(valid)valid=config.session===undefined||config.session===null||typeof config.session==='object'&&typeof config.session.connected==='boolean';
+  if(valid)valid=config.autoUpdateCharts===undefined||typeof config.autoUpdateCharts==='boolean';
   if(!valid){uiText($('status'),m("Unable to open the app. Reopen SpinShareBrowser.exe."));$('status').classList.add('error');throw uiError('Invalid SpinShare Browser runtime configuration');}
   const session=config.session&&typeof config.session==='object'?{connected:config.session.connected===true,username:typeof config.session.username==='string'?config.session.username:null,userId:Number.isInteger(config.session.userId)?config.session.userId:null,loginActive:config.session.loginActive===true}:null;
-  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed,playerVolume:config.playerVolume,session});
+  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed,playerVolume:config.playerVolume,autoUpdateCharts:config.autoUpdateCharts===true,session});
 }
 function settingsMessage(message,error=false){uiText($('settings-message'),message);$('settings-message').classList.toggle('is-error',error);loadingIndicator($('settings-message'),Boolean(message)&&Boolean(settingsBusy)&&!error);}
 function hasActiveInstallations(){return installationWorkActive()||deletionWorkActive();}
@@ -1388,6 +1389,31 @@ function setupUpload(){
   $('upload-pick').addEventListener('click',()=>pickUploadFile());
   $('upload-submit').addEventListener('click',()=>submitUpload());
 }
+let autoUpdateBusy=false;
+function syncAutoUpdateToggle(enabled){
+  const box=$('settings-auto-update');
+  if(box)box.checked=enabled===true;
+  box.disabled=autoUpdateBusy;
+}
+function readAutoUpdateFromBootstrap(){
+  if(APP_CONFIG&&typeof APP_CONFIG.autoUpdateCharts==='boolean')syncAutoUpdateToggle(APP_CONFIG.autoUpdateCharts);
+}
+async function setAutoUpdate(enabled){
+  if(autoUpdateBusy)return;
+  autoUpdateBusy=true;syncAutoUpdateToggle(enabled);
+  try{
+    const result=await installerRequest('POST','/v1/auto-update',{enabled});
+    if(result&&typeof result.autoUpdateCharts==='boolean'){
+      APP_CONFIG.autoUpdateCharts=result.autoUpdateCharts;
+      syncAutoUpdateToggle(result.autoUpdateCharts);
+    }
+  }catch(error){syncAutoUpdateToggle(!enabled);}
+  autoUpdateBusy=false;syncAutoUpdateToggle(APP_CONFIG.autoUpdateCharts);
+}
+function setupAutoUpdate(){
+  readAutoUpdateFromBootstrap();
+  $('settings-auto-update').addEventListener('change',event=>setAutoUpdate(event.target.checked));
+}
 async function windowCommand(action){
   try{const result=await installerRequest('POST','/v1/desktop/window',{action});if(result?.ok!==true)throw uiError(m('The window control could not be used. Please try again.'));}
   catch(error){languageFeedback(errorText(error));}
@@ -1498,7 +1524,7 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  refreshSettingsControls();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();
+  refreshSettingsControls();setupAutoUpdate();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();
 }
 function readDifficulty(){
   const min=Number($('min').value),max=Number($('max').value),diffs=Array.from(document.querySelectorAll('input[name="diff"]:checked'),el=>Number(el.value));
@@ -2783,7 +2809,7 @@ function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIREC
   return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
 }
 async function installerRequest(method,path,body,revision='',signal=null){
-  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status','/v1/playlists','/v1/notifications','/v1/upload/options'].includes(path)||(/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path)||/^\/v1\/playlists\/\d+$/.test(path)))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/playlists/create','/v1/playlists/delete','/v1/playlists/song','/v1/reviews/add','/v1/reviews/delete','/v1/notifications/clear','/v1/notifications/clear-all','/v1/upload/pick','/v1/upload/start','/v1/upload/update','/v1/upload/delete','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status','/v1/playlists','/v1/notifications','/v1/upload/options'].includes(path)||(/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path)||/^\/v1\/playlists\/\d+$/.test(path)))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/playlists/create','/v1/playlists/delete','/v1/playlists/song','/v1/reviews/add','/v1/reviews/delete','/v1/notifications/clear','/v1/notifications/clear-all','/v1/upload/pick','/v1/upload/start','/v1/upload/update','/v1/upload/delete','/v1/auto-update','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
   if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
   if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
   const request=new AbortController();let timedOut=false;

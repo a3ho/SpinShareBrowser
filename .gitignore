@@ -20,6 +20,7 @@
 !/src/reviews.py
 !/src/notifications.py
 !/src/upload.py
+!/src/auto_update.py
 
 !/web/
 !/web/index.html
@@ -37,6 +38,7 @@
 !/tests/test_reviews.py
 !/tests/test_notifications.py
 !/tests/test_upload.py
+!/tests/test_auto_update.py
 !/tests/test_playlists.cjs
 !/tests/test_playlist_sync.cjs
 !/tests/test_reviews_write.cjs

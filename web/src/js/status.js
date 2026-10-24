@@ -27,8 +27,9 @@ function validateRuntimeConfig(config){
   if(valid)valid=typeof config.playerShortcutHintShown==='boolean';
   if(valid)valid=typeof config.installDirectoryConfirmed==='boolean';
   if(valid)valid=config.session===undefined||config.session===null||typeof config.session==='object'&&typeof config.session.connected==='boolean';
+  if(valid)valid=config.autoUpdateCharts===undefined||typeof config.autoUpdateCharts==='boolean';
   if(!valid){uiText($('status'),m("Unable to open the app. Reopen SpinShareBrowser.exe."));$('status').classList.add('error');throw uiError('Invalid SpinShare Browser runtime configuration');}
   const session=config.session&&typeof config.session==='object'?{connected:config.session.connected===true,username:typeof config.session.username==='string'?config.session.username:null,userId:Number.isInteger(config.session.userId)?config.session.userId:null,loginActive:config.session.loginActive===true}:null;
-  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed,playerVolume:config.playerVolume,session});
+  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed,playerVolume:config.playerVolume,autoUpdateCharts:config.autoUpdateCharts===true,session});
 }
 function settingsMessage(message,error=false){uiText($('settings-message'),message);$('settings-message').classList.toggle('is-error',error);loadingIndicator($('settings-message'),Boolean(message)&&Boolean(settingsBusy)&&!error);}

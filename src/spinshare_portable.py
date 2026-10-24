@@ -26,6 +26,7 @@ import playlists
 import reviews
 import notifications
 import upload
+import auto_update
 
 VERSION = "2.2.0"
 HOST = "127.0.0.1"
@@ -34,7 +35,8 @@ PAGE_NAME = "browser.html"
 RUNTIME_NAME = "runtime.json"
 CONFIG_DEFAULTS = {"language": "zh-CN", "closeBehavior": "ask", "trayNoticeShown": False,
                    "playerShortcutHintShown": False, "installDirectoryConfirmed": False,
-                   "playerVolume": 1.0, "windowSize": None}
+                   "playerVolume": 1.0, "windowSize": None, "autoUpdateCharts": False}
+UPDATE_BASELINE_NAME = "update-baseline.json"
 CONFIG_FIELDS = {"schemaVersion", "token", "customDirectory", "revision", *CONFIG_DEFAULTS}
 LANGUAGES = {"zh-CN", "en"}
 CLOSE_BEHAVIORS = {"ask", "exit", "tray"}
@@ -521,6 +523,7 @@ class ConfigStore:
                 type(config.get("installDirectoryConfirmed")) is not bool or
                 not valid_player_volume(config.get("playerVolume")) or
                 not valid_window_size(config.get("windowSize")) or
+                type(config.get("autoUpdateCharts")) is not bool or
                 (config.get("customDirectory") is not None and not isinstance(config["customDirectory"], str))):
             raise PortableError("The local settings format is invalid.")
         validate_directory(config["customDirectory"] or self.default_directory)
@@ -1450,6 +1453,20 @@ class PortableManager(installer.JobManager):
                 self._persist_config(dict(self.config, playerShortcutHintShown=True))
             return True
 
+    def update_auto_update_charts(self, enabled):
+        if type(enabled) is not bool:
+            raise APIError(400, "invalid_auto_update", "The auto-update setting must be a boolean.")
+        with self.lock:
+            if self.closed or self.exiting:
+                raise APIError(409, "shutting_down", "Exiting. Reopen SpinShareBrowser.exe to continue.")
+            if self.config["autoUpdateCharts"] == enabled:
+                return enabled
+            self.config = dict(self.config, autoUpdateCharts=enabled)
+            self.store.save(self.config)
+        if hasattr(self, "settings_changed") and self.settings_changed:
+            self.settings_changed()
+        return enabled
+
     def update_player_volume(self, volume):
         if not valid_player_volume(volume):
             raise APIError(400, "invalid_player_volume", "Provide a volume between 0 and 1.")
@@ -1826,7 +1843,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song", "/v1/reviews/add", "/v1/reviews/delete", "/v1/notifications/clear", "/v1/notifications/clear-all", "/v1/upload/pick", "/v1/upload/start", "/v1/upload/update", "/v1/upload/delete"}:
+        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song", "/v1/reviews/add", "/v1/reviews/delete", "/v1/notifications/clear", "/v1/notifications/clear-all", "/v1/upload/pick", "/v1/upload/start", "/v1/upload/update", "/v1/upload/delete", "/v1/auto-update"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
@@ -1844,6 +1861,10 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                 result = (self.server.chart_cache.manual_update() if manual else
                           self.server.chart_cache.automatic_update(after_install=data.get("afterInstall", False)))
                 self._respond(200, result)
+                if result.get("status") != "failed" and self.server.manager.config.get("autoUpdateCharts"):
+                    threading.Thread(target=auto_update.run_auto_update_pass,
+                                     args=(self.server.manager, self.server.chart_cache),
+                                     name="SpinShareAutoUpdate", daemon=True).start()
                 return
             if self.path == "/v1/desktop/dialog":
                 if (not {"id", "action"} <= set(data) <= {"id", "action", "remember"} or
@@ -1970,6 +1991,15 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                     status, code = playlist_failure(exc)
                     raise APIError(status, code, "The playlist could not be deleted.")
                 self._respond(200, {"ok": True})
+                return
+            if self.path == "/v1/auto-update":
+                if set(data) != {"enabled"} or type(data["enabled"]) is not bool:
+                    raise APIError(400, "invalid_body", "The auto-update toggle accepts only enabled.")
+                manager = self.server.manager
+                if manager.closed or manager.exiting:
+                    raise APIError(409, "shutting_down", "Exiting. Reopen SpinShareBrowser.exe to continue.")
+                enabled = manager.update_auto_update_charts(data["enabled"])
+                self._respond(200, {"autoUpdateCharts": enabled})
                 return
             if self.path == "/v1/upload/pick":
                 if data:
@@ -2223,6 +2253,7 @@ class PortableApplication:
                 "playerShortcutHintShown": config["playerShortcutHintShown"],
                 "playerVolume": config["playerVolume"],
                 "installDirectoryConfirmed": config["installDirectoryConfirmed"],
+                "autoUpdateCharts": config["autoUpdateCharts"] is True,
                 "session": session_client.status_summary(), "version": VERSION}
 
     def render_page(self):

@@ -39,6 +39,7 @@ MANIFEST = {
         "notifications.js",
         "account.js",
         "upload.js",
+        "auto-update.js",
         "window-regions.js",
         "filters.js",
         "search-tags.js",

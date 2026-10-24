@@ -74,6 +74,9 @@
 .settings-language { margin: 14px 0 6px; }
 .settings-close-options { margin: 14px 0 4px; }
 .settings-field { margin-top: 16px; }
+.settings-data-field { margin-top: 22px; }
+.settings-check { display: flex; align-items: flex-start; gap: 9px; margin-top: 7px; font-size: var(--type-meta); color: var(--muted); }
+.settings-check input { accent-color: var(--pink); width: 15px; height: 15px; flex: none; margin-top: 1px; }
 .settings-account-field { margin-top: 22px; }
 .settings-actions { margin-top: 10px; }
 .settings-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }

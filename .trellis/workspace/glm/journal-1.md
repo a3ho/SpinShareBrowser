@@ -503,3 +503,34 @@ Settings dialog redesigned per owner directives: header X button removed; bottom
 ### Next Steps
 
 - Task 4/5: chart auto-update engine + settings toggle
+
+---
+
+## Session 17: Chart auto-update (sprint 2, task 4/5)
+
+**Date**: 2026-10-24
+**Task**: 10-24-chart-auto-update
+**Branch**: `main`
+
+### Summary
+
+Installed-chart auto-update engine shipped. Semantics (owner clarified 2026-10-24): when local content differs from the cloud's latest, bring local to the cloud's version. Protection layer via a persisted baseline (update-baseline.json, {fileReference: last-known catalog hash}): up-to-date files refresh the baseline; untouched-but-cloud-moved files (baseline == local hash) reinstall through the standard transactional queue; locally modified files (baseline != local hash) are never touched; unknown-provenance first sightings follow the owner's literal rule (update) and the baseline makes later passes precise; charts removed upstream stay. Config autoUpdateCharts (default off) plumbed through defaults/validation/maintenance/bootstrap; POST /v1/auto-update toggle endpoint (close-behavior pattern); pass runs on a SpinShareAutoUpdate thread after any successful manual/automatic catalog sync when enabled; reinstalls go through manager.submit so the whole cooldown/transaction/activity pipeline applies unchanged. Settings UI: "保持已安装谱面为最新" toggle in a new data section with a one-line explanation. Red-line 1 amendment recorded in red-lines.md. Circular-import pitfall avoided via late binding (auto_update imported by spinshare_portable).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: installed-chart auto-update with baseline protection and settings toggle |
+
+### Testing
+
+- [OK] tests.test_auto_update.py 10/10 (planning rules incl. user-edit protection, baseline IO, disabled pass, live pass with real queue submission + seeded cache, toggle endpoint 400/200/409)
+- [OK] full suite 213 OK; Node all green; build_web --check clean
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Task 5/5: user profiles (design directions first)
