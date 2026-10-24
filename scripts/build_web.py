@@ -36,6 +36,7 @@ MANIFEST = {
         "playlists.js",
         "playlist-sync.js",
         "reviews-write.js",
+        "notifications.js",
         "window-regions.js",
         "filters.js",
         "search-tags.js",

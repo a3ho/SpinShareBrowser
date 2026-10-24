@@ -24,6 +24,7 @@ import audio_preview
 import session_client
 import playlists
 import reviews
+import notifications
 
 VERSION = "2.1.1"
 HOST = "127.0.0.1"
@@ -1585,7 +1586,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/status", "/v1/playlists"} and
+        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/status", "/v1/playlists", "/v1/notifications"} and
                 not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}|/v1/playlists/[0-9]+", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
@@ -1720,6 +1721,12 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
             self._respond(200, manager.activity())
         elif self.path == "/v1/session/status":
             self._respond(200, session_client.status_summary())
+        elif self.path == "/v1/notifications":
+            try:
+                self._respond(200, notifications.fetch_notifications())
+            except session_client.SessionError as exc:
+                status, code = playlist_failure(exc)
+                self._respond(status, {"error": "Open Settings and sign in to spinsha.re first.", "code": code})
         elif self.path == "/v1/playlists":
             try:
                 user_id, _ = playlists._identity()
@@ -1774,7 +1781,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song", "/v1/reviews/add", "/v1/reviews/delete"}:
+        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song", "/v1/reviews/add", "/v1/reviews/delete", "/v1/notifications/clear", "/v1/notifications/clear-all"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
@@ -1918,6 +1925,26 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                     status, code = playlist_failure(exc)
                     raise APIError(status, code, "The playlist could not be deleted.")
                 self._respond(200, {"ok": True})
+                return
+            if self.path == "/v1/notifications/clear":
+                if set(data) != {"notificationId"} or not isinstance(data["notificationId"], int):
+                    raise APIError(400, "invalid_body", "Notification clearing accepts only notificationId.")
+                try:
+                    result = notifications.clear_notification(data["notificationId"])
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The notification could not be cleared.")
+                self._respond(200, result)
+                return
+            if self.path == "/v1/notifications/clear-all":
+                if data:
+                    raise APIError(400, "invalid_body", "Clear-all does not accept fields.")
+                try:
+                    result = notifications.clear_all_notifications()
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "Notifications could not be cleared.")
+                self._respond(200, result)
                 return
             if self.path == "/v1/reviews/add":
                 if (set(data) != {"songId", "recommended", "comment"} or not isinstance(data["songId"], int) or

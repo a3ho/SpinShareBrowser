@@ -314,3 +314,35 @@ Review publishing over the session channel. src/reviews.py (post with before/aft
 ### Next Steps
 
 - Phase 6/8: notifications read/clear
+
+---
+
+## Session 11: Notifications (phase 6/8)
+
+**Date**: 2026-10-24
+**Task**: 10-23-notifications
+**Branch**: `main`
+
+### Summary
+
+Notification reading and clearing over the session channel. src/notifications.py parses the authed homepage's notification dropdown (each item is one anchor that IS the clear route; the cover URL carries the song fileReference for jump resolution) with disappearance verification on clears. Endpoints GET /v1/notifications + POST clear/clear-all. Frontend: top-bar bell (login-gated, unread dot after first fetch), anchored popover fetching ONLY on open (no timers, red line), per-row jump (single-song focus reusing the playlist filter machinery) and clear, clear-all. Production E2E: fetch (0 items), clear-all no-op, UI walkthrough with live empty state. A chained-edit-script failure silently dropped the manifest and locale wiring (missing key broke the startup chain and hid the bell); diagnosed from the page state and completed.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: notification reading and clearing over the session channel |
+
+### Testing
+
+- [OK] tests.test_notifications.py 4/4 (stateful fake with real anchor-per-item shape)
+- [OK] full suite 194 OK; Node 17/17
+- [OK] production E2E fetch/clear-all; UI walkthrough: bell, popover, live empty state
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Phase 7/8: home recentering (design directions first); phase 8: chart upload

@@ -787,6 +787,28 @@ body:has(#app-activity:not([hidden])) .catalog-sync-toast { bottom: 112px; }
 .playlist-sync-status { color: var(--muted); flex: none; }
 .playlist-sync-badge { color: var(--muted); background: #ffffff0c; border-radius: 999px; padding: 2px 8px; flex: none; }
 .playlist-sync-actions { justify-content: flex-end; }
+
+/* Notifications: bell entry with unread badge and the anchored popover. */
+.notifications-toggle { color: var(--muted); position: relative; }
+.notifications-toggle:hover { color: var(--text); }
+.notifications-badge { position: absolute; top: 4px; right: 2px; width: 8px; height: 8px; border-radius: 999px; background: var(--pink); }
+.notifications-popover { position: fixed; z-index: 60; width: min(360px, calc(100vw - 24px)); padding: 12px; background: #2a2b33; border: 0; border-radius: 12px; box-shadow: 0 14px 40px #0009; color: var(--text); font: inherit; }
+.notifications-popover::backdrop { background: transparent; }
+.notifications-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.notifications-heading { font-weight: var(--weight-medium); }
+.notifications-clear-all { color: var(--muted); }
+.notifications-clear-all:hover { color: var(--text); }
+.notifications-list { display: grid; gap: 4px; max-height: min(340px, 48vh); overflow-y: auto; }
+.notifications-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: #16171c; font-size: var(--type-meta); }
+.notifications-icon { flex: none; width: 34px; height: 34px; border-radius: 6px; overflow: hidden; background: var(--surface); display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.notifications-icon .icon { width: 16px; height: 16px; }
+.notifications-icon img { width: 100%; height: 100%; object-fit: cover; }
+.notifications-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notifications-actions { display: flex; gap: 6px; flex: none; }
+.notifications-jump { color: var(--pink); }
+.notifications-clear { color: var(--muted); }
+.notifications-clear:hover { color: var(--text); }
+.notifications-empty { padding: 14px 6px; color: var(--muted); text-align: center; }
 /* Keep the utility in the shell, clear of card actions at every scroll position. */
 .back-to-top { position: fixed; inset: 11px auto auto 20px; z-index: 35; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 8px; background: var(--surface); color: #d5d8e2; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(8px); transition: opacity var(--motion-feedback), transform var(--motion-standard) var(--ease-out), background var(--motion-feedback), visibility 0s var(--motion-standard); }
 .back-to-top.is-visible { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }

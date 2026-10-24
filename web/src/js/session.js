@@ -4,6 +4,7 @@ function sessionConnected(){return !!(sessionAccount&&sessionAccount.connected);
 function syncSessionControls(){
   const connected=sessionConnected();
   if(typeof syncPlaylistsUI==='function')syncPlaylistsUI();
+  if(typeof syncNotificationsUI==='function')syncNotificationsUI();
   $('session-signed-out').hidden=connected;
   $('session-signed-in').hidden=!connected;
   if(connected){$('settings-account-name').textContent=sessionAccount.username||'';}

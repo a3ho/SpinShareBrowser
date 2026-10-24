@@ -34,3 +34,10 @@
 - `src/reviews.py`：`post_review`（前后差集验证新评论 id）/`delete_review`（消失验证）；评论上限 2000 字符。端点 `/v1/reviews/add|delete`。
 - 前端 `web/src/js/reviews-write.js`：评论抽屉写作区（推荐勾选 + 文本 + 发布；**成功后局部插入**列表顶部 + 计数 +1 + 缓存失效，不整页重拉）；已评态显示徽标 + 两步删除（局部移除）；会话失效即整体登出 UI。`readReviews` 条目映射补 `id`。
 - 坑：异步 click 处理器后半段在微任务——测试要 `setImmediate` 等待；mock Element 的 append 必须设 parentElement、remove 必须真删，setTimeout mock 不能立即执行（两步确认会被瞬间解除）。
+
+## 通知（阶段 6，2026-10-24）
+
+- 无 JSON 端点：解析已登录首页的 `.notification-item` 锚点——**整条即清除链接**（`/notification/clear/{id}?returnUrl=…`），封面 URL 内含 fileReference（`/uploads/thumbnail/{ref}.jpg`）供前端反查目录定位跳转（复用 playlistFilter 机制单曲聚焦）。`/notification/clearAll?returnUrl=…` 清全部。
+- `src/notifications.py`：fetch/clear_one/clear_all，清除后从重定向回的首页再解析验证。端点 GET `/v1/notifications`、POST `/v1/notifications/clear|clear-all`。
+- 前端 `notifications.js`：顶栏铃铛（登录才显示、未读粉点在首次拉取后）；浮层仅打开时拉取（**零后台零定时器**，红线）；行操作 = 查看谱面（若可反查）/ 清除。
+- 教训：**连环 Python 编辑脚本每段要独立落盘 + 段间断言失败会静默丢后续步骤**（本次 manifest/locales 被丢，缺 locale 键使启动链在 setupLanguage 后中断——铃铛不显示的表象）。修复后验证：铃铛显示、浮层空态、生产读取/清全部通过。

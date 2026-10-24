@@ -427,6 +427,7 @@ function sessionConnected(){return !!(sessionAccount&&sessionAccount.connected);
 function syncSessionControls(){
   const connected=sessionConnected();
   if(typeof syncPlaylistsUI==='function')syncPlaylistsUI();
+  if(typeof syncNotificationsUI==='function')syncNotificationsUI();
   $('session-signed-out').hidden=connected;
   $('session-signed-in').hidden=!connected;
   if(connected){$('settings-account-name').textContent=sessionAccount.username||'';}
@@ -999,6 +1000,131 @@ async function deleteMyReview(cell,mine,remove){
   }
   reviewComposeBusy=false;
 }
+let notificationData=null,notificationsBusy=false,notificationsAnchor=null;
+function notificationsConnected(){return sessionConnected();}
+function syncNotificationsUI(){
+  const button=$('notifications-open');
+  if(!button)return;
+  button.hidden=!notificationsConnected();
+  const badge=$('notifications-badge');
+  if(badge)badge.hidden=!(notificationData&&notificationData.unread>0);
+}
+function notificationSongFromIcon(icon){
+  if(typeof icon!=='string')return null;
+  const match=icon.match(/\/uploads\/thumbnail\/(spinshare_[a-f0-9]{1,64})\.jpg/i);
+  if(!match)return null;
+  if(typeof compact!=='function'||!catalog)return null;
+  const rows=compact(catalog,{dateFrom:'',dateTo:'',diffs:[0,1,2,3,4],min:0,max:99});
+  return rows.find(row=>row[8]&&row[8].fileReference===match[1])||null;
+}
+async function fetchNotifications(){
+  if(!notificationsConnected())return;
+  try{
+    const result=await installerRequest('GET','/v1/notifications');
+    if(result&&typeof result==='object'&&Array.isArray(result.notifications)){
+      notificationData={notifications:result.notifications,unread:Number(result.unread)||result.notifications.length};
+    }
+  }catch(error){/* keep the last confirmed state (red line 13) */}
+  syncNotificationsUI();
+  renderNotifications();
+}
+function renderNotifications(){
+  const list=$('notifications-list');if(!list)return;
+  list.replaceChildren();
+  if(!notificationData){const empty=element('p',undefined,'notifications-empty');uiText(empty,m('Loading notifications…'));list.append(empty);return;}
+  if(!notificationData.notifications.length){const empty=element('p',undefined,'notifications-empty');uiText(empty,m('No notifications'));list.append(empty);return;}
+  for(const item of notificationData.notifications){
+    const row=element('div',undefined,'notifications-row');
+    row.setAttribute('role','listitem');
+    const icon=element('span',undefined,'notifications-icon');
+    if(item.icon){const img=element('img');img.src=item.icon;img.alt='';img.loading='lazy';icon.append(img);img.addEventListener('error',()=>{img.remove();},{once:true});}
+    else icon.append(icon_('bell'));
+    const text=element('span',undefined,'notifications-text');uiText(text,item.text);
+    const actions=element('span',undefined,'notifications-actions');
+    const song=notificationSongFromIcon(item.icon);
+    if(song){
+      const jump=element('button',undefined,'notifications-jump');jump.type='button';
+      uiAttr(jump,'aria-label',m('Go to chart')+': '+song[1]);
+      jump.append(element('span',m('Go to chart')));
+      jump.addEventListener('click',()=>{
+        playlistFilter={id:null,title:song[1],songIds:new Set([song[0]])};
+        closeNotificationsPopover();
+        page=1;visibleCount=scrollBatchSize;
+        rebuild(false);renderPlaylistFilterBar();focusResults();
+      });
+      actions.append(jump);
+    }
+    const clear=element('button',undefined,'notifications-clear');clear.type='button';
+    uiAttr(clear,'aria-label',m('Clear notification'));
+    clear.append(element('span',m('Clear notification')));
+    clear.addEventListener('click',()=>clearOneNotification(item.id,clear));
+    actions.append(clear);
+    row.append(icon,text,actions);list.append(row);
+  }
+}
+async function clearOneNotification(notificationId,button){
+  if(notificationsBusy)return;
+  notificationsBusy=true;button.disabled=true;
+  try{
+    const result=await installerRequest('POST','/v1/notifications/clear',{notificationId});
+    if(notificationData){
+      notificationData.notifications=notificationData.notifications.filter(item=>item.id!==notificationId);
+      notificationData.unread=typeof result?.unread==='number'?result.unread:Math.max(0,notificationData.unread-1);
+    }
+    syncNotificationsUI();renderNotifications();
+  }catch(error){button.disabled=false;}
+  notificationsBusy=false;
+}
+async function clearAllNotificationsUI(){
+  if(notificationsBusy||!notificationData||!notificationData.notifications.length)return;
+  notificationsBusy=true;
+  try{
+    await installerRequest('POST','/v1/notifications/clear-all',{});
+    notificationData={notifications:[],unread:0};
+    syncNotificationsUI();renderNotifications();
+  }catch(error){}
+  notificationsBusy=false;
+}
+function icon_(name){return icon(name);}
+function positionNotificationsPopover(){
+  const popover=$('notifications-popover'),anchor=notificationsAnchor;
+  if(!popover||!anchor||!anchor.isConnected)return;
+  const rect=anchor.getBoundingClientRect();
+  popover.style.visibility='hidden';popover.style.left='0px';popover.style.top='0px';
+  const width=popover.offsetWidth||320;
+  const left=Math.max(8,Math.min(rect.left,innerWidth-width-8));
+  const below=rect.bottom+8+(popover.offsetHeight||200);
+  const top=below>innerHeight-8?Math.max(8,rect.top-(popover.offsetHeight||200)-8):rect.bottom+8;
+  popover.style.left=left+'px';popover.style.top=top+'px';popover.style.visibility='';
+}
+function openNotificationsPopover(anchor){
+  if(!notificationsConnected())return;
+  notificationsAnchor=anchor;
+  const popover=$('notifications-popover');
+  popover.showPopover();
+  positionNotificationsPopover();
+  renderNotifications();
+  void fetchNotifications();
+  popover.querySelector('.notifications-row button, .notifications-empty')?.focus({preventScroll:true});
+}
+function closeNotificationsPopover(){
+  const popover=$('notifications-popover');
+  if(typeof popover.matches==='function'&&popover.matches(':popover-open')&&typeof popover.hidePopover==='function')popover.hidePopover();
+}
+function setupNotifications(){
+  const button=$('notifications-open'),popover=$('notifications-popover');
+  if(!button||!popover)return;
+  button.addEventListener('click',()=>openNotificationsPopover(button));
+  $('notifications-clear-all').addEventListener('click',()=>clearAllNotificationsUI());
+  popover.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeNotificationsPopover();}});
+  document.addEventListener('pointerdown',event=>{
+    if(!popover.matches(':popover-open'))return;
+    if(popover.contains(event.target)||event.target===button||button.contains(event.target))return;
+    closeNotificationsPopover();
+  },true);
+  addEventListener('resize',()=>{if(popover.matches(':popover-open'))positionNotificationsPopover();});
+  syncNotificationsUI();
+}
 async function windowCommand(action){
   try{const result=await installerRequest('POST','/v1/desktop/window',{action});if(result?.ok!==true)throw uiError(m('The window control could not be used. Please try again.'));}
   catch(error){languageFeedback(errorText(error));}
@@ -1039,7 +1165,7 @@ async function publishWindowRegions(){
   const bar=document.querySelector('.topbar');
   if(!bar||!document.documentElement.classList.contains('desktop-chrome')||!globalThis.innerWidth||!globalThis.innerHeight)return;
   // Layout coordinates intentionally ignore player/cover animation transforms.
-  const excluded=['.brand','.topbar-actions','#playlists-open','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
+  const excluded=['.brand','.topbar-actions','#notifications-open','#playlists-open','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
     .filter(node=>node&&node.offsetWidth>0&&node.offsetHeight>0)
     .map(windowRegionRect);
   const layout={viewport:[innerWidth,innerHeight],pixelRatio:globalThis.devicePixelRatio||1,headerHeight:document.querySelector('dialog[open]')?0:bar.offsetHeight,excluded};
@@ -1109,7 +1235,7 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();setupPlaylists();setupPlaylistSync();
+  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();setupNotifications();setupPlaylists();setupPlaylistSync();
 }
 function readDifficulty(){
   const min=Number($('min').value),max=Number($('max').value),diffs=Array.from(document.querySelectorAll('input[name="diff"]:checked'),el=>Number(el.value));
@@ -2378,7 +2504,7 @@ function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIREC
   return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
 }
 async function installerRequest(method,path,body,revision='',signal=null){
-  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status','/v1/playlists'].includes(path)||(/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path)||/^\/v1\/playlists\/\d+$/.test(path)))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/playlists/create','/v1/playlists/delete','/v1/playlists/song','/v1/reviews/add','/v1/reviews/delete','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status','/v1/playlists','/v1/notifications'].includes(path)||(/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path)||/^\/v1\/playlists\/\d+$/.test(path)))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/playlists/create','/v1/playlists/delete','/v1/playlists/song','/v1/reviews/add','/v1/reviews/delete','/v1/notifications/clear','/v1/notifications/clear-all','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
   if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
   if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
   const request=new AbortController();let timedOut=false;

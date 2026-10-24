@@ -38,7 +38,7 @@ async function publishWindowRegions(){
   const bar=document.querySelector('.topbar');
   if(!bar||!document.documentElement.classList.contains('desktop-chrome')||!globalThis.innerWidth||!globalThis.innerHeight)return;
   // Layout coordinates intentionally ignore player/cover animation transforms.
-  const excluded=['.brand','.topbar-actions','#playlists-open','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
+  const excluded=['.brand','.topbar-actions','#notifications-open','#playlists-open','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
     .filter(node=>node&&node.offsetWidth>0&&node.offsetHeight>0)
     .map(windowRegionRect);
   const layout={viewport:[innerWidth,innerHeight],pixelRatio:globalThis.devicePixelRatio||1,headerHeight:document.querySelector('dialog[open]')?0:bar.offsetHeight,excluded};
@@ -108,5 +108,5 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();setupPlaylists();setupPlaylistSync();
+  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();setupNotifications();setupPlaylists();setupPlaylistSync();
 }

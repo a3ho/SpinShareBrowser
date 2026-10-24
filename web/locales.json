@@ -664,7 +664,13 @@
     "Review deleted": "Review deleted",
     "Review could not be posted": "Review could not be posted",
     "Write about the flow, difficulty or the patterns of the chart": "Write about the flow, difficulty or the patterns of the chart",
-    "You cannot review your own chart": "You cannot review your own chart"
+    "You cannot review your own chart": "You cannot review your own chart",
+    "Notifications": "Notifications",
+    "Clear all": "Clear all",
+    "No notifications": "No notifications",
+    "Loading notifications…": "Loading notifications…",
+    "Go to chart": "Go to chart",
+    "Clear notification": "Clear notification"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1331,6 +1337,12 @@
     "Review deleted": "评论已删除",
     "Review could not be posted": "评论发布失败",
     "Write about the flow, difficulty or the patterns of the chart": "聊聊谱面的手感、难度或配置",
-    "You cannot review your own chart": "不能评价自己的谱面"
+    "You cannot review your own chart": "不能评价自己的谱面",
+    "Notifications": "通知",
+    "Clear all": "全部清除",
+    "No notifications": "暂无通知",
+    "Loading notifications…": "正在加载通知…",
+    "Go to chart": "查看谱面",
+    "Clear notification": "清除通知"
   }
 }
