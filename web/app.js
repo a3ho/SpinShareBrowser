@@ -420,6 +420,67 @@ function applyWindowState(state){
   uiAttr($('window-maximize'),'aria-label',m(state.maximized?'Restore window':'Maximize window'));
   scheduleWindowRegions();
 }
+let sessionAccount=APP_CONFIG.session,sessionBusy=false,sessionPollTimer=null;
+const SESSION_POLL_MS=2000,SESSION_POLL_LIMIT=330;
+function sessionConnected(){return !!(sessionAccount&&sessionAccount.connected);}
+function syncSessionControls(){
+  const connected=sessionConnected();
+  $('session-signed-out').hidden=connected;
+  $('session-signed-in').hidden=!connected;
+  if(connected){$('settings-account-name').textContent=sessionAccount.username||'';}
+  $('settings-session-login').hidden=connected||sessionBusy;
+  $('settings-session-logout').hidden=!connected||sessionBusy;
+}
+function sessionMessage(message,error=false){
+  uiText($('settings-session-message'),message);
+  $('settings-session-message').classList.toggle('is-error',error);
+  $('settings-session-message').hidden=false;
+}
+function stopSessionPolling(){if(sessionPollTimer!==null){clearInterval(sessionPollTimer);sessionPollTimer=null;}}
+async function fetchSessionStatus(){
+  try{
+    const result=await installerRequest('GET','/v1/session/status');
+    if(result&&typeof result==='object'&&typeof result.connected==='boolean'){sessionAccount=result;syncSessionControls();return result;}
+  }catch(error){/* keep the last confirmed state (red line 13) */}
+  return null;
+}
+async function requestSessionLogin(){
+  if(sessionBusy)return;
+  sessionBusy=true;syncSessionControls();$('settings-session-message').hidden=true;
+  try{
+    await installerRequest('POST','/v1/session/login',{});
+    sessionMessage(m('The sign-in window is open. Finish signing in there'));
+    let polls=0;
+    sessionPollTimer=setInterval(async()=>{
+      polls+=1;
+      const result=await fetchSessionStatus();
+      if(result&&result.connected){
+        stopSessionPolling();sessionBusy=false;syncSessionControls();$('settings-session-message').hidden=true;
+      }else if(result&&!result.loginActive||polls>=SESSION_POLL_LIMIT){
+        stopSessionPolling();sessionBusy=false;syncSessionControls();
+        sessionMessage(m('Sign-in was cancelled or timed out'),true);
+      }
+    },SESSION_POLL_MS);
+  }catch(error){
+    stopSessionPolling();sessionBusy=false;syncSessionControls();
+    sessionMessage(error.code==='session_connected'?m('Already signed in'):error.code==='session_window_unavailable'?m('The sign-in window could not open. Reopen the app window and try again'):errorText(error),true);
+  }
+}
+async function requestSessionLogout(){
+  if(sessionBusy)return;
+  sessionBusy=true;syncSessionControls();
+  try{
+    await installerRequest('POST','/v1/session/logout',{});
+    sessionAccount={connected:false,username:null,userId:null,loginActive:false};
+    $('settings-session-message').hidden=true;
+  }catch(error){sessionMessage(errorText(error),true);}
+  sessionBusy=false;syncSessionControls();
+}
+function setupSession(){
+  syncSessionControls();
+  $('settings-session-login').addEventListener('click',()=>requestSessionLogin());
+  $('settings-session-logout').addEventListener('click',()=>requestSessionLogout());
+}
 async function windowCommand(action){
   try{const result=await installerRequest('POST','/v1/desktop/window',{action});if(result?.ok!==true)throw uiError(m('The window control could not be used. Please try again.'));}
   catch(error){languageFeedback(errorText(error));}
@@ -530,7 +591,7 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();
+  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();
 }
 function readDifficulty(){
   const min=Number($('min').value),max=Number($('max').value),diffs=Array.from(document.querySelectorAll('input[name="diff"]:checked'),el=>Number(el.value));
@@ -1799,7 +1860,7 @@ function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIREC
   return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
 }
 async function installerRequest(method,path,body,revision='',signal=null){
-  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status'].includes(path)||/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
   if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
   if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
   const request=new AbortController();let timedOut=false;

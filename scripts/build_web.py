@@ -32,6 +32,7 @@ MANIFEST = {
         "settings.js",
         "dialogs.js",
         "settings-panel.js",
+        "session.js",
         "window-regions.js",
         "filters.js",
         "search-tags.js",

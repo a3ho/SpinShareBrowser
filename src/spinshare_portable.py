@@ -21,6 +21,7 @@ import time
 
 import installer
 import audio_preview
+import session_client
 
 VERSION = "2.1.1"
 HOST = "127.0.0.1"
@@ -1572,7 +1573,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"} and
+        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/status"} and
                 not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
@@ -1705,6 +1706,8 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
             self._respond(200, {"dialog": self.server.desktop.dialog_state() if self.server.desktop else None})
         elif self.path == "/v1/activity":
             self._respond(200, manager.activity())
+        elif self.path == "/v1/session/status":
+            self._respond(200, session_client.status_summary())
         elif self.path == "/v1/health":
             with manager.lock:
                 self._respond(200, {"ok": not manager.closed, "shuttingDown": manager.closed or manager.exiting,
@@ -1745,7 +1748,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete"}:
+        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
@@ -1847,6 +1850,27 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                     raise APIError(400, "invalid_player_volume", "The volume endpoint accepts only volume.")
                 self._respond(200, {"volume": self.server.manager.update_player_volume(data["volume"])})
                 return
+            if self.path == "/v1/session/login":
+                if data:
+                    raise APIError(400, "invalid_body", "The sign-in request does not accept fields.")
+                manager = self.server.manager
+                if manager.closed or manager.exiting:
+                    raise APIError(409, "shutting_down", "Exiting. Reopen SpinShareBrowser.exe to continue.")
+                try:
+                    session_client.request_login()
+                except session_client.SessionError as exc:
+                    code = str(exc)
+                    if code not in {"session_connected", "session_login_busy", "session_window_unavailable"}:
+                        code = "session_window_unavailable"
+                    raise APIError(409, code, "The sign-in window is not available right now.")
+                self._respond(202, {"accepted": True})
+                return
+            if self.path == "/v1/session/logout":
+                if data:
+                    raise APIError(400, "invalid_body", "The sign-out request does not accept fields.")
+                session_client.disconnect()
+                self._respond(200, {"connected": False})
+                return
             if self.path == "/v1/install-directory-confirmation":
                 if (set(data) != {"expectedRevision"} or
                         not isinstance(data["expectedRevision"], str) or
@@ -1919,6 +1943,7 @@ class PortableApplication:
         self.config = dict(saved, revision=secrets.token_hex(16))
         self.store.save(self.config)
         self.manager = PortableManager(self.store, self.config)
+        session_client.initialize(self.store.directory)
         self.instance_id = secrets.token_hex(16)
         self.started = threading.Event()
         self.closed = threading.Event()
@@ -1963,6 +1988,8 @@ class PortableApplication:
         self.server.desktop = value
         self.manager.directory_picker = value.choose_directory if value is not None else None
         self.manager.settings_changed = value.settings_changed if value is not None else None
+        session_client.set_login_window_opener(
+            getattr(value, "open_session_login", None) if value is not None else None)
 
     def chart_catalog_status(self, *, include_data=True):
         return self.chart_cache.status(include_data=include_data)
@@ -1981,7 +2008,8 @@ class PortableApplication:
                 "closeBehavior": config["closeBehavior"],
                 "playerShortcutHintShown": config["playerShortcutHintShown"],
                 "playerVolume": config["playerVolume"],
-                "installDirectoryConfirmed": config["installDirectoryConfirmed"], "version": VERSION}
+                "installDirectoryConfirmed": config["installDirectoryConfirmed"],
+                "session": session_client.status_summary(), "version": VERSION}
 
     def render_page(self):
         with self.manager.lock:

@@ -9,10 +9,11 @@
 | [desktop-host.md](desktop-host.md) | WebView2 窗口、自定义边框、托盘/toast、关闭流 |
 | [maintenance.md](maintenance.md) | 安装器协作：升级/卸载、门锁、所有权标记、清理 |
 | [audio-preview.md](audio-preview.md) | 游戏音乐回退：SRTB→GUID→Steam 定位→只读流式 |
+| [session-client.md](session-client.md) | spinsha.re 会话通道：登录窗/DPAPI 存储/表单驱动器/串行写队列 |
 
 ## 模块依赖方向
 
-`spinshare_portable.py`（入口+API）→ `installer.py`（安装）+ `audio_preview.py`（音频）；`desktop.py`（窗口）与 `maintenance.py`（维护）都 import 前两者。`desktop.run(application)` 是有窗口模式的真正主循环；`--no-browser` 模式只跑 `application.serve_forever()`。
+`spinshare_portable.py`（入口+API）→ `installer.py`（安装）+ `audio_preview.py`（音频）+ `session_client.py`（网站会话，无反向依赖）；`desktop.py`（窗口）与 `maintenance.py`（维护）都 import 前述模块。`desktop.run(application)` 是有窗口模式的真正主循环；`--no-browser` 模式只跑 `application.serve_forever()`（此时登录窗 opener 未注册，/v1/session/login 返回 session_window_unavailable）。
 
 ## 跨模块不变量
 

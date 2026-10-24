@@ -258,6 +258,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   </fieldset>
   <div class="settings-field"><span id="settings-directory-label" data-ui-static="Install directory">Install directory</span><output id="settings-directory" class="settings-path" aria-labelledby="settings-directory-label"></output></div>
   <div class="settings-actions"><button id="settings-select" class="button primary" type="button"><span data-ui-static="Choose folder">Choose folder</span></button><button id="settings-default" class="button secondary" type="button"><span data-ui-static="Restore default">Restore default</span></button></div>
+  <div class="settings-field"><span id="settings-account-label" data-ui-static="SpinShare account">SpinShare account</span><div class="settings-account-state" aria-labelledby="settings-account-label"><span id="session-signed-out" data-ui-static="Not signed in">Not signed in</span><span id="session-signed-in" hidden><span data-ui-static="Signed in as">Signed in as</span> <bdi id="settings-account-name"></bdi></span></div></div>
+  <div class="settings-actions"><button id="settings-session-login" class="button primary" type="button"><span data-ui-static="Sign in on spinsha.re">Sign in on spinsha.re</span></button><button id="settings-session-logout" class="button secondary" type="button" hidden><span data-ui-static="Sign out">Sign out</span></button></div>
+  <p id="settings-session-message" class="settings-message" role="status" aria-live="polite" hidden></p>
   <p id="settings-message" class="settings-message" role="status" aria-live="polite"></p>
   <div class="settings-bottom"><span id="settings-version" class="settings-version"></span><button id="settings-exit" class="settings-exit" type="button"><span data-ui-static="Quit app">Quit app</span></button></div>
 </dialog>

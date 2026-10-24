@@ -412,6 +412,8 @@ class Desktop:
         self.catalog_sync_due = 0.0
         self.catalog_sync_thread = None
         self.catalog_failure_key = None
+        self.login_window = None
+        self.login_lock = threading.Lock()
 
     def text(self, key):
         language = self.manager.config.get("language", "en")
@@ -597,6 +599,88 @@ class Desktop:
         except concurrent.futures.TimeoutError as exc:
             result.cancel()
             raise OSError("Folder selection timed out.") from exc
+
+    def open_session_login(self):
+        """Open the spinsha.re sign-in window; the watcher completes the session.
+
+        Called on the local API thread. The user signs in on the real website
+        (2FA included); we only read the resulting cookies through the WebView2
+        cookie manager and never touch credentials.
+        """
+        import session_client
+
+        with self.login_lock:
+            if self.login_window is not None:
+                return
+        try:
+            window = self.webview.create_window(
+                "SpinShare Browser — spinsha.re", "https://spinsha.re/login",
+                width=480, height=700, min_size=(400, 520), background_color="#1f1f23")
+        except Exception:
+            session_client.cancel_login()
+            raise
+        with self.login_lock:
+            self.login_window = window
+        window.events.closed += self._login_window_closed
+        threading.Thread(target=self._watch_session_login, args=(window,),
+                         name="SpinShareSessionLogin", daemon=True).start()
+
+    def _login_window_closed(self):
+        with self.login_lock:
+            self.login_window = None
+        import session_client
+
+        session_client.cancel_login()
+
+    def _watch_session_login(self, window):
+        import session_client
+        from urllib.parse import urlsplit
+
+        deadline = time.monotonic() + 600.0
+        completed = False
+        try:
+            time.sleep(3.0)
+            while time.monotonic() < deadline and not self.exiting:
+                try:
+                    url = window.get_current_url()
+                except Exception:
+                    break
+                if url and not urlsplit(url).path.startswith("/login"):
+                    time.sleep(1.5)
+                    if self._try_capture_session(window):
+                        completed = True
+                        break
+                time.sleep(2.0)
+        finally:
+            with self.login_lock:
+                if self.login_window is window:
+                    self.login_window = None
+            if not completed:
+                session_client.cancel_login()
+            self._close_login_window(window)
+
+    def _try_capture_session(self, window):
+        import session_client
+
+        try:
+            cookies = window.get_cookies()
+            user_agent = window.evaluate_js("navigator.userAgent")
+        except Exception:
+            return False
+        spinshare_cookies = [cookie for cookie in cookies if "spinsha.re" in (cookie.domain or "")]
+        if not spinshare_cookies:
+            return False
+        if not session_client.complete_login(spinshare_cookies, user_agent or ""):
+            return False
+        # The login window shares the app's WebView2 profile: leave no site
+        # cookies behind once the session is safely stored.
+        with contextlib.suppress(Exception):
+            window.clear_cookies()
+        return True
+
+    def _close_login_window(self, window):
+        with contextlib.suppress(Exception):
+            window.destroy()
 
     def _renderer(self, renderer):
         if renderer != "edgechromium":

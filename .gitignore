@@ -15,6 +15,7 @@
 !/src/desktop.py
 !/src/maintenance.py
 !/src/audio_preview.py
+!/src/session_client.py
 
 !/web/
 !/web/index.html
@@ -27,6 +28,7 @@
 !/DESIGN.md
 !/tests/read_web_template.cjs
 !/tests/test_web_resources.py
+!/tests/test_session_client.py
 !/web/locales.json
 
 !/assets/

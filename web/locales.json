@@ -600,7 +600,16 @@
     "Confirming directory...": "Confirming directory…",
     "Directory changed. Confirm the new folder to continue.": "Directory changed. Confirm the new folder to continue",
     "Confirm the chart installation directory before downloading.": "Confirm the chart installation directory before downloading",
-    "The install directory changed while this window was open. Review the current folder and confirm again.": "The install directory changed while this window was open. Review the current folder and confirm again"
+    "The install directory changed while this window was open. Review the current folder and confirm again.": "The install directory changed while this window was open. Review the current folder and confirm again",
+    "SpinShare account": "SpinShare account",
+    "Not signed in": "Not signed in",
+    "Signed in as": "Signed in as",
+    "Sign in on spinsha.re": "Sign in on spinsha.re",
+    "Sign out": "Sign out",
+    "The sign-in window is open. Finish signing in there": "The sign-in window is open. Finish signing in there",
+    "Sign-in was cancelled or timed out": "Sign-in was cancelled or timed out",
+    "The sign-in window could not open. Reopen the app window and try again": "The sign-in window could not open. Reopen the app window and try again",
+    "Already signed in": "Already signed in"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1203,6 +1212,15 @@
     "Confirming directory...": "正在确认目录…",
     "Directory changed. Confirm the new folder to continue.": "目录已修改，请确认新目录后继续",
     "Confirm the chart installation directory before downloading.": "请先确认谱面安装目录再下载",
-    "The install directory changed while this window was open. Review the current folder and confirm again.": "此窗口打开期间安装目录发生了变化，请查看当前目录后重新确认"
+    "The install directory changed while this window was open. Review the current folder and confirm again.": "此窗口打开期间安装目录发生了变化，请查看当前目录后重新确认",
+    "SpinShare account": "SpinShare 账号",
+    "Not signed in": "未登录",
+    "Signed in as": "已连接：",
+    "Sign in on spinsha.re": "登录 spinsha.re",
+    "Sign out": "退出登录",
+    "The sign-in window is open. Finish signing in there": "登录窗口已打开，请在窗口中完成登录",
+    "Sign-in was cancelled or timed out": "登录已取消或超时",
+    "The sign-in window could not open. Reopen the app window and try again": "无法打开登录窗口，请重新打开应用窗口后再试",
+    "Already signed in": "已处于登录状态"
   }
 }

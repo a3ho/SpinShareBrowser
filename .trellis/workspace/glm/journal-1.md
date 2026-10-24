@@ -151,3 +151,38 @@ User rulings absorbed: favorites==Playlists, session channel is permanent (assum
 ### Next Steps
 
 - Phase 2/8: session-client module (embedded login, DPAPI cookie store, form driver, serial write queue)
+
+---
+
+## Session 6: Session client module (phase 2/8)
+
+**Date**: 2026-10-24
+**Task**: 10-23-session-client
+**Branch**: `main`
+
+### Summary
+
+Implemented the session channel foundation. src/session_client.py: DPAPI-encrypted session store (state/session.dat, entropy-pinned, cookie values never logged), urllib client replaying the login window's exact UA, stdlib HTMLParser contracts (form[_token] CSRF, playlist_N checkbox groups, login-page detection via /login URL or _username form, identity via user-actions /user/{id}/charts + public /api/user/{id}), serial WriteQueue (1.2s min gap, no auto-retry). desktop.py: runtime pywebview login window (spinsha.re/login, user types credentials on the real site incl. 2FA), watcher captures cookies via real CookieManager (HttpOnly included), verifies, clears shared-profile cookies, closes. Endpoints /v1/session/status|login|logout + bootstrap session block; settings-panel thin-slice UI (web/src/js/session.js, en/zh locales). 18 new contract tests (fake-site HTTP server, DPAPI roundtrip, queue spacing, endpoint gating).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: spinsha.re session channel with login window and write queue |
+
+### Testing
+
+- [OK] tests.test_session_client: 18/18 (after fixing HTMLParser boolean-attribute bug and login-busy state leak caught by tests)
+- [OK] full suite: 172 tests OK in 22.3s (Node 12/12)
+- [OK] headless instance: status 200, login 409 session_window_unavailable, page embeds session bootstrap
+- [OK] desktop instance E2E: login window opened real spinsha.re login page (computer-use verified), close-window cancel path reset loginActive; settings panel account section rendered (browser-use)
+- Note: an earlier 10-min suite hang was environmental (concurrent desktop instance), documented in spec lessons
+
+### Status
+
+[OK] **Completed** (code side)
+
+### Next Steps
+
+- Owner-assisted final login E2E (real account): connect -> status shows username -> session.dat is DPAPI ciphertext -> disconnect clears
+- Phase 3/8: playlists-favorites on top of submit_write + form driver
