@@ -706,7 +706,12 @@
     "No reviews yet": "No reviews yet",
     "No SpinPlays yet": "No SpinPlays yet",
     "Unknown chart": "Unknown chart",
-    "Profile unavailable": "Profile unavailable"
+    "Profile unavailable": "Profile unavailable",
+    "Auto-update installed charts": "Auto-update installed charts",
+    "Reinstall when publishers release new versions": "Reinstall when publishers release new versions",
+    "Your verdict": "Your verdict",
+    "Reset": "Reset",
+    "Apply": "Apply"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1415,6 +1420,11 @@
     "No reviews yet": "还没有评论",
     "No SpinPlays yet": "还没有 SpinPlays",
     "Unknown chart": "未知谱面",
-    "Profile unavailable": "主页暂不可用"
+    "Profile unavailable": "主页暂不可用",
+    "Auto-update installed charts": "已安装谱面自动更新",
+    "Reinstall when publishers release new versions": "发布者发布新版本时自动重装",
+    "Your verdict": "你的评价",
+    "Reset": "重置",
+    "Apply": "应用"
   }
 }

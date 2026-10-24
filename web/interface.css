@@ -74,7 +74,11 @@ input { caret-color: var(--pink); }
 /* Review compose section inside the per-card reading popover. */
 .review-compose { display: grid; gap: 8px; padding: 10px 0 2px; border-top: 1px solid var(--line); margin-top: 6px; }
 .review-compose-form { display: grid; gap: 8px; }
-.review-compose-recommend { display: inline-flex; align-items: center; gap: 8px; font-size: var(--type-control); color: var(--text-secondary); }
+.review-compose-verdict { display: flex; gap: 6px; }
+.review-verdict-btn { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: var(--type-control); font-weight: var(--weight-medium); }
+.review-verdict-btn:hover { background: var(--surface); color: var(--text); }
+.review-verdict-btn.is-up.is-selected { background: #223129; border-color: #2d4a3a; color: var(--green); }
+.review-verdict-btn.is-down.is-selected { background: #3a252e; border-color: #4a2e3a; color: var(--error); }
 .review-compose-recommend input { accent-color: var(--pink); width: 14px; height: 14px; }
 .review-compose-text { width: 100%; min-height: 64px; resize: vertical; padding: 10px; background: #16171c; border: 1px solid var(--line); border-radius: 8px; color: var(--text); font: inherit; font-size: var(--type-meta); }
 .review-compose-text:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; }
@@ -681,8 +685,14 @@ html.tag-viewport-update { overflow-anchor: none; }
 .settings-close-options { margin: 14px 0 4px; }
 .settings-field { margin-top: 16px; }
 .settings-data-field { margin-top: 22px; }
-.settings-check { display: flex; align-items: flex-start; gap: 9px; margin-top: 7px; font-size: var(--type-meta); color: var(--muted); }
-.settings-check input { accent-color: var(--pink); width: 15px; height: 15px; flex: none; margin-top: 1px; }
+.settings-switch { display: flex; align-items: center; gap: 10px; margin-top: 8px; cursor: pointer; min-height: 28px; }
+.settings-switch input { appearance: none; position: absolute; width: 1px; height: 1px; opacity: 0; }
+.settings-switch-track { width: 36px; height: 20px; border-radius: 999px; background: #3a3d47; position: relative; transition: background var(--motion-feedback) var(--ease-out); flex: none; }
+.settings-switch-track::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 999px; background: #c8cbd5; transition: transform var(--motion-feedback) var(--ease-out), background var(--motion-feedback); }
+.settings-switch input:checked + .settings-switch-track { background: var(--pink); }
+.settings-switch input:checked + .settings-switch-track::after { transform: translateX(16px); background: #fff; }
+.settings-switch input:focus-visible + .settings-switch-track { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
+.settings-switch-label { font-size: var(--type-meta); color: var(--muted); }
 .settings-account-field { margin-top: 22px; }
 .settings-actions { margin-top: 10px; }
 .settings-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }

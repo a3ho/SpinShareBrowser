@@ -75,8 +75,14 @@
 .settings-close-options { margin: 14px 0 4px; }
 .settings-field { margin-top: 16px; }
 .settings-data-field { margin-top: 22px; }
-.settings-check { display: flex; align-items: flex-start; gap: 9px; margin-top: 7px; font-size: var(--type-meta); color: var(--muted); }
-.settings-check input { accent-color: var(--pink); width: 15px; height: 15px; flex: none; margin-top: 1px; }
+.settings-switch { display: flex; align-items: center; gap: 10px; margin-top: 8px; cursor: pointer; min-height: 28px; }
+.settings-switch input { appearance: none; position: absolute; width: 1px; height: 1px; opacity: 0; }
+.settings-switch-track { width: 36px; height: 20px; border-radius: 999px; background: #3a3d47; position: relative; transition: background var(--motion-feedback) var(--ease-out); flex: none; }
+.settings-switch-track::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 999px; background: #c8cbd5; transition: transform var(--motion-feedback) var(--ease-out), background var(--motion-feedback); }
+.settings-switch input:checked + .settings-switch-track { background: var(--pink); }
+.settings-switch input:checked + .settings-switch-track::after { transform: translateX(16px); background: #fff; }
+.settings-switch input:focus-visible + .settings-switch-track { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
+.settings-switch-label { font-size: var(--type-meta); color: var(--muted); }
 .settings-account-field { margin-top: 22px; }
 .settings-actions { margin-top: 10px; }
 .settings-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }

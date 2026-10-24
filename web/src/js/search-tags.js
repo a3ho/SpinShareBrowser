@@ -228,8 +228,9 @@ function changeSearchScope(field){
   if(!textSearchWork&&needsUserSearch(titleKey($('local-search').value)))textFilterTimer=setTimeout(()=>{textFilterTimer=null;rebuild();},300);
 }
 function resetFilters(){
+  // Reset the form to defaults only; the user explicitly applies afterwards.
   selectedTags.clear();pendingTagAnchor=null;
-  lastAppliedCriteria=null;cancelQuery();$('local-search').value='';$('min').value='0';$('max').value='99';
+  $('local-search').value='';$('min').value='0';$('max').value='99';
   for(const field of Object.keys(searchFields))searchScopes.add(field);
   for(const input of document.querySelectorAll('input[name="diff"]'))input.checked=input.value==='4';
   $('date-preset').value='7';applyDatePreset();$('sort').value='date';$('sort-direction').value='desc';syncSearchControls();syncFilters();

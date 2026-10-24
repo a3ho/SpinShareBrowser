@@ -42,13 +42,12 @@ function syncFilters(){
   for(const id of ['local-search','search-submit','search-clear'])$(id).disabled=!ready;
   $('installation-filter').disabled=!ready||appExiting;
   const dirty=!busy&&filtersChanged(),applyButton=$('apply-filters');
-  // Clean, ready forms have nothing to apply; the first run (not ready yet)
-  // and any pending change stay enabled. Reset goes quiet only when the form
-  // also matches the captured startup defaults.
-  const clean=ready&&!dirty;
-  applyButton.disabled=busy||appExiting||clean;
-  $('reset-filters').disabled=busy||appExiting||clean&&!filtersDifferFromDefaults();
-  uiText(applyButton,dirty?m('Apply changes'):m('Filter charts'));applyButton.classList.toggle('has-pending-changes',dirty);
+  // Apply: enabled whenever the form differs from what is currently applied
+  // (or nothing has been applied yet). Reset: enabled whenever the form
+  // differs from the captured startup defaults.
+  applyButton.disabled=busy||appExiting||ready&&!dirty;
+  $('reset-filters').disabled=busy||appExiting||!filtersDifferFromDefaults();
+  applyButton.classList.toggle('has-pending-changes',dirty);
   const dirtyStatus=$('filter-dirty'),dirtyMessage=dirty?m('Filters changed. Select Apply changes to update the results.'):'';
   if(dirtyStatus.textContent!==renderUI(dirtyMessage))uiText(dirtyStatus,dirtyMessage);
   syncResultTools(ready,previousFocus);

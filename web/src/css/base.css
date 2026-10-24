@@ -73,7 +73,11 @@ input { caret-color: var(--pink); }
 /* Review compose section inside the per-card reading popover. */
 .review-compose { display: grid; gap: 8px; padding: 10px 0 2px; border-top: 1px solid var(--line); margin-top: 6px; }
 .review-compose-form { display: grid; gap: 8px; }
-.review-compose-recommend { display: inline-flex; align-items: center; gap: 8px; font-size: var(--type-control); color: var(--text-secondary); }
+.review-compose-verdict { display: flex; gap: 6px; }
+.review-verdict-btn { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: var(--type-control); font-weight: var(--weight-medium); }
+.review-verdict-btn:hover { background: var(--surface); color: var(--text); }
+.review-verdict-btn.is-up.is-selected { background: #223129; border-color: #2d4a3a; color: var(--green); }
+.review-verdict-btn.is-down.is-selected { background: #3a252e; border-color: #4a2e3a; color: var(--error); }
 .review-compose-recommend input { accent-color: var(--pink); width: 14px; height: 14px; }
 .review-compose-text { width: 100%; min-height: 64px; resize: vertical; padding: 10px; background: #16171c; border: 1px solid var(--line); border-radius: 8px; color: var(--text); font: inherit; font-size: var(--type-meta); }
 .review-compose-text:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; }

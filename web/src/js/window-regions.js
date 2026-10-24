@@ -15,6 +15,10 @@ function setupWindowControls(){
   if(typeof MutationObserver==='function'){
     const observer=new MutationObserver(()=>{scheduleWindowRegions();closeVolumePopover();});
     for(const dialog of document.querySelectorAll('dialog'))observer.observe(dialog,{attributes:true,attributeFilter:['open']});
+    // The player appearing (hidden removed) changes which topbar rects are
+    // clickable; without this the cover stays covered by the drag region.
+    const player=document.getElementById('preview-player');
+    if(player)observer.observe(player,{attributes:true,attributeFilter:['hidden']});
   }
   globalThis.addEventListener?.('resize',scheduleWindowRegions);
 }

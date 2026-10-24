@@ -11,7 +11,7 @@
   #error ProgramFilesInclude must name the generated program file list.
 #endif
 #ifndef AppVersion
-  #define AppVersion "2.3.0"
+  #define AppVersion "2.3.1"
 #endif
 #ifndef AppId
   #define AppId "SpinShareBrowser"

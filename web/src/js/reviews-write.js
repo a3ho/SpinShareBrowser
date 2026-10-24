@@ -51,9 +51,21 @@ function renderReviewCompose(cell){
   }
   const form=element('form',undefined,'review-compose-form');
   form.noValidate=true;
-  const recommend=element('label',undefined,'review-compose-recommend');
-  const box=element('input');box.type='checkbox';box.checked=true;
-  recommend.append(box,element('span',m('Recommend')));
+  const recommend=element('div',undefined,'review-compose-verdict');
+  recommend.setAttribute('role','radiogroup');
+  uiAttr(recommend,'aria-label',m('Your verdict'));
+  let recommended=true;
+  const up=element('button',undefined,'review-verdict-btn is-up');
+  up.type='button';up.setAttribute('role','radio');up.setAttribute('aria-checked','true');
+  up.append(element('span',m('Recommended')));
+  const down=element('button',undefined,'review-verdict-btn is-down');
+  down.type='button';down.setAttribute('role','radio');down.setAttribute('aria-checked','false');
+  down.append(element('span',m('Not recommended')));
+  const setVerdict=value=>{recommended=value;up.setAttribute('aria-checked',String(value));down.setAttribute('aria-checked',String(!value));up.classList.toggle('is-selected',value);down.classList.toggle('is-selected',!value);};
+  up.addEventListener('click',()=>setVerdict(true));
+  down.addEventListener('click',()=>setVerdict(false));
+  setVerdict(true); // default: recommended
+  recommend.append(up,down);
   const text=element('textarea',undefined,'review-compose-text');
   text.rows=3;text.maxLength=2000;
   uiAttr(text,'aria-label',m('Write a review')+": "+cell.row[1]);
@@ -75,12 +87,12 @@ function renderReviewCompose(cell){
     reviewComposeBusy=true;submit.disabled=true;
     uiText(note,m('Posting…'));note.hidden=false;note.classList.remove('is-error');
     try{
-      const result=await installerRequest('POST','/v1/reviews/add',{songId:cell.row[0],recommended:box.checked,comment});
+      const result=await installerRequest('POST','/v1/reviews/add',{songId:cell.row[0],recommended,comment});
       if(!result?.review||!Number.isInteger(result.review.reviewId))throw uiError(m('Review could not be posted'));
       reviewCache.delete(cell.row[0]);
       const identityNow=myReviewIdentity();
       const item={id:result.review.reviewId,user:{id:identityNow.userId,name:identityNow.username||'',avatar:'',verified:false,patron:false,pronouns:''},
-        text:comment,date:new Date().toISOString().slice(0,19).replace('T',' '),timezone:'UTC',recommended:box.checked};
+        text:comment,date:new Date().toISOString().slice(0,19).replace('T',' '),timezone:'UTC',recommended};
       const article=reviewElement(item);
       article.dataset.reviewId=String(item.id);
       cell.list.prepend(article);pruneEntries();

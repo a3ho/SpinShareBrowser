@@ -28,7 +28,7 @@ import notifications
 import upload
 import auto_update
 
-VERSION = "2.3.0"
+VERSION = "2.3.1"
 HOST = "127.0.0.1"
 CONFIG_NAME = "config.json"
 PAGE_NAME = "browser.html"

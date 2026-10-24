@@ -1,4 +1,4 @@
-function reviewsOpen(cell){return !cell.retired&&reviewCounts.get(cell.row[0])!==0&&cardViews.get(cell.row[0])?.cell===cell&&(showChartReviews||cell.reviewTemporaryOpen);}
+function reviewsOpen(cell){return !cell.retired&&cardViews.get(cell.row[0])?.cell===cell&&(showChartReviews||cell.reviewTemporaryOpen);}
 function reviewRefreshRemaining(){
   try{
     const stored=Number(globalThis.localStorage.getItem(REVIEW_REFRESH_STORAGE_KEY));
@@ -105,18 +105,17 @@ function syncReviewCount(cell){
   uiText(cell.commentValue,known?number(reviewCounts.get(cell.row[0])):cell.reviewError?'!':'…');
   cell.commentValue.setAttribute('aria-busy',String(Boolean(cell.pending)));
   cell.toggle.classList.toggle('is-count-error',Boolean(cell.reviewError)&&!empty);
-  if(empty)syncReviewVisibility(false,[cell]);else syncReviewToggle(cell);
+  syncReviewToggle(cell);
 }
 function syncReviewToggle(cell){
   const empty=reviewCounts.get(cell.row[0])===0,open=reviewsOpen(cell),pinned=showChartReviews&&open;
-  cell.toggle.disabled=empty;cell.chevron.hidden=empty;
-  if(empty){cell.toggle.removeAttribute('aria-expanded');cell.toggle.removeAttribute('aria-controls');}
-  else{cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);}
-  cell.toggle.setAttribute('aria-disabled',String(empty||pinned));
+  cell.toggle.disabled=false;cell.chevron.hidden=false;
+  cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);
+  cell.toggle.setAttribute('aria-disabled',String(pinned));
   const label=(empty||pinned?m('Reviews for '):open?m('Collapse reviews for '):m('Expand reviews for '))+cell.row[1];
   uiAttr(cell.toggle,'aria-label',label+(reviewCounts.has(cell.row[0])?' · '+m('Reviews')+': '+number(reviewCounts.get(cell.row[0])):''));
   uiAttr(cell.toggle,'aria-description',empty?m('No reviews yet.'):cell.reviewError?m('Review count could not be updated. Open reviews to retry.'):!reviewCounts.has(cell.row[0])?m('Loading review count...'):'');
-  if(empty||pinned)cell.toggle.removeAttribute('aria-haspopup');else cell.toggle.setAttribute('aria-haspopup','dialog');
+  if(pinned)cell.toggle.removeAttribute('aria-haspopup');else cell.toggle.setAttribute('aria-haspopup','dialog');
   cell.target.classList.toggle('is-pinned',pinned);
   cell.context.hidden=showChartReviews;
 }
@@ -163,7 +162,7 @@ function bindReviewDrawer(cell){
   const card=cell.card;
   cell.toggle.addEventListener('pointerdown',event=>{cell.reviewPointerType=event.pointerType;});
   cell.toggle.addEventListener('click',event=>{
-    if(showChartReviews||reviewCounts.get(cell.row[0])===0)return;
+    if(showChartReviews)return;
     dismissChartDescription(false,false);
     clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;
     cell.reviewInput=event.detail===0?'keyboard':cell.reviewPointerType||'mouse';

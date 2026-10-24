@@ -177,7 +177,7 @@ const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not co
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
-  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.3.0'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
+  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.3.1'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
   if(valid){try{const url=new URL(config.origin);valid=url.protocol==='http:'&&url.hostname==='127.0.0.1'&&Number(url.port)>=1&&Number(url.port)<=65535&&url.origin===config.origin&&globalThis.location?.origin===config.origin&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}catch{valid=false;}}
   if(valid)valid=typeof config.settingsRevision==='string'&&/^[a-f0-9]{32}$/.test(config.settingsRevision);
   if(valid)valid=['zh-CN','en'].includes(config.language);
@@ -203,7 +203,7 @@ function refreshSettingsControls(){
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){
   const settings=payload?.settings;
-  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.3.0')throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.3.1')throw uiError(m("Settings could not be loaded. Reopen Settings."));
   if(settings.targetDirectory!==(settings.customDirectory===null?settings.defaultDirectory:settings.customDirectory))throw uiError(m("Open Settings and choose the install folder again."));
   if(settings.closeBehavior!==undefined&&!['ask','exit','tray'].includes(settings.closeBehavior))throw uiError(m("Settings could not be loaded. Reopen Settings."));
   return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',installDirectoryConfirmed:settings.installDirectoryConfirmed,exiting:settings.exiting===true};
@@ -985,9 +985,21 @@ function renderReviewCompose(cell){
   }
   const form=element('form',undefined,'review-compose-form');
   form.noValidate=true;
-  const recommend=element('label',undefined,'review-compose-recommend');
-  const box=element('input');box.type='checkbox';box.checked=true;
-  recommend.append(box,element('span',m('Recommend')));
+  const recommend=element('div',undefined,'review-compose-verdict');
+  recommend.setAttribute('role','radiogroup');
+  uiAttr(recommend,'aria-label',m('Your verdict'));
+  let recommended=true;
+  const up=element('button',undefined,'review-verdict-btn is-up');
+  up.type='button';up.setAttribute('role','radio');up.setAttribute('aria-checked','true');
+  up.append(element('span',m('Recommended')));
+  const down=element('button',undefined,'review-verdict-btn is-down');
+  down.type='button';down.setAttribute('role','radio');down.setAttribute('aria-checked','false');
+  down.append(element('span',m('Not recommended')));
+  const setVerdict=value=>{recommended=value;up.setAttribute('aria-checked',String(value));down.setAttribute('aria-checked',String(!value));up.classList.toggle('is-selected',value);down.classList.toggle('is-selected',!value);};
+  up.addEventListener('click',()=>setVerdict(true));
+  down.addEventListener('click',()=>setVerdict(false));
+  setVerdict(true); // default: recommended
+  recommend.append(up,down);
   const text=element('textarea',undefined,'review-compose-text');
   text.rows=3;text.maxLength=2000;
   uiAttr(text,'aria-label',m('Write a review')+": "+cell.row[1]);
@@ -1009,12 +1021,12 @@ function renderReviewCompose(cell){
     reviewComposeBusy=true;submit.disabled=true;
     uiText(note,m('Posting…'));note.hidden=false;note.classList.remove('is-error');
     try{
-      const result=await installerRequest('POST','/v1/reviews/add',{songId:cell.row[0],recommended:box.checked,comment});
+      const result=await installerRequest('POST','/v1/reviews/add',{songId:cell.row[0],recommended,comment});
       if(!result?.review||!Number.isInteger(result.review.reviewId))throw uiError(m('Review could not be posted'));
       reviewCache.delete(cell.row[0]);
       const identityNow=myReviewIdentity();
       const item={id:result.review.reviewId,user:{id:identityNow.userId,name:identityNow.username||'',avatar:'',verified:false,patron:false,pronouns:''},
-        text:comment,date:new Date().toISOString().slice(0,19).replace('T',' '),timezone:'UTC',recommended:box.checked};
+        text:comment,date:new Date().toISOString().slice(0,19).replace('T',' '),timezone:'UTC',recommended};
       const article=reviewElement(item);
       article.dataset.reviewId=String(item.id);
       cell.list.prepend(article);pruneEntries();
@@ -1191,25 +1203,64 @@ function setupNotifications(){
 }
 let accountMenuAnchor=null,myReviewsCache=null,myReviewsFetchedAt=0;
 const MY_REVIEWS_FRESH_MS=60000;
-function syncAccountChip(){
+let accountAvatarURL='';
+async function syncAccountChip(){
   const chip=$('account-chip');
   if(!chip)return;
   const identity=myReviewIdentity();
   chip.hidden=!identity;
   if(identity){
     uiText($('account-chip-name'),identity.username||'');
-    $('account-chip').querySelector('.account-chip-avatar')?.classList.add('is-on');
+    const avatar=chip.querySelector('.account-chip-avatar');
+    if(avatar){
+      if(accountAvatarURL){
+        avatar.style.backgroundImage='url('+accountAvatarURL+')';
+        avatar.style.backgroundSize='cover';
+        avatar.style.backgroundPosition='center';
+      }else{
+        try{
+          const response=await fetch('https://spinsha.re/api/user/'+identity.userId,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',redirect:'error'});
+          const result=await readJSONResponse(response,64*1024);
+          if(result?.status===200&&typeof result.data?.avatar==='string'&&result.data.avatar){
+            accountAvatarURL=result.data.avatar;
+            avatar.style.backgroundImage='url('+accountAvatarURL+')';
+            avatar.style.backgroundSize='cover';
+            avatar.style.backgroundPosition='center';
+          }
+        }catch(error){/* gradient fallback */}
+      }
+    }
+  }else{
+    accountAvatarURL='';
+    const avatar=chip.querySelector('.account-chip-avatar');
+    if(avatar){avatar.style.backgroundImage='';avatar.style.backgroundSize='';avatar.style.backgroundPosition='';}
   }
 }
+let accountMenuFrame=null;
 function positionAccountMenu(){
   const menu=$('account-menu'),anchor=accountMenuAnchor;
-  if(!menu||!anchor||!anchor.isConnected)return;
+  if(!menu||!anchor)return;
+  if(typeof menu.matches==='function'&&!menu.matches(':popover-open'))return;
+  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
+  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
   const rect=anchor.getBoundingClientRect();
-  menu.style.visibility='hidden';menu.style.left='0px';menu.style.top='0px';
-  const width=menu.offsetWidth||220;
-  const left=Math.max(8,Math.min(rect.left,innerWidth-width-8));
-  const top=rect.bottom+8+(menu.offsetHeight||160)>innerHeight-8?Math.max(8,rect.top-(menu.offsetHeight||160)-8):rect.bottom+8;
-  menu.style.left=left+'px';menu.style.top=top+'px';menu.style.visibility='';
+  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closeAccountMenu();return;}
+  const width=menu.offsetWidth||220,height=menu.offsetHeight||170;
+  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
+  const below=rect.bottom+8+height<=innerHeight-12;
+  menu.style.left=left+'px';
+  menu.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
+  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
+  menu.style.transformOrigin=originX+'px '+(below?'top':'bottom');
+}
+function scheduleAccountMenuFrame(){
+  if(accountMenuFrame!==null)return;
+  const step=()=>{
+    accountMenuFrame=null;
+    positionAccountMenu();
+    if(typeof $('account-menu').matches==='function'&&$('account-menu').matches(':popover-open'))accountMenuFrame=requestAnimationFrame(step);
+  };
+  accountMenuFrame=requestAnimationFrame(step);
 }
 function openAccountMenu(anchor){
   if(!sessionConnected())return;
@@ -1217,9 +1268,11 @@ function openAccountMenu(anchor){
   const menu=$('account-menu');
   menu.showPopover();
   positionAccountMenu();
+  scheduleAccountMenuFrame();
   menu.querySelector('button')?.focus({preventScroll:true});
 }
 function closeAccountMenu(){
+  if(accountMenuFrame!==null){cancelAnimationFrame(accountMenuFrame);accountMenuFrame=null;}
   const menu=$('account-menu');
   if(typeof menu.matches==='function'&&menu.matches(':popover-open')&&typeof menu.hidePopover==='function')menu.hidePopover();
 }
@@ -1412,6 +1465,12 @@ async function setAutoUpdate(enabled){
 function setupAutoUpdate(){
   readAutoUpdateFromBootstrap();
   $('settings-auto-update').addEventListener('change',event=>setAutoUpdate(event.target.checked));
+  // Hidden inputs can miss native label forwarding; click the label explicitly.
+  document.querySelector('.settings-switch')?.addEventListener('click',()=>{
+    const box=$('settings-auto-update');
+    if(!box.disabled)box.checked=!box.checked;
+    setAutoUpdate(box.checked);
+  });
 }
 let userProfileCache=new Map(),userProfileBusy=false;
 let activeProfile=null; // {userId, data, tab, charts, playlists, reviews, spinplays}
@@ -1682,6 +1741,10 @@ function setupWindowControls(){
   if(typeof MutationObserver==='function'){
     const observer=new MutationObserver(()=>{scheduleWindowRegions();closeVolumePopover();});
     for(const dialog of document.querySelectorAll('dialog'))observer.observe(dialog,{attributes:true,attributeFilter:['open']});
+    // The player appearing (hidden removed) changes which topbar rects are
+    // clickable; without this the cover stays covered by the drag region.
+    const player=document.getElementById('preview-player');
+    if(player)observer.observe(player,{attributes:true,attributeFilter:['hidden']});
   }
   globalThis.addEventListener?.('resize',scheduleWindowRegions);
 }
@@ -1821,13 +1884,12 @@ function syncFilters(){
   for(const id of ['local-search','search-submit','search-clear'])$(id).disabled=!ready;
   $('installation-filter').disabled=!ready||appExiting;
   const dirty=!busy&&filtersChanged(),applyButton=$('apply-filters');
-  // Clean, ready forms have nothing to apply; the first run (not ready yet)
-  // and any pending change stay enabled. Reset goes quiet only when the form
-  // also matches the captured startup defaults.
-  const clean=ready&&!dirty;
-  applyButton.disabled=busy||appExiting||clean;
-  $('reset-filters').disabled=busy||appExiting||clean&&!filtersDifferFromDefaults();
-  uiText(applyButton,dirty?m('Apply changes'):m('Filter charts'));applyButton.classList.toggle('has-pending-changes',dirty);
+  // Apply: enabled whenever the form differs from what is currently applied
+  // (or nothing has been applied yet). Reset: enabled whenever the form
+  // differs from the captured startup defaults.
+  applyButton.disabled=busy||appExiting||ready&&!dirty;
+  $('reset-filters').disabled=busy||appExiting||!filtersDifferFromDefaults();
+  applyButton.classList.toggle('has-pending-changes',dirty);
   const dirtyStatus=$('filter-dirty'),dirtyMessage=dirty?m('Filters changed. Select Apply changes to update the results.'):'';
   if(dirtyStatus.textContent!==renderUI(dirtyMessage))uiText(dirtyStatus,dirtyMessage);
   syncResultTools(ready,previousFocus);
@@ -2234,8 +2296,9 @@ function changeSearchScope(field){
   if(!textSearchWork&&needsUserSearch(titleKey($('local-search').value)))textFilterTimer=setTimeout(()=>{textFilterTimer=null;rebuild();},300);
 }
 function resetFilters(){
+  // Reset the form to defaults only; the user explicitly applies afterwards.
   selectedTags.clear();pendingTagAnchor=null;
-  lastAppliedCriteria=null;cancelQuery();$('local-search').value='';$('min').value='0';$('max').value='99';
+  $('local-search').value='';$('min').value='0';$('max').value='99';
   for(const field of Object.keys(searchFields))searchScopes.add(field);
   for(const input of document.querySelectorAll('input[name="diff"]'))input.checked=input.value==='4';
   $('date-preset').value='7';applyDatePreset();$('sort').value='date';$('sort-direction').value='desc';syncSearchControls();syncFilters();
@@ -3490,7 +3553,7 @@ function setupActivity(){
   });
   globalThis.addEventListener?.('focus',refreshActivity);refreshActivity();
 }
-function reviewsOpen(cell){return !cell.retired&&reviewCounts.get(cell.row[0])!==0&&cardViews.get(cell.row[0])?.cell===cell&&(showChartReviews||cell.reviewTemporaryOpen);}
+function reviewsOpen(cell){return !cell.retired&&cardViews.get(cell.row[0])?.cell===cell&&(showChartReviews||cell.reviewTemporaryOpen);}
 function reviewRefreshRemaining(){
   try{
     const stored=Number(globalThis.localStorage.getItem(REVIEW_REFRESH_STORAGE_KEY));
@@ -3597,18 +3660,17 @@ function syncReviewCount(cell){
   uiText(cell.commentValue,known?number(reviewCounts.get(cell.row[0])):cell.reviewError?'!':'…');
   cell.commentValue.setAttribute('aria-busy',String(Boolean(cell.pending)));
   cell.toggle.classList.toggle('is-count-error',Boolean(cell.reviewError)&&!empty);
-  if(empty)syncReviewVisibility(false,[cell]);else syncReviewToggle(cell);
+  syncReviewToggle(cell);
 }
 function syncReviewToggle(cell){
   const empty=reviewCounts.get(cell.row[0])===0,open=reviewsOpen(cell),pinned=showChartReviews&&open;
-  cell.toggle.disabled=empty;cell.chevron.hidden=empty;
-  if(empty){cell.toggle.removeAttribute('aria-expanded');cell.toggle.removeAttribute('aria-controls');}
-  else{cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);}
-  cell.toggle.setAttribute('aria-disabled',String(empty||pinned));
+  cell.toggle.disabled=false;cell.chevron.hidden=false;
+  cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);
+  cell.toggle.setAttribute('aria-disabled',String(pinned));
   const label=(empty||pinned?m('Reviews for '):open?m('Collapse reviews for '):m('Expand reviews for '))+cell.row[1];
   uiAttr(cell.toggle,'aria-label',label+(reviewCounts.has(cell.row[0])?' · '+m('Reviews')+': '+number(reviewCounts.get(cell.row[0])):''));
   uiAttr(cell.toggle,'aria-description',empty?m('No reviews yet.'):cell.reviewError?m('Review count could not be updated. Open reviews to retry.'):!reviewCounts.has(cell.row[0])?m('Loading review count...'):'');
-  if(empty||pinned)cell.toggle.removeAttribute('aria-haspopup');else cell.toggle.setAttribute('aria-haspopup','dialog');
+  if(pinned)cell.toggle.removeAttribute('aria-haspopup');else cell.toggle.setAttribute('aria-haspopup','dialog');
   cell.target.classList.toggle('is-pinned',pinned);
   cell.context.hidden=showChartReviews;
 }
@@ -3655,7 +3717,7 @@ function bindReviewDrawer(cell){
   const card=cell.card;
   cell.toggle.addEventListener('pointerdown',event=>{cell.reviewPointerType=event.pointerType;});
   cell.toggle.addEventListener('click',event=>{
-    if(showChartReviews||reviewCounts.get(cell.row[0])===0)return;
+    if(showChartReviews)return;
     dismissChartDescription(false,false);
     clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;
     cell.reviewInput=event.detail===0?'keyboard':cell.reviewPointerType||'mouse';

@@ -144,9 +144,8 @@ async function fullCandidateFilter() {
   h.node('sort').value = 'title'; h.node('sort-direction').value = 'asc'; await h.api.rebuild(false);
   assert.equal(h.ids()[0], 2); assert.equal(h.calls.length, requests, 'Existing sort values compose without more presence requests');
   h.api.appExiting = true; h.api.syncFilters(); assert.equal(h.node('installation-filter').disabled, true);
-  h.api.appExiting = false; h.api.resetFilters(); h.api.refreshInstallationChecks(); await idle(h);
-  assert.equal(h.node('installation-filter').value, 'installed'); assert.equal(h.node('installation-filter').disabled, true);
-  assert.equal(h.calls.length, requests, 'Focus after resetting base filters must not check the previous candidate set');
+  h.api.appExiting = false; h.api.resetFilters(); await idle(h);
+  assert.equal(h.node('installation-filter').value, 'installed'); assert.equal(h.node('installation-filter').disabled, false, 'reset does not cancel the applied query');
 }
 
 async function combinedFilters() {
@@ -297,11 +296,11 @@ function filterChangeButtonState() {
   const h = harness([song(1)]), button = h.node('apply-filters'), announcement = h.node('filter-dirty');
   let announcementText = announcement.textContent, announcementWrites = 0;
   Object.defineProperty(announcement, 'textContent', {configurable: true, get: () => announcementText, set: value => { announcementText = value; announcementWrites++; }});
-  h.dirty(false); assert.equal(button.textContent, 'Filter charts'); assert.equal(button.classList.contains('has-pending-changes'), false); assert.equal(announcement.textContent, '');
-  h.dirty(true); assert.equal(button.textContent, 'Apply changes'); assert.equal(button.classList.contains('has-pending-changes'), true);
+  h.dirty(false); assert.equal(button.classList.contains('has-pending-changes'), false); assert.equal(announcement.textContent, '');
+  h.dirty(true); assert.equal(button.classList.contains('has-pending-changes'), true);
   assert.equal(announcement.textContent, 'Filters changed. Select Apply changes to update the results');
   const writesAfterChange = announcementWrites; h.api.syncFilters(); assert.equal(announcementWrites, writesAfterChange, 'Unchanged dirty state must not repeat the live-region announcement');
-  h.dirty(false); assert.equal(button.textContent, 'Filter charts'); assert.equal(button.classList.contains('has-pending-changes'), false);
+  h.dirty(false); assert.equal(button.classList.contains('has-pending-changes'), false);
 }
 
 async function directoryAndMetadataRace() {

@@ -1,24 +1,63 @@
 let accountMenuAnchor=null,myReviewsCache=null,myReviewsFetchedAt=0;
 const MY_REVIEWS_FRESH_MS=60000;
-function syncAccountChip(){
+let accountAvatarURL='';
+async function syncAccountChip(){
   const chip=$('account-chip');
   if(!chip)return;
   const identity=myReviewIdentity();
   chip.hidden=!identity;
   if(identity){
     uiText($('account-chip-name'),identity.username||'');
-    $('account-chip').querySelector('.account-chip-avatar')?.classList.add('is-on');
+    const avatar=chip.querySelector('.account-chip-avatar');
+    if(avatar){
+      if(accountAvatarURL){
+        avatar.style.backgroundImage='url('+accountAvatarURL+')';
+        avatar.style.backgroundSize='cover';
+        avatar.style.backgroundPosition='center';
+      }else{
+        try{
+          const response=await fetch('https://spinsha.re/api/user/'+identity.userId,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',redirect:'error'});
+          const result=await readJSONResponse(response,64*1024);
+          if(result?.status===200&&typeof result.data?.avatar==='string'&&result.data.avatar){
+            accountAvatarURL=result.data.avatar;
+            avatar.style.backgroundImage='url('+accountAvatarURL+')';
+            avatar.style.backgroundSize='cover';
+            avatar.style.backgroundPosition='center';
+          }
+        }catch(error){/* gradient fallback */}
+      }
+    }
+  }else{
+    accountAvatarURL='';
+    const avatar=chip.querySelector('.account-chip-avatar');
+    if(avatar){avatar.style.backgroundImage='';avatar.style.backgroundSize='';avatar.style.backgroundPosition='';}
   }
 }
+let accountMenuFrame=null;
 function positionAccountMenu(){
   const menu=$('account-menu'),anchor=accountMenuAnchor;
-  if(!menu||!anchor||!anchor.isConnected)return;
+  if(!menu||!anchor)return;
+  if(typeof menu.matches==='function'&&!menu.matches(':popover-open'))return;
+  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
+  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
   const rect=anchor.getBoundingClientRect();
-  menu.style.visibility='hidden';menu.style.left='0px';menu.style.top='0px';
-  const width=menu.offsetWidth||220;
-  const left=Math.max(8,Math.min(rect.left,innerWidth-width-8));
-  const top=rect.bottom+8+(menu.offsetHeight||160)>innerHeight-8?Math.max(8,rect.top-(menu.offsetHeight||160)-8):rect.bottom+8;
-  menu.style.left=left+'px';menu.style.top=top+'px';menu.style.visibility='';
+  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closeAccountMenu();return;}
+  const width=menu.offsetWidth||220,height=menu.offsetHeight||170;
+  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
+  const below=rect.bottom+8+height<=innerHeight-12;
+  menu.style.left=left+'px';
+  menu.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
+  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
+  menu.style.transformOrigin=originX+'px '+(below?'top':'bottom');
+}
+function scheduleAccountMenuFrame(){
+  if(accountMenuFrame!==null)return;
+  const step=()=>{
+    accountMenuFrame=null;
+    positionAccountMenu();
+    if(typeof $('account-menu').matches==='function'&&$('account-menu').matches(':popover-open'))accountMenuFrame=requestAnimationFrame(step);
+  };
+  accountMenuFrame=requestAnimationFrame(step);
 }
 function openAccountMenu(anchor){
   if(!sessionConnected())return;
@@ -26,9 +65,11 @@ function openAccountMenu(anchor){
   const menu=$('account-menu');
   menu.showPopover();
   positionAccountMenu();
+  scheduleAccountMenuFrame();
   menu.querySelector('button')?.focus({preventScroll:true});
 }
 function closeAccountMenu(){
+  if(accountMenuFrame!==null){cancelAnimationFrame(accountMenuFrame);accountMenuFrame=null;}
   const menu=$('account-menu');
   if(typeof menu.matches==='function'&&menu.matches(':popover-open')&&typeof menu.hidePopover==='function')menu.hidePopover();
 }

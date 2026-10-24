@@ -22,4 +22,10 @@ async function setAutoUpdate(enabled){
 function setupAutoUpdate(){
   readAutoUpdateFromBootstrap();
   $('settings-auto-update').addEventListener('change',event=>setAutoUpdate(event.target.checked));
+  // Hidden inputs can miss native label forwarding; click the label explicitly.
+  document.querySelector('.settings-switch')?.addEventListener('click',()=>{
+    const box=$('settings-auto-update');
+    if(!box.disabled)box.checked=!box.checked;
+    setAutoUpdate(box.checked);
+  });
 }
