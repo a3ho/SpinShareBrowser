@@ -97,7 +97,7 @@
 .account-chip:hover, .account-chip:focus-visible { color: var(--text); }
 .account-chip-avatar { width: 18px; height: 18px; border-radius: 999px; background: linear-gradient(135deg, #2b2d36, var(--pink)); display: inline-block; }
 .account-chip-avatar.is-on { background: linear-gradient(135deg, #3d2f45, var(--pink)); }
-.account-menu { position: fixed; z-index: 60; min-width: 200px; padding: 8px; background: #2a2b33; border: 0; border-radius: 12px; box-shadow: 0 14px 40px #0009; color: var(--text); font: inherit; }
+.account-menu { position: fixed; inset: auto; z-index: 60; min-width: 200px; padding: 8px; background: #2a2b33; border: 0; border-radius: 12px; box-shadow: 0 14px 40px #0009; color: var(--text); font: inherit; }
 .account-menu::backdrop { background: transparent; }
 .account-menu-head { padding: 6px 10px 8px; font-size: var(--type-meta); color: var(--muted); font-weight: var(--weight-medium); }
 .account-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: var(--type-control); text-align: left; }

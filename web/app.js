@@ -177,7 +177,7 @@ const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not co
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
-  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.3.3'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
+  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.3.4'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
   if(valid){try{const url=new URL(config.origin);valid=url.protocol==='http:'&&url.hostname==='127.0.0.1'&&Number(url.port)>=1&&Number(url.port)<=65535&&url.origin===config.origin&&globalThis.location?.origin===config.origin&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}catch{valid=false;}}
   if(valid)valid=typeof config.settingsRevision==='string'&&/^[a-f0-9]{32}$/.test(config.settingsRevision);
   if(valid)valid=['zh-CN','en'].includes(config.language);
@@ -203,7 +203,7 @@ function refreshSettingsControls(){
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){
   const settings=payload?.settings;
-  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.3.3')throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.3.4')throw uiError(m("Settings could not be loaded. Reopen Settings."));
   if(settings.targetDirectory!==(settings.customDirectory===null?settings.defaultDirectory:settings.customDirectory))throw uiError(m("Open Settings and choose the install folder again."));
   if(settings.closeBehavior!==undefined&&!['ask','exit','tray'].includes(settings.closeBehavior))throw uiError(m("Settings could not be loaded. Reopen Settings."));
   return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',installDirectoryConfirmed:settings.installDirectoryConfirmed,exiting:settings.exiting===true};
@@ -420,7 +420,7 @@ function applyWindowState(state){
   scheduleWindowRegions();
 }
 let sessionAccount=APP_CONFIG.session,sessionBusy=false,sessionPollTimer=null;
-const SESSION_POLL_MS=2000,SESSION_POLL_LIMIT=330;
+const SESSION_POLL_MS=2000,SESSION_POLL_LIMIT=600;
 function sessionConnected(){return !!(sessionAccount&&sessionAccount.connected);}
 function syncSessionControls(){
   const connected=sessionConnected();
@@ -1374,13 +1374,17 @@ function setupUpload(){
   $('upload-pick').addEventListener('click',()=>pickUploadFile());
   $('upload-submit').addEventListener('click',()=>submitUpload());
 }
-let autoUpdateBusy=false;
+// APP_CONFIG is frozen at bootstrap; keep this feature's mutable state module-local.
+let autoUpdateBusy=false,autoUpdateEnabled=false;
 function syncAutoUpdateToggle(enabled){
   const box=$('settings-auto-update');
   if(box)box.checked=enabled===true;
 }
 function readAutoUpdateFromBootstrap(){
-  if(APP_CONFIG&&typeof APP_CONFIG.autoUpdateCharts==='boolean')syncAutoUpdateToggle(APP_CONFIG.autoUpdateCharts);
+  if(APP_CONFIG&&typeof APP_CONFIG.autoUpdateCharts==='boolean'){
+    autoUpdateEnabled=APP_CONFIG.autoUpdateCharts;
+    syncAutoUpdateToggle(autoUpdateEnabled);
+  }
 }
 async function setAutoUpdate(enabled){
   if(autoUpdateBusy)return;
@@ -1389,29 +1393,20 @@ async function setAutoUpdate(enabled){
   box.disabled=true;
   try{
     const result=await installerRequest('POST','/v1/auto-update',{enabled});
-    if(result&&typeof result.autoUpdateCharts==='boolean'){
-      APP_CONFIG.autoUpdateCharts=result.autoUpdateCharts;
-    }
-  }catch(error){
-    syncAutoUpdateToggle(APP_CONFIG.autoUpdateCharts);
-  }
-  syncAutoUpdateToggle(APP_CONFIG.autoUpdateCharts);
+    if(result&&typeof result.autoUpdateCharts==='boolean')autoUpdateEnabled=result.autoUpdateCharts;
+  }catch(error){/* keep the last confirmed value */}
+  syncAutoUpdateToggle(autoUpdateEnabled);
   autoUpdateBusy=false;
   box.disabled=false;
 }
 function setupAutoUpdate(){
   readAutoUpdateFromBootstrap();
-  // Single trigger: only the checkbox's native change event (P4).
   $('settings-auto-update').addEventListener('change',event=>setAutoUpdate(event.target.checked));
-  // Help tooltip for the switch (matches the "close behavior" help pattern).
   const help=$('settings-auto-update-help'),panel=$('settings-auto-update-help-panel');
   if(help&&panel){
-    help.addEventListener('click',()=>{
-      if(panel.matches(':popover-open'))panel.hidePopover();
-      else panel.showPopover();
-    });
-    document.addEventListener('pointerdown',event=>{
-      if(panel.matches(':popover-open')&&!panel.contains(event.target)&&!help.contains(event.target))panel.hidePopover();
+    help.addEventListener('click',()=>{panel.matches(':popover-open')?panel.hidePopover():panel.showPopover();});
+    document.addEventListener('pointerdown',e=>{
+      if(panel.matches(':popover-open')&&!panel.contains(e.target)&&!help.contains(e.target))panel.hidePopover();
     },true);
   }
 }
@@ -1423,7 +1418,11 @@ function createPopoverEngine(options){
   let frame=null,visible=false;
   function reposition(){
     if(!visible)return;
-    if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
+    // Zero-viewport guard only: hidden pages still report real geometry, and
+    // the first synchronous positioning must run even in a background window —
+    // a document.hidden bail here left popovers at their CSS default spot
+    // (the "popover opens in the wrong place" bug).
+    if(!innerHeight||!document.documentElement.clientHeight)return;
     const anchor=getAnchor();
     if(!anchor||!anchor.isConnected){dismiss();return;}
     const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
@@ -1437,6 +1436,12 @@ function createPopoverEngine(options){
     if(!width||!height)return;
     const left=Math.max(edge,Math.min(rect.left,innerWidth-width-edge));
     const below=rect.bottom+gap+height<=innerHeight-edge;
+    // Neutralize the UA popover sheet ([popover]:popover-open { inset:0; margin:auto }):
+    // without this, auto margins re-center the box between our top and the
+    // viewport bottom, opening the popover far from its anchor.
+    popover.style.right='auto';
+    popover.style.bottom='auto';
+    popover.style.margin='0';
     popover.style.left=left+'px';
     popover.style.top=(below?rect.bottom+gap:Math.max(bar,rect.top-height-gap))+'px';
     const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
@@ -3668,7 +3673,8 @@ function syncReviewCount(cell){
 }
 function syncReviewToggle(cell){
   const empty=reviewCounts.get(cell.row[0])===0,open=reviewsOpen(cell),pinned=showChartReviews&&open;
-  cell.toggle.disabled=false;cell.chevron.hidden=false;
+  const unsigned=typeof sessionConnected==='function'&&!sessionConnected();
+  cell.toggle.disabled=empty&&unsigned;cell.chevron.hidden=empty&&unsigned;
   cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);
   cell.toggle.setAttribute('aria-disabled',String(pinned));
   const label=(empty||pinned?m('Reviews for '):open?m('Collapse reviews for '):m('Expand reviews for '))+cell.row[1];
@@ -3684,7 +3690,9 @@ function syncReviewVisibility(animate=false,cells=[...cardViews.values()].map(vi
   for(const cell of cells){
     const empty=reviewCounts.get(cell.row[0])===0,restoreFocus=empty&&(cell.target.contains(document.activeElement)||document.activeElement===cell.toggle);
     if(empty){
-      clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;cell.reviewTemporaryOpen=false;cell.reviewLoaded=false;
+      // Clear stale review content but never force-close: 0-review charts
+      // stay openable (compose section is the review entry point).
+      clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;
       if(reviewPopoverOwner===cell)reviewPopoverOwner=null;
       if(cell.list.children.length){cell.list.replaceChildren();pruneEntries();}
     }

@@ -1,5 +1,5 @@
 let sessionAccount=APP_CONFIG.session,sessionBusy=false,sessionPollTimer=null;
-const SESSION_POLL_MS=2000,SESSION_POLL_LIMIT=330;
+const SESSION_POLL_MS=2000,SESSION_POLL_LIMIT=600;
 function sessionConnected(){return !!(sessionAccount&&sessionAccount.connected);}
 function syncSessionControls(){
   const connected=sessionConnected();

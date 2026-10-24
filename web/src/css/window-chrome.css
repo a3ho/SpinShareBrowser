@@ -79,3 +79,5 @@
 .settings-switch { display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .settings-switch input { accent-color: var(--pink); width: 18px; height: 18px; }
 .settings-actions { margin-top: 10px; }
+.settings-data-field .settings-field-heading label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.settings-data-field input[type="checkbox"] { accent-color: var(--pink); width: 16px; height: 16px; flex: none; }

@@ -127,10 +127,12 @@ class DesktopFrameTests(unittest.TestCase):
             self.assertEqual(len(regions),1,"An unchanged region does no native positioning or painting")
             instance.form.ClientSize.Width=1100
             desktop.Desktop._update_frame_region(instance)
-            for x,y in ((500,25),(100,25),(900,25),(324,32),(450,45),(720,30)):
-                # With the last-good fallback, controls stay excluded during maximize
-                # transitions because topbar layout is viewport-independent.
-                self.assertFalse(gdi.PtInRegion(regions[-1],x,y),"Stale controls must never be covered while the browser catches up")
+            # Always-apply: control rects stay excluded (clickable) during a resize
+            # because the topbar layout is viewport-independent — the fix for the
+            # maximized-window regression where every player control went dead.
+            for x,y in ((100,25),(900,25),(324,32),(450,45),(720,30)):
+                self.assertFalse(gdi.PtInRegion(regions[-1],x,y),"Controls stay excluded (clickable) via always-apply layout")
+            self.assertTrue(gdi.PtInRegion(regions[-1],500,25),"Header space away from controls stays draggable during resize")
             self.assertTrue(gdi.PtInRegion(regions[-1],1099,500))
             instance.frame_layout=dict(instance.frame_layout,viewport=[1100,700])
             desktop.Desktop._update_frame_region(instance)

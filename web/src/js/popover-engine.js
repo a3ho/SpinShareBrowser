@@ -6,7 +6,11 @@ function createPopoverEngine(options){
   let frame=null,visible=false;
   function reposition(){
     if(!visible)return;
-    if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
+    // Zero-viewport guard only: hidden pages still report real geometry, and
+    // the first synchronous positioning must run even in a background window —
+    // a document.hidden bail here left popovers at their CSS default spot
+    // (the "popover opens in the wrong place" bug).
+    if(!innerHeight||!document.documentElement.clientHeight)return;
     const anchor=getAnchor();
     if(!anchor||!anchor.isConnected){dismiss();return;}
     const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
@@ -20,6 +24,12 @@ function createPopoverEngine(options){
     if(!width||!height)return;
     const left=Math.max(edge,Math.min(rect.left,innerWidth-width-edge));
     const below=rect.bottom+gap+height<=innerHeight-edge;
+    // Neutralize the UA popover sheet ([popover]:popover-open { inset:0; margin:auto }):
+    // without this, auto margins re-center the box between our top and the
+    // viewport bottom, opening the popover far from its anchor.
+    popover.style.right='auto';
+    popover.style.bottom='auto';
+    popover.style.margin='0';
     popover.style.left=left+'px';
     popover.style.top=(below?rect.bottom+gap:Math.max(bar,rect.top-height-gap))+'px';
     const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));

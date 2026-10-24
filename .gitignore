@@ -41,6 +41,8 @@
 !/tests/test_auto_update.py
 !/tests/test_playlists.cjs
 !/tests/test_playlist_sync.cjs
+!/tests/test_auto_update.cjs
+!/tests/test_popover_engine.cjs
 !/tests/test_reviews_write.cjs
 !/web/locales.json
 
@@ -67,6 +69,7 @@
 !/tests/test_audio_preview.py
 !/tests/test_audio_service.py
 !/tests/test_desktop_frame.py
+!/tests/test_desktop_login.py
 !/tests/test_window_regions.cjs
 !/tests/test_focus_modality.cjs
 !/tests/test_choice_menus.cjs

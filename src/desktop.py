@@ -634,7 +634,7 @@ class Desktop:
         from urllib.parse import urlsplit
 
         deadline = time.monotonic() + 600.0
-        capture_gap = 20.0
+        capture_gap = 5.0
         last_attempt = 0.0
         completed = False
         try:
@@ -659,6 +659,49 @@ class Desktop:
             if not completed:
                 session_client.cancel_login()
             self._close_login_window(window)
+
+    def _try_capture_session(self, window):
+        """One bounded capture attempt. Never raises: surprises just retry later.
+
+        Identity comes from the live page DOM in the login window (aside nav
+        links to /user/{id}/...): production markup differs from the open-source
+        mirror, so we read what the signed-in browser actually renders instead
+        of guessing template markers server-side.
+        """
+        import session_client
+
+        try:
+            user_links = window.evaluate_js(
+                'JSON.stringify(Array.from(document.querySelectorAll('
+                '\'aside a[href^="/user/"]\')).map(a=>a.getAttribute("href")).slice(0,8))')
+            user_id = None
+            if isinstance(user_links, str):
+                try:
+                    for href in json.loads(user_links):
+                        match = re.match(r"^/user/(\d+)(?:/|$)", str(href))
+                        if match:
+                            user_id = int(match.group(1))
+                            break
+                except ValueError:
+                    pass
+            if user_id is None:
+                return False
+            cookies = window.get_cookies()
+            user_agent = window.evaluate_js("navigator.userAgent")
+            if not session_client.complete_login(cookies, user_agent or "", user_id):
+                return False
+        except Exception as exc:
+            print("session capture failed: " + type(exc).__name__, file=sys.stderr, flush=True)
+            return False
+        # The login window shares the app's WebView2 profile: leave no site
+        # cookies behind once the session is safely stored.
+        with contextlib.suppress(Exception):
+            window.clear_cookies()
+        return True
+
+    def _close_login_window(self, window):
+        with contextlib.suppress(Exception):
+            window.destroy()
 
     def _renderer(self, renderer):
         if renderer != "edgechromium":
@@ -965,21 +1008,16 @@ class Desktop:
         edge = 0 if maximized else max(1, self.frame_user.GetSystemMetricsForDpi(32, dpi) +
                                       self.frame_user.GetSystemMetricsForDpi(92, dpi))
         header, excluded = 0, []
-        # The viewport check guards against stale layouts from a different DPI
-        # or zoom. Tolerance scales with DPI so maximized/restore transitions
-        # (which change ClientSize beyond ±2 physical px) still apply the
-        # layout; a truly stale layout (wrong pixelRatio) still falls through.
-        if layout:
+        # The topbar layout (headerHeight + excluded rects) is viewport-independent:
+        # controls don't move when the window resizes. Always apply the latest
+        # published layout regardless of viewport size — the frontend re-publishes
+        # via ResizeObserver/MutationObserver after every state change.
+        if layout and layout["pixelRatio"] > 0:
             scale = layout["pixelRatio"]
-            # Tolerance scales with DPI so maximize/restore transitions
-            # (ClientSize jumps beyond ±2 physical px) still apply the layout.
-            tolerance = max(2, round(scale * 4))
-            if (abs(width - layout["viewport"][0] * scale) <= tolerance and
-                    abs(height - layout["viewport"][1] * scale) <= tolerance):
-                header = min(height, round(layout["headerHeight"] * scale))
-                excluded = [(max(0, int(x * scale) - 1), max(0, int(y * scale) - 1),
-                             min(width, round((x + w) * scale) + 1), min(height, round((y + h) * scale) + 1))
-                            for x, y, w, h in layout["excluded"]]
+            header = min(height, round(layout["headerHeight"] * scale))
+            excluded = [(max(0, int(x * scale) - 1), max(0, int(y * scale) - 1),
+                         min(width, round((x + w) * scale) + 1), min(height, round((y + h) * scale) + 1))
+                        for x, y, w, h in layout["excluded"]]
         geometry = width, height, edge, header, tuple(excluded)
         if geometry == self.frame_geometry:
             return

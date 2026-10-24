@@ -109,7 +109,8 @@ function syncReviewCount(cell){
 }
 function syncReviewToggle(cell){
   const empty=reviewCounts.get(cell.row[0])===0,open=reviewsOpen(cell),pinned=showChartReviews&&open;
-  cell.toggle.disabled=false;cell.chevron.hidden=false;
+  const unsigned=typeof sessionConnected==='function'&&!sessionConnected();
+  cell.toggle.disabled=empty&&unsigned;cell.chevron.hidden=empty&&unsigned;
   cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);
   cell.toggle.setAttribute('aria-disabled',String(pinned));
   const label=(empty||pinned?m('Reviews for '):open?m('Collapse reviews for '):m('Expand reviews for '))+cell.row[1];
@@ -125,7 +126,9 @@ function syncReviewVisibility(animate=false,cells=[...cardViews.values()].map(vi
   for(const cell of cells){
     const empty=reviewCounts.get(cell.row[0])===0,restoreFocus=empty&&(cell.target.contains(document.activeElement)||document.activeElement===cell.toggle);
     if(empty){
-      clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;cell.reviewTemporaryOpen=false;cell.reviewLoaded=false;
+      // Clear stale review content but never force-close: 0-review charts
+      // stay openable (compose section is the review entry point).
+      clearTimeout(cell.reviewLeaveTimer);cell.reviewLeaveTimer=null;
       if(reviewPopoverOwner===cell)reviewPopoverOwner=null;
       if(cell.list.children.length){cell.list.replaceChildren();pruneEntries();}
     }
