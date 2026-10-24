@@ -33,45 +33,24 @@ async function syncAccountChip(){
     if(avatar){avatar.style.backgroundImage='';avatar.style.backgroundSize='';avatar.style.backgroundPosition='';}
   }
 }
-let accountMenuFrame=null;
-function positionAccountMenu(){
-  const menu=$('account-menu'),anchor=accountMenuAnchor;
-  if(!menu||!anchor)return;
-  if(typeof menu.matches==='function'&&!menu.matches(':popover-open'))return;
-  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
-  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
-  const rect=anchor.getBoundingClientRect();
-  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closeAccountMenu();return;}
-  const width=menu.offsetWidth||220,height=menu.offsetHeight||170;
-  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
-  const below=rect.bottom+8+height<=innerHeight-12;
-  menu.style.left=left+'px';
-  menu.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
-  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
-  menu.style.transformOrigin=originX+'px '+(below?'top':'bottom');
-}
-function scheduleAccountMenuFrame(){
-  if(accountMenuFrame!==null)return;
-  const step=()=>{
-    accountMenuFrame=null;
-    positionAccountMenu();
-    if(typeof $('account-menu').matches==='function'&&$('account-menu').matches(':popover-open'))accountMenuFrame=requestAnimationFrame(step);
-  };
-  accountMenuFrame=requestAnimationFrame(step);
+let accountMenuEngine=null;
+function getAccountMenuEngine(){
+  if(!accountMenuEngine){
+    accountMenuEngine=createPopoverEngine({
+      popover:$('account-menu'),
+      getAnchor:()=>accountMenuAnchor,
+    });
+  }
+  return accountMenuEngine;
 }
 function openAccountMenu(anchor){
   if(!sessionConnected())return;
   accountMenuAnchor=anchor;
-  const menu=$('account-menu');
-  menu.showPopover();
-  positionAccountMenu();
-  scheduleAccountMenuFrame();
-  menu.querySelector('button')?.focus({preventScroll:true});
+  getAccountMenuEngine().open();
+  $('account-menu').querySelector('button')?.focus({preventScroll:true});
 }
 function closeAccountMenu(){
-  if(accountMenuFrame!==null){cancelAnimationFrame(accountMenuFrame);accountMenuFrame=null;}
-  const menu=$('account-menu');
-  if(typeof menu.matches==='function'&&menu.matches(':popover-open')&&typeof menu.hidePopover==='function')menu.hidePopover();
+  getAccountMenuEngine().close();
 }
 async function applyPersonalView(title,songIds,kind='view'){
   playlistFilter={id:null,title,songIds,kind};

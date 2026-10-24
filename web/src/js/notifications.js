@@ -84,49 +84,26 @@ async function clearAllNotificationsUI(){
   notificationsBusy=false;
 }
 function icon_(name){return icon(name);}
-let notificationsFrame=null;
-function positionNotificationsPopover(){
-  const popover=$('notifications-popover'),anchor=notificationsAnchor;
-  if(!popover||!anchor)return;
-  if(typeof popover.matches==='function'&&!popover.matches(':popover-open'))return;
-  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
-  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
-  const rect=anchor.getBoundingClientRect();
-  // Topbar anchors (the bell) legitimately live above the content top; only a
-  // truly off-screen anchor dismisses.
-  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closeNotificationsPopover();return;}
-  const width=popover.offsetWidth||320,height=popover.offsetHeight||200;
-  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
-  const below=rect.bottom+8+height<=innerHeight-12;
-  popover.style.left=left+'px';
-  popover.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
-  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
-  popover.style.transformOrigin=originX+'px '+(below?'top':'bottom');
-}
-function scheduleNotificationsFrame(){
-  if(notificationsFrame!==null)return;
-  const step=()=>{
-    notificationsFrame=null;
-    positionNotificationsPopover();
-    if(typeof $('notifications-popover').matches==='function'&&$('notifications-popover').matches(':popover-open'))notificationsFrame=requestAnimationFrame(step);
-  };
-  notificationsFrame=requestAnimationFrame(step);
+let notificationsEngine=null;
+function getNotificationsEngine(){
+  if(!notificationsEngine){
+    notificationsEngine=createPopoverEngine({
+      popover:$('notifications-popover'),
+      getAnchor:()=>notificationsAnchor,
+    });
+  }
+  return notificationsEngine;
 }
 function openNotificationsPopover(anchor){
   if(!notificationsConnected())return;
   notificationsAnchor=anchor;
-  const popover=$('notifications-popover');
-  popover.showPopover();
-  positionNotificationsPopover();
-  scheduleNotificationsFrame();
+  getNotificationsEngine().open();
   renderNotifications();
   void fetchNotifications();
-  popover.querySelector('.notifications-row button, .notifications-empty')?.focus({preventScroll:true});
+  $('notifications-popover').querySelector('.notifications-row button, .notifications-empty')?.focus({preventScroll:true});
 }
 function closeNotificationsPopover(){
-  if(notificationsFrame!==null){cancelAnimationFrame(notificationsFrame);notificationsFrame=null;}
-  const popover=$('notifications-popover');
-  if(typeof popover.matches==='function'&&popover.matches(':popover-open')&&typeof popover.hidePopover==='function')popover.hidePopover();
+  getNotificationsEngine().close();
 }
 function setupNotifications(){
   const button=$('notifications-open'),popover=$('notifications-popover');

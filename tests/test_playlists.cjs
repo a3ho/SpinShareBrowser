@@ -105,6 +105,14 @@ function harness(options = {}) {
     icon: () => new Element('svg'),
     focusResults() {}, scrollBatchSize: 20, page: 1, visibleCount: 20,
     getComputedStyle: () => ({ getPropertyValue: () => '64' }),
+    createPopoverEngine: (opts) => {
+      const engine = {
+        open: () => { if (opts.popover.showPopover) opts.popover.showPopover(); },
+        close: () => { if (opts.popover.hidePopover) opts.popover.hidePopover(); },
+        reposition: () => {}, isOpen: () => true,
+      };
+      return engine;
+    },
     requestAnimationFrame: () => 0,
     cancelAnimationFrame() {},
     rebuild() {}, renderPlaylistFilterBar() {}, renderPlaylistsPanel() {}, refreshPlaylistButtons() {},

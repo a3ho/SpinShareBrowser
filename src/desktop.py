@@ -601,12 +601,7 @@ class Desktop:
             raise OSError("Folder selection timed out.") from exc
 
     def open_session_login(self):
-        """Open the spinsha.re sign-in window; the watcher completes the session.
-
-        Called on the local API thread. The user signs in on the real website
-        (2FA included); we only read the resulting cookies through the WebView2
-        cookie manager and never touch credentials.
-        """
+        """Open the login window, focused and visible in the taskbar."""
         import session_client
 
         with self.login_lock:
@@ -614,8 +609,8 @@ class Desktop:
                 return
         try:
             window = self.webview.create_window(
-                "SpinShare Browser — spinsha.re", "https://spinsha.re/login",
-                width=480, height=700, min_size=(400, 520), background_color="#1f1f23")
+                "Sign in — spinsha.re", "https://spinsha.re/login",
+                width=520, height=760, min_size=(420, 560), background_color="#1f1f23")
         except Exception:
             session_client.cancel_login()
             raise
@@ -632,7 +627,6 @@ class Desktop:
         import session_client
 
         if was_open:
-            print("session-login: window closed by user", file=sys.stderr, flush=True)
             session_client.cancel_login()
 
     def _watch_session_login(self, window):
@@ -643,33 +637,21 @@ class Desktop:
         capture_gap = 20.0
         last_attempt = 0.0
         completed = False
-
-        def note(message):
-            print("session-login: " + message, file=sys.stderr, flush=True)
-
         try:
-            time.sleep(3.0)
+            time.sleep(2.0)
             while time.monotonic() < deadline and not self.exiting:
                 try:
                     url = window.get_current_url()
-                except Exception as exc:
-                    note("watch stops: url poll failed: " + type(exc).__name__)
+                except Exception:
                     break
                 left_login = url and not urlsplit(url).path.startswith("/login")
-                due = time.monotonic() - last_attempt >= (4.0 if left_login else capture_gap)
+                due = time.monotonic() - last_attempt >= (2.0 if left_login else capture_gap)
                 if due:
                     last_attempt = time.monotonic()
-                    note("capture attempt (url=" + str(urlsplit(url).path if url else None) + ")")
                     if self._try_capture_session(window):
                         completed = True
                         break
-                time.sleep(2.0)
-            else:
-                pass
-            if not completed and time.monotonic() >= deadline:
-                note("watch stops: timeout")
-            elif not completed and self.exiting:
-                note("watch stops: app exiting")
+                time.sleep(1.0)
         finally:
             with self.login_lock:
                 if self.login_window is window:
@@ -677,83 +659,6 @@ class Desktop:
             if not completed:
                 session_client.cancel_login()
             self._close_login_window(window)
-            note("watch ends (completed=" + str(completed) + ")")
-
-    def _try_capture_session(self, window):
-        """One bounded capture attempt. Never raises: surprises just retry later.
-
-        Identity comes from the live page DOM in the login window (aside nav
-        links to /user/{id}/...): production markup differs from the open-source
-        mirror, so we read what the signed-in browser actually renders instead
-        of guessing template markers server-side.
-        """
-        import session_client
-
-        try:
-            user_links = window.evaluate_js(
-                'JSON.stringify(Array.from(document.querySelectorAll('
-                '\'aside a[href^="/user/"]\')).map(a=>a.getAttribute("href")).slice(0,8))')
-            user_id = None
-            if isinstance(user_links, str):
-                try:
-                    for href in json.loads(user_links):
-                        match = re.match(r"^/user/(\d+)(?:/|$)", str(href))
-                        if match:
-                            user_id = int(match.group(1))
-                            break
-                except ValueError:
-                    pass
-            if user_id is None:
-                return False
-            cookies = window.get_cookies()
-            user_agent = window.evaluate_js("navigator.userAgent")
-            if not session_client.complete_login(cookies, user_agent or "", user_id):
-                return False
-        except Exception as exc:
-            print("session capture failed: " + type(exc).__name__, file=sys.stderr, flush=True)
-            return False
-        # The login window shares the app's WebView2 profile: leave no site
-        # cookies behind once the session is safely stored.
-        with contextlib.suppress(Exception):
-            window.clear_cookies()
-        return True
-
-    def _close_login_window(self, window):
-        with contextlib.suppress(Exception):
-            window.destroy()
-
-    def choose_zip(self, title):
-        import spinshare_portable as core
-
-        if not self.ready.wait(15) or self.exiting:
-            raise OSError("The app window is unavailable.")
-        result = concurrent.futures.Future()
-
-        def choose():
-            if not result.set_running_or_notify_cancel():
-                return
-            with self.manager.lock:
-                if self.exiting or self.manager.exiting or self.dialog is not None or self.prompt is not None:
-                    result.set_exception(OSError("The app is exiting or another dialog is open."))
-                    return
-                self.picker_open = True
-            try:
-                self._show()
-                result.set_result(core.choose_zip_file(title, owner_handle=self.form.Handle.ToInt64()))
-            except Exception as exc:
-                result.set_exception(exc)
-            finally:
-                self.picker_open = False
-
-        if not self.form.InvokeRequired:
-            choose()
-        elif not self.post(choose):
-            raise OSError("The app window is unavailable.")
-        try:
-            return result.result(timeout=600)
-        except concurrent.futures.TimeoutError as exc:
-            result.cancel()
-            raise OSError("File selection timed out.") from exc
 
     def _renderer(self, renderer):
         if renderer != "edgechromium":
@@ -1060,15 +965,21 @@ class Desktop:
         edge = 0 if maximized else max(1, self.frame_user.GetSystemMetricsForDpi(32, dpi) +
                                       self.frame_user.GetSystemMetricsForDpi(92, dpi))
         header, excluded = 0, []
-        # During resize/DPI/zoom changes, stale caption holes must never cover live controls.
-        # Native edges remain usable until the browser publishes its matching viewport.
-        if (layout and abs(width-layout["viewport"][0]*layout["pixelRatio"]) <= 2 and
-                abs(height-layout["viewport"][1]*layout["pixelRatio"]) <= 2):
+        # The viewport check guards against stale layouts from a different DPI
+        # or zoom. Tolerance scales with DPI so maximized/restore transitions
+        # (which change ClientSize beyond ±2 physical px) still apply the
+        # layout; a truly stale layout (wrong pixelRatio) still falls through.
+        if layout:
             scale = layout["pixelRatio"]
-            header = min(height, round(layout["headerHeight"] * scale))
-            excluded = [(max(0, int(x * scale) - 1), max(0, int(y * scale) - 1),
-                         min(width, round((x + w) * scale) + 1), min(height, round((y + h) * scale) + 1))
-                        for x, y, w, h in layout["excluded"]]
+            # Tolerance scales with DPI so maximize/restore transitions
+            # (ClientSize jumps beyond ±2 physical px) still apply the layout.
+            tolerance = max(2, round(scale * 4))
+            if (abs(width - layout["viewport"][0] * scale) <= tolerance and
+                    abs(height - layout["viewport"][1] * scale) <= tolerance):
+                header = min(height, round(layout["headerHeight"] * scale))
+                excluded = [(max(0, int(x * scale) - 1), max(0, int(y * scale) - 1),
+                             min(width, round((x + w) * scale) + 1), min(height, round((y + h) * scale) + 1))
+                            for x, y, w, h in layout["excluded"]]
         geometry = width, height, edge, header, tuple(excluded)
         if geometry == self.frame_geometry:
             return

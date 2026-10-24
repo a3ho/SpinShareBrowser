@@ -40,6 +40,7 @@ MANIFEST = {
         "account.js",
         "upload.js",
         "auto-update.js",
+        "popover-engine.js",
         "user-profile.js",
         "window-regions.js",
         "filters.js",

@@ -652,7 +652,7 @@ async function refreshPickerData(songId){
     }
   }
   renderPlaylistPicker();
-  positionPlaylistPicker();
+  if(playlistPickerState)getPlaylistPickerEngine().reposition();
 }
 function showPlaylistPicker(anchor,row,membership,loading){
   playlistPickerAnchor=anchor;
@@ -660,11 +660,8 @@ function showPlaylistPicker(anchor,row,membership,loading){
     touched:new Set(),checks:new Map((myPlaylists||[]).map(entry=>[entry.id,membership.has(entry.id)]))};
   playlistPickerNewVisible=false;
   renderPlaylistPicker();
-  const picker=$('playlist-picker');
-  picker.showPopover();
-  positionPlaylistPicker();
-  schedulePickerFrame();
-  picker.querySelector('.playlist-picker-option input, .playlist-picker-new input, #playlist-picker-new-toggle')?.focus({preventScroll:true});
+  getPlaylistPickerEngine().open();
+  $('playlist-picker').querySelector('.playlist-picker-option input, .playlist-picker-new input, #playlist-picker-new-toggle')?.focus({preventScroll:true});
 }
 function renderPlaylistPicker(){
   const list=$('playlist-picker-list');list.replaceChildren();
@@ -693,40 +690,18 @@ function renderPlaylistPicker(){
   const confirmed=!state.loading||state.touched.size>0;
   $('playlist-picker-save').disabled=!hasList||!confirmed;
 }
-let playlistPickerFrame=null;
-function positionPlaylistPicker(){
-  const picker=$('playlist-picker'),anchor=playlistPickerAnchor;
-  if(!picker||!anchor)return;
-  if(typeof picker.matches==='function'&&!picker.matches(':popover-open'))return;
-  // A hidden page reports a zero viewport; that is not "anchor out of view".
-  // The rAF loop repositions once the page is visible again.
-  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
-  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
-  const rect=anchor.getBoundingClientRect();
-  // Topbar anchors (the bell) legitimately live above the content top; only a
-  // truly off-screen anchor dismisses.
-  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closePlaylistPicker();return;}
-  const width=picker.offsetWidth||300,height=picker.offsetHeight||220;
-  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
-  const below=rect.bottom+8+height<=innerHeight-12;
-  picker.style.left=left+'px';
-  picker.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
-  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
-  picker.style.transformOrigin=originX+'px '+(below?'top':'bottom');
-}
-function schedulePickerFrame(){
-  if(playlistPickerFrame!==null)return;
-  const step=()=>{
-    playlistPickerFrame=null;
-    positionPlaylistPicker();
-    if(playlistPickerState)playlistPickerFrame=requestAnimationFrame(step);
-  };
-  playlistPickerFrame=requestAnimationFrame(step);
+let playlistPickerEngine=null;
+function getPlaylistPickerEngine(){
+  if(!playlistPickerEngine){
+    playlistPickerEngine=createPopoverEngine({
+      popover:$('playlist-picker'),
+      getAnchor:()=>playlistPickerAnchor,
+    });
+  }
+  return playlistPickerEngine;
 }
 function closePlaylistPicker(){
-  if(playlistPickerFrame!==null){cancelAnimationFrame(playlistPickerFrame);playlistPickerFrame=null;}
-  const picker=$('playlist-picker');
-  if(typeof picker.matches==='function'&&picker.matches(':popover-open')&&typeof picker.hidePopover==='function')picker.hidePopover();
+  getPlaylistPickerEngine().close();
   playlistPickerState=null;playlistPickerAnchor=null;
 }
 async function savePlaylistPicker(){
@@ -1143,49 +1118,26 @@ async function clearAllNotificationsUI(){
   notificationsBusy=false;
 }
 function icon_(name){return icon(name);}
-let notificationsFrame=null;
-function positionNotificationsPopover(){
-  const popover=$('notifications-popover'),anchor=notificationsAnchor;
-  if(!popover||!anchor)return;
-  if(typeof popover.matches==='function'&&!popover.matches(':popover-open'))return;
-  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
-  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
-  const rect=anchor.getBoundingClientRect();
-  // Topbar anchors (the bell) legitimately live above the content top; only a
-  // truly off-screen anchor dismisses.
-  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closeNotificationsPopover();return;}
-  const width=popover.offsetWidth||320,height=popover.offsetHeight||200;
-  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
-  const below=rect.bottom+8+height<=innerHeight-12;
-  popover.style.left=left+'px';
-  popover.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
-  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
-  popover.style.transformOrigin=originX+'px '+(below?'top':'bottom');
-}
-function scheduleNotificationsFrame(){
-  if(notificationsFrame!==null)return;
-  const step=()=>{
-    notificationsFrame=null;
-    positionNotificationsPopover();
-    if(typeof $('notifications-popover').matches==='function'&&$('notifications-popover').matches(':popover-open'))notificationsFrame=requestAnimationFrame(step);
-  };
-  notificationsFrame=requestAnimationFrame(step);
+let notificationsEngine=null;
+function getNotificationsEngine(){
+  if(!notificationsEngine){
+    notificationsEngine=createPopoverEngine({
+      popover:$('notifications-popover'),
+      getAnchor:()=>notificationsAnchor,
+    });
+  }
+  return notificationsEngine;
 }
 function openNotificationsPopover(anchor){
   if(!notificationsConnected())return;
   notificationsAnchor=anchor;
-  const popover=$('notifications-popover');
-  popover.showPopover();
-  positionNotificationsPopover();
-  scheduleNotificationsFrame();
+  getNotificationsEngine().open();
   renderNotifications();
   void fetchNotifications();
-  popover.querySelector('.notifications-row button, .notifications-empty')?.focus({preventScroll:true});
+  $('notifications-popover').querySelector('.notifications-row button, .notifications-empty')?.focus({preventScroll:true});
 }
 function closeNotificationsPopover(){
-  if(notificationsFrame!==null){cancelAnimationFrame(notificationsFrame);notificationsFrame=null;}
-  const popover=$('notifications-popover');
-  if(typeof popover.matches==='function'&&popover.matches(':popover-open')&&typeof popover.hidePopover==='function')popover.hidePopover();
+  getNotificationsEngine().close();
 }
 function setupNotifications(){
   const button=$('notifications-open'),popover=$('notifications-popover');
@@ -1236,45 +1188,24 @@ async function syncAccountChip(){
     if(avatar){avatar.style.backgroundImage='';avatar.style.backgroundSize='';avatar.style.backgroundPosition='';}
   }
 }
-let accountMenuFrame=null;
-function positionAccountMenu(){
-  const menu=$('account-menu'),anchor=accountMenuAnchor;
-  if(!menu||!anchor)return;
-  if(typeof menu.matches==='function'&&!menu.matches(':popover-open'))return;
-  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
-  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
-  const rect=anchor.getBoundingClientRect();
-  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closeAccountMenu();return;}
-  const width=menu.offsetWidth||220,height=menu.offsetHeight||170;
-  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
-  const below=rect.bottom+8+height<=innerHeight-12;
-  menu.style.left=left+'px';
-  menu.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
-  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
-  menu.style.transformOrigin=originX+'px '+(below?'top':'bottom');
-}
-function scheduleAccountMenuFrame(){
-  if(accountMenuFrame!==null)return;
-  const step=()=>{
-    accountMenuFrame=null;
-    positionAccountMenu();
-    if(typeof $('account-menu').matches==='function'&&$('account-menu').matches(':popover-open'))accountMenuFrame=requestAnimationFrame(step);
-  };
-  accountMenuFrame=requestAnimationFrame(step);
+let accountMenuEngine=null;
+function getAccountMenuEngine(){
+  if(!accountMenuEngine){
+    accountMenuEngine=createPopoverEngine({
+      popover:$('account-menu'),
+      getAnchor:()=>accountMenuAnchor,
+    });
+  }
+  return accountMenuEngine;
 }
 function openAccountMenu(anchor){
   if(!sessionConnected())return;
   accountMenuAnchor=anchor;
-  const menu=$('account-menu');
-  menu.showPopover();
-  positionAccountMenu();
-  scheduleAccountMenuFrame();
-  menu.querySelector('button')?.focus({preventScroll:true});
+  getAccountMenuEngine().open();
+  $('account-menu').querySelector('button')?.focus({preventScroll:true});
 }
 function closeAccountMenu(){
-  if(accountMenuFrame!==null){cancelAnimationFrame(accountMenuFrame);accountMenuFrame=null;}
-  const menu=$('account-menu');
-  if(typeof menu.matches==='function'&&menu.matches(':popover-open')&&typeof menu.hidePopover==='function')menu.hidePopover();
+  getAccountMenuEngine().close();
 }
 async function applyPersonalView(title,songIds,kind='view'){
   playlistFilter={id:null,title,songIds,kind};
@@ -1471,6 +1402,58 @@ function setupAutoUpdate(){
     if(!box.disabled)box.checked=!box.checked;
     setAutoUpdate(box.checked);
   });
+}
+// Unified popover positioning engine (P8: measure after show, all popovers share this).
+// Usage: const engine = createPopoverEngine({ popover, getAnchor, onDismiss });
+// engine.open(); engine.close(); engine.reposition();
+function createPopoverEngine(options){
+  const{popover,getAnchor,onDismiss,gap=8,edge=12}=options;
+  let frame=null,visible=false;
+  function reposition(){
+    if(!visible)return;
+    if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
+    const anchor=getAnchor();
+    if(!anchor||!anchor.isConnected){dismiss();return;}
+    const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
+    const rect=anchor.getBoundingClientRect();
+    // Topbar anchors (bell, account chip) legitimately live above the content
+    // top; only a truly off-screen anchor dismisses.
+    if(rect.bottom<0||rect.top>innerHeight){dismiss();return;}
+    // Force layout so offsetWidth is valid after showPopover().
+    void popover.offsetWidth;
+    const width=popover.offsetWidth,height=popover.offsetHeight;
+    if(!width||!height)return;
+    const left=Math.max(edge,Math.min(rect.left,innerWidth-width-edge));
+    const below=rect.bottom+gap+height<=innerHeight-edge;
+    popover.style.left=left+'px';
+    popover.style.top=(below?rect.bottom+gap:Math.max(bar,rect.top-height-gap))+'px';
+    const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
+    popover.style.transformOrigin=originX+'px '+(below?'top':'bottom');
+  }
+  function scheduleFrame(){
+    if(frame!==null)return;
+    const step=()=>{
+      frame=null;
+      reposition();
+      if(visible)frame=requestAnimationFrame(step);
+    };
+    frame=requestAnimationFrame(step);
+  }
+  function show(){
+    if(visible)return;
+    visible=true;
+    popover.showPopover();
+    reposition();
+    scheduleFrame();
+  }
+  function dismiss(){
+    if(frame!==null){cancelAnimationFrame(frame);frame=null;}
+    if(!visible)return;
+    visible=false;
+    if(typeof popover.matches==='function'&&popover.matches(':popover-open')&&typeof popover.hidePopover==='function')popover.hidePopover();
+    onDismiss?.();
+  }
+  return{open:show,close:dismiss,reposition,isOpen:()=>visible};
 }
 let userProfileCache=new Map(),userProfileBusy=false;
 let activeProfile=null; // {userId, data, tab, charts, playlists, reviews, spinplays}
@@ -1747,6 +1730,15 @@ function setupWindowControls(){
     if(player)observer.observe(player,{attributes:true,attributeFilter:['hidden']});
   }
   globalThis.addEventListener?.('resize',scheduleWindowRegions);
+  // Maximized/restore transitions change the viewport without a resize event
+  // in some cases; re-publish regions when the desktop reports a state change.
+  globalThis.addEventListener?.('message',event=>{
+    if(event.data?.type!=='window-state')return;
+    scheduleWindowRegions();
+    // Maximize/restore settles over multiple frames; re-publish once more
+    // after layout stabilizes to catch any stale viewport reports.
+    setTimeout(scheduleWindowRegions,120);
+  });
 }
 let windowRegionsFrame=0,windowRegionsBusy=false,windowRegionsAgain=false,windowRegionsSignature='';
 function windowRegionRect(node){

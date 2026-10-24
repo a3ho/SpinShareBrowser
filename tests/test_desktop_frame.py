@@ -128,6 +128,8 @@ class DesktopFrameTests(unittest.TestCase):
             instance.form.ClientSize.Width=1100
             desktop.Desktop._update_frame_region(instance)
             for x,y in ((500,25),(100,25),(900,25),(324,32),(450,45),(720,30)):
+                # With the last-good fallback, controls stay excluded during maximize
+                # transitions because topbar layout is viewport-independent.
                 self.assertFalse(gdi.PtInRegion(regions[-1],x,y),"Stale controls must never be covered while the browser catches up")
             self.assertTrue(gdi.PtInRegion(regions[-1],1099,500))
             instance.frame_layout=dict(instance.frame_layout,viewport=[1100,700])

@@ -168,7 +168,7 @@ async function refreshPickerData(songId){
     }
   }
   renderPlaylistPicker();
-  positionPlaylistPicker();
+  if(playlistPickerState)getPlaylistPickerEngine().reposition();
 }
 function showPlaylistPicker(anchor,row,membership,loading){
   playlistPickerAnchor=anchor;
@@ -176,11 +176,8 @@ function showPlaylistPicker(anchor,row,membership,loading){
     touched:new Set(),checks:new Map((myPlaylists||[]).map(entry=>[entry.id,membership.has(entry.id)]))};
   playlistPickerNewVisible=false;
   renderPlaylistPicker();
-  const picker=$('playlist-picker');
-  picker.showPopover();
-  positionPlaylistPicker();
-  schedulePickerFrame();
-  picker.querySelector('.playlist-picker-option input, .playlist-picker-new input, #playlist-picker-new-toggle')?.focus({preventScroll:true});
+  getPlaylistPickerEngine().open();
+  $('playlist-picker').querySelector('.playlist-picker-option input, .playlist-picker-new input, #playlist-picker-new-toggle')?.focus({preventScroll:true});
 }
 function renderPlaylistPicker(){
   const list=$('playlist-picker-list');list.replaceChildren();
@@ -209,40 +206,18 @@ function renderPlaylistPicker(){
   const confirmed=!state.loading||state.touched.size>0;
   $('playlist-picker-save').disabled=!hasList||!confirmed;
 }
-let playlistPickerFrame=null;
-function positionPlaylistPicker(){
-  const picker=$('playlist-picker'),anchor=playlistPickerAnchor;
-  if(!picker||!anchor)return;
-  if(typeof picker.matches==='function'&&!picker.matches(':popover-open'))return;
-  // A hidden page reports a zero viewport; that is not "anchor out of view".
-  // The rAF loop repositions once the page is visible again.
-  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
-  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
-  const rect=anchor.getBoundingClientRect();
-  // Topbar anchors (the bell) legitimately live above the content top; only a
-  // truly off-screen anchor dismisses.
-  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closePlaylistPicker();return;}
-  const width=picker.offsetWidth||300,height=picker.offsetHeight||220;
-  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
-  const below=rect.bottom+8+height<=innerHeight-12;
-  picker.style.left=left+'px';
-  picker.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
-  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
-  picker.style.transformOrigin=originX+'px '+(below?'top':'bottom');
-}
-function schedulePickerFrame(){
-  if(playlistPickerFrame!==null)return;
-  const step=()=>{
-    playlistPickerFrame=null;
-    positionPlaylistPicker();
-    if(playlistPickerState)playlistPickerFrame=requestAnimationFrame(step);
-  };
-  playlistPickerFrame=requestAnimationFrame(step);
+let playlistPickerEngine=null;
+function getPlaylistPickerEngine(){
+  if(!playlistPickerEngine){
+    playlistPickerEngine=createPopoverEngine({
+      popover:$('playlist-picker'),
+      getAnchor:()=>playlistPickerAnchor,
+    });
+  }
+  return playlistPickerEngine;
 }
 function closePlaylistPicker(){
-  if(playlistPickerFrame!==null){cancelAnimationFrame(playlistPickerFrame);playlistPickerFrame=null;}
-  const picker=$('playlist-picker');
-  if(typeof picker.matches==='function'&&picker.matches(':popover-open')&&typeof picker.hidePopover==='function')picker.hidePopover();
+  getPlaylistPickerEngine().close();
   playlistPickerState=null;playlistPickerAnchor=null;
 }
 async function savePlaylistPicker(){

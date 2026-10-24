@@ -21,6 +21,15 @@ function setupWindowControls(){
     if(player)observer.observe(player,{attributes:true,attributeFilter:['hidden']});
   }
   globalThis.addEventListener?.('resize',scheduleWindowRegions);
+  // Maximized/restore transitions change the viewport without a resize event
+  // in some cases; re-publish regions when the desktop reports a state change.
+  globalThis.addEventListener?.('message',event=>{
+    if(event.data?.type!=='window-state')return;
+    scheduleWindowRegions();
+    // Maximize/restore settles over multiple frames; re-publish once more
+    // after layout stabilizes to catch any stale viewport reports.
+    setTimeout(scheduleWindowRegions,120);
+  });
 }
 let windowRegionsFrame=0,windowRegionsBusy=false,windowRegionsAgain=false,windowRegionsSignature='';
 function windowRegionRect(node){
