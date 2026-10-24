@@ -699,6 +699,7 @@ html.tag-viewport-update { overflow-anchor: none; }
 .settings-actions { margin-top: 10px; }
 .settings-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }
 .settings-ok { min-width: 96px; }
+.settings-field-heading { display: flex; align-items: center; gap: 6px; font-weight: var(--weight-medium); }
 /* Queue and feedback motion: one small, anchored dock. */
 .app-activity { position: fixed; left: 28px; right: 28px; bottom: 18px; z-index: 40; max-width: 760px; margin: 0 auto; padding: 12px 18px; background: #30303a; border: 0; border-radius: 12px; color: #e8eaf1; font-size: var(--type-control); line-height: var(--leading-ui); box-shadow: 0 10px 36px #0008; }
 .app-activity.is-exiting { background: #3d2d39; }
