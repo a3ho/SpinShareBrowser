@@ -336,6 +336,55 @@ def parse_signed_in_user_id(html: str) -> int | None:
     return parser.user_id
 
 
+class PlaylistOverlayParser(HTMLParser):
+    """Parse the song page's ADD TO PLAYLIST overlay.
+
+    Production (verified 2026-10-24) renders one label per playlist:
+        <label class="playlist-item"><input type="checkbox" name="playlist_0" />
+        <span>Playlist title</span></label>
+    The checkbox order is NOT the public API's list order — titles are the
+    only reliable mapping.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.entries = []  # [(index, title, checked)]
+        self._labels = []
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "label":
+            self._labels.append({"text": [], "checkbox": None})
+        elif tag == "input" and self._labels and attributes.get("type") == "checkbox":
+            match = re.fullmatch(r"playlist_(\d+)", attributes.get("name") or "")
+            if match:
+                self._labels[-1]["checkbox"] = (int(match.group(1)), "checked" in attributes)
+
+    def handle_data(self, data):
+        if self._labels:
+            self._labels[-1]["text"].append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "label" and self._labels:
+            label = self._labels.pop()
+            if label["checkbox"] is not None:
+                title = " ".join("".join(label["text"]).split())
+                self.entries.append((label["checkbox"][0], title, label["checkbox"][1]))
+
+
+def parse_playlist_overlay(html: str) -> list[tuple[int, str, bool]]:
+    """Return the overlay's [(checkbox index, playlist title, checked)] entries."""
+    parser = PlaylistOverlayParser()
+    parser.feed(html)
+    return parser.entries
+
+
+def ensure_session_usable(final_url: str, html: str) -> None:
+    """Raise SessionExpired when a form-flow response is actually the login page."""
+    if looks_like_login_page(final_url, html):
+        raise SessionExpired("The spinsha.re session is no longer signed in.")
+
+
 # ---------------------------------------------------------------------------
 # Website client: cookie jar + urllib, redirect-aware, login-page detection
 

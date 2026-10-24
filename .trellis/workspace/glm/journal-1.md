@@ -217,3 +217,36 @@ Owner logged in on the real spinsha.re through the login window. Three productio
 ### Next Steps
 
 - Phase 3/8: playlists-favorites (design drafts to owner first); E2E state dir tmp/agent-e2e keeps the live session for phase-3 verification
+
+---
+
+## Session 8: Playlists & favorites (phase 3/8)
+
+**Date**: 2026-10-24
+**Task**: 10-23-playlists-favorites
+**Branch**: `main`
+
+### Summary
+
+Full playlist read/write shipped on the session channel. src/playlists.py (create with generated pure-Python PNG cover + CSRF multipart + before/after diff verify; delete; replace-set membership with title-mapped checkbox indexes parsed from the song page overlay; zero-view-cost remove route). Local endpoints /v1/playlists(+/{id}, /create, /delete, /song). Frontend: top-bar entry (login-gated, drag-region excluded), my-playlists dialog (cover/title/count/open/two-step delete/create), per-card "add to playlist" metric button rendered after every render(), anchored picker popover (checkbox list + save + inline create with pre-check), playlist filter view chip integrated into rebuild. Production E2E on the owner's account: first add round exposed the checkbox-order trap (server overlay order is reverse of the API list order — writes landed in the wrong playlist; diff verification caught the misreport, account restored via the view-free remove route, mapping rewritten to titles with the trap reproduced in the fake-site test). Final E2E sequence passed completely: create 828 (real cover upload) -> add 15394+15392 -> remove 15394 -> delete 828; the owner's own playlist 827 untouched throughout. Also fixed: validateRuntimeConfig frozen projection dropped the session key; render()-time playlist button mounting; cjs extraction sandbox compat via typeof guard.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: playlist favorites over the session channel (read, create, delete, membership) |
+
+### Testing
+
+- [OK] tests.test_playlists.py 12/12 (stateful fake reproducing cover-required quirk + reversed-order trap); test_playlists.cjs 7/7
+- [OK] full suite 185 OK; Node 13/13
+- [OK] production E2E full sequence + account restoration verified via public API reads
+- [OK] UI walkthrough: top-bar entry, dialog with live data, card buttons with accessible names, picker visual PASS (screenshot review)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Phase 4/8: playlist sync-to-game (diff-only installs through the transactional pipeline)

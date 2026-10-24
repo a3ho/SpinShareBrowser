@@ -22,6 +22,7 @@ import time
 import installer
 import audio_preview
 import session_client
+import playlists
 
 VERSION = "2.1.1"
 HOST = "127.0.0.1"
@@ -1069,6 +1070,16 @@ def render_page(template: str, bootstrap: dict, catalog: dict) -> str:
     return re.sub(r"__SPINSHARE_(?:RUNTIME_CONFIG|CONNECT_ORIGIN|MEDIA_ORIGIN|UI_CATALOG)__", lambda match: values[match[0]], template)
 
 
+def playlist_failure(exc: Exception) -> tuple[int, str]:
+    """Map a playlist/session error to (HTTP status, code) for APIError."""
+    if isinstance(exc, session_client.SessionExpired):
+        return 409, "session_expired"
+    code = str(exc)
+    if not re.fullmatch(r"[a-z][a-z_]{2,40}", code):
+        return 409, "playlist_error"
+    return (400 if code.startswith("invalid_") else 409), code
+
+
 class PortableManager(installer.JobManager):
     def __init__(self, store, config):
         self.store = store
@@ -1573,8 +1584,8 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/status"} and
-                not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}", self.path)):
+        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/status", "/v1/playlists"} and
+                not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}|/v1/playlists/[0-9]+", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         methods = self.headers.get_all("Access-Control-Request-Method")
@@ -1708,6 +1719,20 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
             self._respond(200, manager.activity())
         elif self.path == "/v1/session/status":
             self._respond(200, session_client.status_summary())
+        elif self.path == "/v1/playlists":
+            try:
+                user_id, _ = playlists._identity()
+                self._respond(200, {"playlists": playlists.my_playlists(user_id)})
+            except session_client.SessionError as exc:
+                status, code = playlist_failure(exc)
+                self._respond(status, {"error": "Open Settings and sign in to spinsha.re first.", "code": code})
+        elif re.fullmatch(r"/v1/playlists/[0-9]+", self.path):
+            try:
+                self._respond(200, playlists.playlist_detail(int(self.path.rsplit("/", 1)[-1])))
+            except session_client.SessionError as exc:
+                status, code = playlist_failure(exc)
+                self._respond(404 if code == "api_error" else status,
+                              {"error": "The playlist is unavailable.", "code": code})
         elif self.path == "/v1/health":
             with manager.lock:
                 self._respond(200, {"ok": not manager.closed, "shuttingDown": manager.closed or manager.exiting,
@@ -1748,7 +1773,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout"}:
+        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
@@ -1870,6 +1895,40 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                     raise APIError(400, "invalid_body", "The sign-out request does not accept fields.")
                 session_client.disconnect()
                 self._respond(200, {"connected": False})
+                return
+            if self.path == "/v1/playlists/create":
+                if (not {"title"} <= set(data) <= {"title", "description"} or
+                        not isinstance(data["title"], str) or
+                        not isinstance(data.get("description", ""), str)):
+                    raise APIError(400, "invalid_body", "Playlist creation accepts title and description.")
+                try:
+                    playlist = playlists.create_playlist(data["title"], data.get("description", ""))
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The playlist could not be created.")
+                self._respond(200, {"playlist": playlist})
+                return
+            if self.path == "/v1/playlists/delete":
+                if set(data) != {"playlistId"} or not isinstance(data["playlistId"], int):
+                    raise APIError(400, "invalid_body", "Playlist deletion accepts only playlistId.")
+                try:
+                    playlists.delete_playlist(data["playlistId"])
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The playlist could not be deleted.")
+                self._respond(200, {"ok": True})
+                return
+            if self.path == "/v1/playlists/song":
+                if (set(data) != {"songId", "playlistIds"} or not isinstance(data["songId"], int) or
+                        not isinstance(data["playlistIds"], list) or
+                        not all(isinstance(item, int) for item in data["playlistIds"])):
+                    raise APIError(400, "invalid_body", "Membership accepts only songId and playlistIds.")
+                try:
+                    updated = playlists.set_song_membership(data["songId"], set(data["playlistIds"]))
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The playlist membership could not be saved.")
+                self._respond(200, {"playlists": updated})
                 return
             if self.path == "/v1/install-directory-confirmation":
                 if (set(data) != {"expectedRevision"} or

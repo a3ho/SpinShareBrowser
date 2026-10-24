@@ -27,7 +27,8 @@
 - **删除歌单** `GET /playlist/{id}/delete`：无 CSRF、无确认（确认分支被官方注释掉），一次 GET 即删，owner 校验。
 - **加歌** `POST /song/{id}`（songDetail 动作，`submitPlaylist`）：**进门无条件 `views+1`（GET/POST 都加，无法绕过）**；**替换集语义**——先把歌从用户全部歌单移除，再把 `playlist_{index}=on` 勾选的加回；**键是服务端 findBy 结果的数组下标而非歌单 id**，稳妥做法 = 解析渲染页 checkbox（名称+标题+勾选态）。表单是手写 HTML 非 Symfony Form，**无 CSRF 字段**。陈旧缓存写入会复活已删成员关系 → **写前强制新鲜读**。
 - **移除歌曲** `GET /playlist/{playlistId}/song/{songId}/delete`：无 CSRF，owner/版主校验，**不经过 /song/{id}，零浏览量成本**。加歌才烧 views，移除免费。
-- **读回（公开无鉴权）**：`GET /api/user/{id}/playlists`（全部歌单）、`GET /api/playlist/{id}`（单列表写后校验）；getJSON 含 songs[]/cover URL/user。
+- **读回（公开无鉴权）**：`GET /api/user/{id}/playlists`（全部歌单，**新→旧排序**）、`GET /api/playlist/{id}`（单列表写后校验，songs 为完整歌曲数组；user 列表版的 songs 是计数 int）。
+- **勾选框顺序陷阱（2026-10-24 真机 E2E 实证）**：`/song/{id}` 浮层 checkbox 顺序（旧→新）与 API 歌单列表顺序（新→旧）**相反**；勾选框带 `<span>标题</span>` 标签，**必须按标题映射**（`parse_playlist_overlay`）。全序列 E2E（建→加→移→删）已在生产通过。
 - 会话：内嵌登录窗（独立 WebView2）建会话，CoreWebView2 CookieManager 取 cookie，本地加密存储、可断开；写响应返回登录页 HTML/重定向 = 会话失效信号。
 
 ## 政策（Usage Policy）

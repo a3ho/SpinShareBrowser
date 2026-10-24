@@ -3,6 +3,7 @@ const SESSION_POLL_MS=2000,SESSION_POLL_LIMIT=330;
 function sessionConnected(){return !!(sessionAccount&&sessionAccount.connected);}
 function syncSessionControls(){
   const connected=sessionConnected();
+  if(typeof syncPlaylistsUI==='function')syncPlaylistsUI();
   $('session-signed-out').hidden=connected;
   $('session-signed-in').hidden=!connected;
   if(connected){$('settings-account-name').textContent=sessionAccount.username||'';}

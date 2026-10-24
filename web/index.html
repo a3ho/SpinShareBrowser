@@ -42,6 +42,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <symbol id="icon-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></symbol>
   <symbol id="icon-tag" viewBox="0 0 24 24"><path d="M3 4h8l10 10-7 7L3 10V4Z"/><circle cx="7.5" cy="8" r="1"/></symbol>
   <symbol id="icon-settings" viewBox="0 0 24 24"><path d="m9 3-1 3-3 1-2 4 2 3v4l4 3 3-1 3 1 4-3v-4l2-3-2-4-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="icon-playlist" viewBox="0 0 24 24"><path d="M7 3h10a2 2 0 0 1 2 2v16l-7-4-7 4V5a2 2 0 0 1 2-2Z"/></symbol>
   <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/></symbol>
   <symbol id="icon-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></symbol>
   <symbol id="icon-pause" viewBox="0 0 24 24"><path d="M8 6v12M16 6v12"/></symbol>
@@ -71,6 +72,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   </section>
   <div class="topbar-actions">
     <div class="header-language"><span id="ui-language-label" class="sr-only" data-ui-static="Language">Language</span><select id="ui-language" data-choice-menu aria-labelledby="ui-language-label"><option value="zh-CN" data-ui-static="language.name.zh-CN">简体中文</option><option value="en" data-ui-static="language.name.en">English</option></select></div>
+    <button id="playlists-open" class="settings-toggle" type="button" aria-label="My playlists" data-ui-attr-aria-label="My playlists" aria-haspopup="dialog" aria-controls="playlists-panel" hidden><svg class="icon" aria-hidden="true"><use href="#icon-playlist"/></svg><span data-ui-static="My playlists">My playlists</span></button>
     <button id="settings-open" class="settings-toggle" type="button" aria-label="Settings" data-ui-attr-aria-label="Settings" aria-haspopup="dialog" aria-controls="settings-panel" hidden><svg class="icon" aria-hidden="true"><use href="#icon-settings"/></svg><span data-ui-static="Settings">Settings</span></button>
     <div id="window-controls" class="window-controls" role="group" aria-label="Window controls" data-ui-attr-aria-label="Window controls" hidden>
       <button id="window-minimize" type="button" aria-label="Minimize window" data-ui-attr-aria-label="Minimize window"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h12"/></svg></button>
@@ -187,6 +189,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       </div>
       <div id="page-jump" class="page-jump"><label for="page-number" data-ui-static="Jump to page">Jump to page</label><input id="page-number" type="number" min="1" step="1" inputmode="numeric" value="1"><button id="jump" type="button" data-ui-static="Go">Go</button></div>
     </nav>
+    <div id="playlist-filter-bar" class="playlist-filter-bar" hidden></div>
     <section class="result-stage" aria-label="Chart query results" data-ui-attr-aria-label="Chart query results">
       <div id="rows" class="chart-grid" role="list" aria-label="Chart list" data-ui-attr-aria-label="Chart list"></div>
       <div id="empty-state" class="empty-state" hidden>
@@ -264,6 +267,18 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <p id="settings-message" class="settings-message" role="status" aria-live="polite"></p>
   <div class="settings-bottom"><span id="settings-version" class="settings-version"></span><button id="settings-exit" class="settings-exit" type="button"><span data-ui-static="Quit app">Quit app</span></button></div>
 </dialog>
+<dialog id="playlists-panel" class="settings-panel playlists-panel" aria-labelledby="playlists-title">
+  <div class="settings-header"><h2 id="playlists-title"><span data-ui-static="My playlists">My playlists</span></h2><button id="playlists-close" class="settings-close" type="button" aria-label="Close playlists" data-ui-attr-aria-label="Close playlists"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+  <form id="playlists-create" class="playlists-create" novalidate><label class="sr-only" for="playlists-new-title" data-ui-static="New playlist name">New playlist name</label><input id="playlists-new-title" type="text" maxlength="64" autocomplete="off" placeholder="New playlist name" data-ui-attr-placeholder="New playlist name"><button id="playlists-create-button" class="button primary" type="submit"><span data-ui-static="Create playlist">Create playlist</span></button></form>
+  <p id="playlists-hint" class="settings-message" role="status" aria-live="polite" hidden></p>
+  <div id="playlists-list" class="playlists-list" role="list"></div>
+</dialog>
+<div id="playlist-picker" popover="manual" role="dialog" class="playlist-picker" aria-labelledby="playlist-picker-title">
+  <div class="playlist-picker-heading" id="playlist-picker-title"><span data-ui-static="Add to playlist">Add to playlist</span></div>
+  <div id="playlist-picker-list" class="playlist-picker-list" role="group" aria-labelledby="playlist-picker-title"></div>
+  <form id="playlist-picker-new" class="playlist-picker-new" hidden><label class="sr-only" for="playlist-picker-new-title" data-ui-static="New playlist name">New playlist name</label><input id="playlist-picker-new-title" type="text" maxlength="64" autocomplete="off" placeholder="New playlist name" data-ui-attr-placeholder="New playlist name"><button id="playlist-picker-create" class="button secondary" type="submit"><span data-ui-static="Create playlist">Create playlist</span></button></form>
+  <div class="playlist-picker-actions"><button id="playlist-picker-new-toggle" class="button secondary" type="button"><span data-ui-static="New playlist">New playlist</span></button><button id="playlist-picker-save" class="button primary" type="button"><span data-ui-static="Save">Save</span></button></div>
+</div>
 <dialog id="install-directory-dialog" class="settings-panel install-directory-dialog" aria-labelledby="install-directory-title" aria-describedby="install-directory-error">
   <div class="settings-header">
     <h2 id="install-directory-title" data-ui-static="Current chart installation directory">Current chart installation directory</h2>

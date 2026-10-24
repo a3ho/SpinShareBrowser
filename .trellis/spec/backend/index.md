@@ -10,6 +10,7 @@
 | [maintenance.md](maintenance.md) | 安装器协作：升级/卸载、门锁、所有权标记、清理 |
 | [audio-preview.md](audio-preview.md) | 游戏音乐回退：SRTB→GUID→Steam 定位→只读流式 |
 | [session-client.md](session-client.md) | spinsha.re 会话通道：登录窗/DPAPI 存储/表单驱动器/串行写队列 |
+| [playlists.md](../frontend/playlists.md) | 歌单收藏读写：契约/勾选框顺序陷阱/端点/前端模块（跨层文档） |
 
 ## 模块依赖方向
 

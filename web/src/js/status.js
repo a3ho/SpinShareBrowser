@@ -26,8 +26,9 @@ function validateRuntimeConfig(config){
   if(valid)valid=config.closeBehavior===undefined||['ask','exit','tray'].includes(config.closeBehavior);
   if(valid)valid=typeof config.playerShortcutHintShown==='boolean';
   if(valid)valid=typeof config.installDirectoryConfirmed==='boolean';
-  if(valid)valid=typeof config.playerVolume==='number'&&Number.isFinite(config.playerVolume)&&config.playerVolume>=0&&config.playerVolume<=1;
+  if(valid)valid=config.session===undefined||config.session===null||typeof config.session==='object'&&typeof config.session.connected==='boolean';
   if(!valid){uiText($('status'),m("Unable to open the app. Reopen SpinShareBrowser.exe."));$('status').classList.add('error');throw uiError('Invalid SpinShare Browser runtime configuration');}
-  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed,playerVolume:config.playerVolume});
+  const session=config.session&&typeof config.session==='object'?{connected:config.session.connected===true,username:typeof config.session.username==='string'?config.session.username:null,userId:Number.isInteger(config.session.userId)?config.session.userId:null,loginActive:config.session.loginActive===true}:null;
+  return Object.freeze({mode:config.mode,key:config.key,origin:config.origin,targetDirectory:config.targetDirectory,defaultDirectory:config.defaultDirectory,settingsRevision:config.settingsRevision,version:config.version,language:config.language,closeBehavior:config.closeBehavior||'ask',playerShortcutHintShown:config.playerShortcutHintShown,installDirectoryConfirmed:config.installDirectoryConfirmed,playerVolume:config.playerVolume,session});
 }
 function settingsMessage(message,error=false){uiText($('settings-message'),message);$('settings-message').classList.toggle('is-error',error);loadingIndicator($('settings-message'),Boolean(message)&&Boolean(settingsBusy)&&!error);}
