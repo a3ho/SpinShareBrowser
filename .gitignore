@@ -32,6 +32,7 @@
 !/tests/test_session_client.py
 !/tests/test_playlists.py
 !/tests/test_playlists.cjs
+!/tests/test_playlist_sync.cjs
 !/web/locales.json
 
 !/assets/

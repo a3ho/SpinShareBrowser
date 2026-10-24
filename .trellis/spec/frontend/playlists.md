@@ -21,3 +21,9 @@
 ## 待办（阶段 4）
 
 - 歌单同步安装（diff 只装缺 + 事务管线 + 取消不强杀 + 只增不删）——`playlist_detail` 的 songIds 即 diff 源。
+
+## 同步安装（阶段 4，2026-10-24）
+
+- `web/src/js/playlist-sync.js`（27 模块）：入口=歌单面板行"同步到游戏"（需 installDirectoryConfirmed，否则走目录确认流）。预览 = `playlistDetailCached` songIds → `compact(catalog, 全难度无日期)` 建行 → `POST /v1/installations/check` 批量存在性 → {将安装/已装跳过/下架/DLC 标注}。执行 = 复用 `startInstallation`（单装机制全套：视图/活动坞/存在性），逐首 `await installationPending===false` + 1.2s 间隔；**停止=停止后续提交，进行中的永不强杀（红线 9）**；单首失败不中断，末尾汇总。对话框关闭不中止循环（Esc 只关视图）。
+- E2E 已验证：两首歌真实下载安装到沙箱目录（隔离实例 config.customDirectory 指沙箱 + installDirectoryConfirmed），srtb 落盘核对，完成态截图走查 PASS。
+- 坑：vm 跨 realm 数组断言用 join(',') 比较；新 cjs 测试的 dialog 节点要 mock showModal/close。

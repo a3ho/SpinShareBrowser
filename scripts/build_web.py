@@ -34,6 +34,7 @@ MANIFEST = {
         "settings-panel.js",
         "session.js",
         "playlists.js",
+        "playlist-sync.js",
         "window-regions.js",
         "filters.js",
         "search-tags.js",

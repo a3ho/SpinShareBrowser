@@ -633,7 +633,21 @@
     "Playlist created": "Playlist created",
     "Type a playlist name first": "Type a playlist name first",
     "The playlist could not be created": "The playlist could not be created",
-    "The playlist is unavailable": "The playlist is unavailable"
+    "The playlist is unavailable": "The playlist is unavailable",
+    "Sync to game": "Sync to game",
+    "Sync playlist to game": "Sync playlist to game",
+    "Sync playlist": "Sync playlist",
+    "Close playlist sync": "Close playlist sync",
+    "Stop sync": "Stop sync",
+    "Install playlist": "Install playlist",
+    "Charts to install": "Charts to install",
+    "Already installed": "Already installed",
+    "Not available on SpinShare": "Not available on SpinShare",
+    "Waiting": "Waiting",
+    "Failed": "Failed",
+    "Installing…": "Installing…",
+    "Sync finished": "Sync finished",
+    "Sync finished with failures": "Sync finished with failures"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1269,6 +1283,20 @@
     "Playlist created": "歌单已创建",
     "Type a playlist name first": "请先输入歌单名称",
     "The playlist could not be created": "歌单创建失败",
-    "The playlist is unavailable": "歌单暂不可用"
+    "The playlist is unavailable": "歌单暂不可用",
+    "Sync to game": "同步到游戏",
+    "Sync playlist to game": "同步歌单到游戏",
+    "Sync playlist": "同步歌单",
+    "Close playlist sync": "关闭歌单同步",
+    "Stop sync": "停止同步",
+    "Install playlist": "安装歌单",
+    "Charts to install": "将安装谱面",
+    "Already installed": "已安装跳过",
+    "Not available on SpinShare": "已从 SpinShare 下架",
+    "Waiting": "等待中",
+    "Failed": "失败",
+    "Installing…": "正在安装…",
+    "Sync finished": "同步完成",
+    "Sync finished with failures": "同步完成（有失败）"
   }
 }

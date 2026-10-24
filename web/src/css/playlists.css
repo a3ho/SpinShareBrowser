@@ -49,3 +49,14 @@
 .metric-playlist .icon { fill: none; }
 .metric-playlist.is-saved .icon { fill: var(--pink); }
 .metric-playlist.is-saved { color: var(--pink); }
+
+/* Playlist sync dialog: summary, per-song status list, actions. */
+.playlist-sync-summary { display: grid; gap: 4px; margin: 12px 0 10px; }
+.playlist-sync-line { font-size: var(--type-meta); color: var(--muted); }
+.playlist-sync-line.is-emphasis { font-size: var(--type-control); color: var(--text); font-weight: var(--weight-medium); }
+.playlist-sync-list { display: grid; gap: 4px; max-height: min(320px, 44vh); overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.playlist-sync-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: #16171c; border-radius: 8px; font-size: var(--type-meta); }
+.playlist-sync-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.playlist-sync-status { color: var(--muted); flex: none; }
+.playlist-sync-badge { color: var(--muted); background: #ffffff0c; border-radius: 999px; padding: 2px 8px; flex: none; }
+.playlist-sync-actions { justify-content: flex-end; }

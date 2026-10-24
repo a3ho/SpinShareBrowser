@@ -250,3 +250,35 @@ Full playlist read/write shipped on the session channel. src/playlists.py (creat
 ### Next Steps
 
 - Phase 4/8: playlist sync-to-game (diff-only installs through the transactional pipeline)
+
+---
+
+## Session 9: Playlist sync-to-game (phase 4/8)
+
+**Date**: 2026-10-24
+**Task**: 10-23-playlist-sync-install
+**Branch**: `main`
+
+### Summary
+
+Shipped the differentiating feature: one-click playlist sync to the game. Frontend module playlist-sync.js: preview diff (playlist songs vs catalog coverage vs batch presence check via /v1/installations/check), then a serial install loop reusing the single-install machinery (startInstallation + installationPending + activity dock), 1.2s spacing between submissions, stop = no further submissions while the in-flight job is never killed (red line 9), per-song failure tolerance with end summary. Dialog states: preview/running/done; closing the dialog never aborts the loop. E2E on production with a sandboxed install directory (customDirectory + installDirectoryConfirmed in the isolated instance config): created a 2-song test playlist, sync preview correct (2 to install), both songs downloaded and installed through the real transactional pipeline (jobs complete, srtb files verified on disk), done-state dialog visual PASS; test playlist deleted and config restored afterwards.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: one-click playlist sync to game with preview and serial installs |
+
+### Testing
+
+- [OK] test_playlist_sync.cjs 4/4 (preview diff, serial order + spacing, stop semantics, directory gate)
+- [OK] Node 14/14; full Python suite 185 OK
+- [OK] production E2E with sandboxed target: 2 real installs, files verified, cleanup complete
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Phase 5/8: reviews-write; phase 6 notifications; phase 7 home; phase 8 upload

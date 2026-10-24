@@ -65,6 +65,10 @@ function renderPlaylistsPanel(){
     open.append(element('span',m('Open')));
     uiAttr(open,'aria-label',m('Open playlist: ')+entry.title);
     open.addEventListener('click',()=>openPlaylistFilter(entry.id));
+    const sync=element('button',undefined,'button secondary');sync.type='button';
+    sync.append(element('span',m('Sync to game')));
+    uiAttr(sync,'aria-label',m('Sync playlist to game')+': '+entry.title);
+    sync.addEventListener('click',()=>openPlaylistSync(entry.id));
     const remove=element('button',undefined,'playlists-remove');remove.type='button';
     uiAttr(remove,'aria-label',m('Delete playlist: ')+entry.title);
     remove.append(element('span',m('Delete')));
@@ -77,7 +81,7 @@ function renderPlaylistsPanel(){
       clearTimeout(remove._timer);delete remove.dataset.armed;
       void deletePlaylist(entry.id);
     });
-    actions.append(open,remove);row.append(coverWrap,info,actions);list.append(row);
+    actions.append(open,sync,remove);row.append(coverWrap,info,actions);list.append(row);
   }
 }
 function playlistEmptyRow(message){const row=element('div',undefined,'playlists-empty');row.setAttribute('role','listitem');uiText(row,message);return row;}

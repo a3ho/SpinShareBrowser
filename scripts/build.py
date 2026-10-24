@@ -43,7 +43,7 @@ SOURCE_FILES = (
     "tests/read_web_template.cjs", "tests/test_web_resources.py",
     "tests/test_install_directory_confirmation.py", "tests/test_install_directory_confirmation.cjs",
     "tests/test_player_volume.py",
-    "tests/test_installation_status.py", "tests/test_install_recovery.py", "tests/test_session_client.py", "tests/test_playlists.py", "tests/test_playlists.cjs",
+    "tests/test_installation_status.py", "tests/test_install_recovery.py", "tests/test_session_client.py", "tests/test_playlists.py", "tests/test_playlists.cjs", "tests/test_playlist_sync.cjs",
     "tests/test_build.py", "scripts/windows_smoke.py", "scripts/installer_cancel_smoke.py", "scripts/browser_smoke.cjs", ".github/workflows/verify.yml",
     *WEB_FILES, "scripts/build.py", "scripts/windows.iss", "scripts/build_web.py", *WEB_SRC_FILES,
     "assets/spinshare-browser.png", "assets/spinshare-browser-favicon.png",
