@@ -4,6 +4,21 @@ SpinShare Browser retains, maintains, and supports only the latest stable releas
 
 SpinShare Browser 仅保留、维护和支持最新稳定版。新版验证并发布后，删除全部旧版发布页、下载附件和版本标签，旧版本不再保留。以下条目仅记录开发历史。
 
+## 2.3.4 — 2026-10-25
+
+- Sign-in is reliable again: the sign-in window always opens inside the app, stays open while you type your password or a two-factor code, and no longer reports a timeout early.
+- 登录恢复可靠：登录窗口始终在应用内打开，输入密码或两步验证码期间保持等待，不再提前提示超时。
+- In a maximized window, every top-bar player control is clickable again.
+- 最大化窗口时，顶栏播放器的全部控件恢复可点击。
+- The chart auto-update switch sits on a single line and stays where you set it.
+- 谱面自动更新开关独占一行，切换后保持所选状态。
+- Signed in, charts without any review open their review panel so you can be the first to comment; signed out, the review button is disabled.
+- 登录后，还没有评论的谱面也能打开评论面板成为第一位评论者；未登录时评论按钮置灰。
+- The account menu opens right under your avatar, and the "Add to playlist" popover opens instantly with your playlists already loaded.
+- 账户菜单在头像正下方打开；"收藏到歌单"浮层即时弹出，歌单已预先加载。
+- Expanded inline reviews are visually separated from the chart information.
+- 展开的行内评论与谱面信息有清晰的视觉分界。
+
 ## 2.3.0 — 2026-10-24
 
 - In-app user profiles: click any charter name or review author to see their charts, playlists, reviews and SpinPlays. Each profile has a unique gradient banner; your own profile includes an Upload chart shortcut. Opening someone's playlist also offers one-click sync to the game.

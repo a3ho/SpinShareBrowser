@@ -39,6 +39,28 @@
 - 每次连环编辑，对照第 1 节拆步。
 - 本文件由 trellis-update-spec 维护；再犯任何一条 = 先补防线再修 bug。
 
-## 6. 隐藏页面的零视口（2026-10-24 新增，关联阶段 1 的老教训）
+## 6. 隐藏页面的零视口（2026-10-24 新增，关联阶段 1 的老教训；同日修正）
 
-后台/隐藏标签页里 `innerHeight=0`、`clientHeight=0`，而 rect 可能仍是旧值。**视口守卫（"锚点出界即关闭"）必须先判 `document.hidden||!innerHeight` 再判边界**——否则后台页会把所有浮层误杀。顶栏锚点（铃铛）天然在 `--top` 之上：出界判定用 0，`--top` 只做定位钳制。
+后台/隐藏标签页里 `innerHeight=0`、`clientHeight=0`，而 rect 可能仍是旧值。**视口守卫（"锚点出界即关闭"）必须先判零视口再判边界**——否则后台页会把所有浮层误杀。顶栏锚点（铃铛）天然在 `--top` 之上：出界判定用 0，`--top` 只做定位钳制。
+
+**2026-10-24 修正：守卫里不能含 `document.hidden`。** 隐藏页的几何测量（getBoundingClientRect/offsetWidth）是真实有效的，首次同步定位必须在后台窗口也能跑——`document.hidden` 一挡，浮层就停在 CSS 默认位（"浮窗位置错"2 次事故的共因之一）。零视口守卫只判 `!innerHeight||!clientHeight`；`tests/test_popover_engine.cjs` 有回归门禁。
+
+## 7. 浮层定位被 UA popover 样式表劫持（2026-10-24，账户浮窗"位置依然是错的"根因）
+
+`[popover]:popover-open` 的 UA 样式是 `position:fixed; inset:0; margin:auto`。引擎只内联 `top/left` 时，`bottom:0 + margin:auto` 会把盒子**垂直居中到视口底部与 top 之间**（top 57 的菜单渲染在 438）。**防线（双保险）：** 每个走 popover-engine 的浮层 CSS 必须带 `inset:auto`（playlist-picker/notifications/volume 一直有，account-menu 曾漏）；引擎 reposition 同时内联 `right/bottom:auto; margin:0`。新增引擎浮层两处都要有。
+
+## 8. 冻结的 APP_CONFIG 写入静默失效（2026-10-24，"自动更新开关根本不能用"根因）
+
+`APP_CONFIG` 是 `Object.freeze` 的（安全设计，别改）。对它属性赋值在非严格脚本体里**静默 no-op**——`APP_CONFIG.autoUpdateCharts=result.autoUpdateCharts` 不生效，UI 读旧值把开关弹回。**防线：** 模块可变状态一律用模块级 `let` 从 APP_CONFIG **拷贝初值**（`closeBehavior`/`previewVolume`/`sessionAccount` 全是这个模式），绝不写 `APP_CONFIG.*`。`tests/test_auto_update.cjs` 用冻结 APP_CONFIG 做回归门禁。
+
+## 9. 方法被删但调用还在（2.3.3 事故：`_try_capture_session`/`_close_login_window`）
+
+重构 `desktop.py` 时两个方法被删而调用点保留 → 登录监视线程 20 秒后 AttributeError → cancel_login → 用户输密码时弹"登录超时"，且窗口不关。**防线：** 线程/异步循环必须有**跑真循环的测试**（`tests/test_desktop_login.py` 用假时钟驱动完整 watcher），只测孤立方法测不到"方法不存在"。重构删除任何 `def` 前先 grep 调用点。
+
+## 10. 运行中服务的 bundle 是启动时内联的（2026-10-24 验证踩坑）
+
+服务端把 `web/app.js`/`interface.css` 内联进 browser.html 的时机是**进程启动**。改了 `web/src/*` 并 `build_web.py` 后，正在跑的实例仍然服务旧 bundle——浏览器里 reload 也没用。**防线：** 真机/浏览器验证前先重启实例（`/v1/shutdown` + 重启），再验证。
+
+## 11. 视觉模型的坐标读数不可信（用户"修一遍之后和没修一样"的元教训）
+
+截图喂给视觉模型问坐标，读数可以错 300+ 像素（把设置面板当右侧栏——实际是居中 modal；把帮助图标当复选框）。**防线：** 位置断言只用两种来源——浏览器里的 **DOM rect**（getBoundingClientRect）或真机**像素差分**（前后截图 numpy diff 得 bbox）；视觉模型只用来描述"长什么样"，永远不用来定位点击目标。

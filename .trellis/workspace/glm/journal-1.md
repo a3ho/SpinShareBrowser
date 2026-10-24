@@ -620,3 +620,37 @@ All 4 follow-up tasks from the quality doctrine completed. 10a: maximized window
 ### Next Steps
 - Build 2.3.2 installer and hand to owner for verification
 - Apply the release gate checklist before delivery
+
+---
+
+## 2026-10-25 — 9 个用户反馈问题的真正根因修复 + 真机验证（glm）
+
+### 背景
+用户两次反馈同样 9 个问题，原话"你修一遍之后和没修一样的"。元根因：此前只在 IAB 浏览器验证，真机窗口行为（最大化拖拽区、浮窗定位）从未被真正测过；且 2.3.3 发布时重构误删了登录捕获方法。
+
+### 根因与修复（全部已验证）
+1. **登录提前超时**：`_try_capture_session`/`_close_login_window` 在 3c1dcf0 重构中被删而调用点保留 → watcher 线程 20s 后 AttributeError → cancel_login。已从 7f6bea3 恢复 + `tests/test_desktop_login.py` 5 个假时钟回归测试。真机验证：原生登录窗口（非系统浏览器）、70s 无提前超时、关窗后干净取消。
+2. **最大化顶栏死区**：`_update_frame_region` 的视口匹配检查在最大化瞬间失配 → 无排除区的整条拖拽区盖住控件。改为始终应用布局（顶栏布局与视口无关）+ 修正测试断言方向。真机像素差分验证播放按钮响应。
+3. **自动更新单行**：label 包裹 checkbox 的单行结构，DOM rect 验证。
+4. **开关不能操作**：`APP_CONFIG` 冻结，直接赋值静默 no-op → UI 读旧值弹回。改为模块级 `let`（与 closeBehavior/previewVolume 同模式）+ `tests/test_auto_update.cjs` 冻结配置回归测试。双向切换 + 服务端落盘验证。
+5. **0评论抽屉**：`syncReviewVisibility` 强制关闭空抽屉的行已移除。登录态点击打开（composer + 空态文案）DOM 验证。
+6. **浮窗位置错**：双根因——(a) 引擎 `document.hidden` 守卫挡掉后台窗口的首次定位；(b) UA popover 样式表 `inset:0;margin:auto` 把账户菜单垂直居中到 438px。修复：守卫只判零视口 + `.account-menu` 补 `inset:auto` + 引擎内联 `right/bottom/margin` 中和。DOM 精确验证 gap=8。`tests/test_popover_engine.cjs` 7 个回归测试。
+7. **歌单预加载**：登录即 fetchMyPlaylists，收藏点击 347ms 即开且带缓存数据，背景刷新不关浮层。
+8. **展开评论布局**：内联模式 head/body 分离 + 边框 + 底色（529bc75 的样式已生效），样式审计 + 面板截图确认。
+9. **未登录 0评论禁用**：`empty&&unsigned` 门控。隔离未登录实例验证 disabled。
+
+### 验证方法论（重要）
+- 位置断言：DOM rect（浏览器）或像素差分（真机 numpy diff）；视觉模型只描述不定位。
+- 服务端启动时内联 bundle：改前端后必须重启实例再验证。
+- 隔离实例矩阵：登录态（tmp/agent-e2e）+ 未登录态（tmp/agent-debug，拷贝 charts-cache.json 后本地数据可用）。
+
+### 测试
+- [OK] 218 Python（+5 login watcher、test_desktop_frame 断言修正）
+- [OK] 全部 Node cjs（+test_auto_update.cjs 3 个、+test_popover_engine.cjs 7 个）
+- [OK] build_web --check 无漂移
+
+### Spec 回写
+repeated-pitfalls.md 新增 #7-#11 并修正 #6（UA popover 劫持、冻结 APP_CONFIG、方法删除调用残留、运行中 bundle 内联、视觉坐标不可信）。
+
+### 状态
+代码完成待提交；2.3.4 构建到 dist/ 进行中。
