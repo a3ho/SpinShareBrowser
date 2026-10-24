@@ -1,0 +1,29 @@
+{
+  "id": "review-layout",
+  "name": "review-layout",
+  "title": "评论排版优化",
+  "description": "展开所有评论模式的视觉排版优化 + 全模式截图走查。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "10c",
+    "depends": "none"
+  }
+}

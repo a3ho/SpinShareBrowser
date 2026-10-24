@@ -1,0 +1,29 @@
+{
+  "id": "interaction-components",
+  "name": "interaction-components",
+  "title": "交互组件修复与数据预加载",
+  "description": "设置开关标准组件化（单一触发）；0 评论抽屉全链路修复（click→visibility→render→compose）；信息层级三分离（标题/描述/tooltip）；歌单登录后预加载。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "10b",
+    "depends": "none"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "release-gate",
+  "name": "release-gate",
+  "title": "发布门禁流程",
+  "description": "发布门禁：状态矩阵检查表（normal/maximized×全控件）+ 强制截图走查清单，写入 spec/guides/。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "10d",
+    "depends": "none"
+  }
+}

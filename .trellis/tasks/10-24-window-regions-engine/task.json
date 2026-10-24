@@ -1,0 +1,29 @@
+{
+  "id": "window-regions-engine",
+  "name": "window-regions-engine",
+  "title": "窗口区域修复 + 统一浮层引擎 + 登录体验",
+  "description": "最大化时 excluded rects 失效修复 + 统一浮层定位引擎（account/notifications/playlist-picker/volume 共用）+ 登录改为系统默认浏览器并加速回调。验收：normal+maximized 全控件走查。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "10a",
+    "depends": "none"
+  }
+}

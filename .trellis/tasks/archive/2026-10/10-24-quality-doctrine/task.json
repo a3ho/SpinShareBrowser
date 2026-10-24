@@ -1,0 +1,28 @@
+{
+  "id": "quality-doctrine",
+  "name": "quality-doctrine",
+  "title": "高维质量原则与自我审查体系",
+  "description": "高维质量审查：8 个新缺陷的根因分析、更高维度原则提炼、自我批判/审查/测试流程设计。本轮只分析设计，不写功能代码",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": "2026-10-24",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "type": "analysis"
+  }
+}

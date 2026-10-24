@@ -565,3 +565,29 @@ Final sprint-1/2/3 task shipped: in-app user profiles (Direction B selected by t
 ### Next Steps
 
 - Release 2.3.0 (owner decision on timing)
+
+---
+
+## Session 19: Quality doctrine (analysis-only, no code)
+
+**Date**: 2026-10-24
+**Task**: 10-24-quality-doctrine
+**Branch**: `main`
+
+### Summary
+Owner reported 8 new defects in 2.3.1. This session is pure analysis/design — no code changes. Each defect's root cause was traced beyond the surface symptom to a violated higher-order principle. 8 principles (P1-P8) were distilled and documented permanently in spec/guides/quality-principles.md. A self-critique identified 5 systemic patterns causing repeated defects: (1) E2E verification停留在DOM属性层 not visual layer, (2) treating green tests as "done" when tests only cover scenarios I imagined, (3) fragmentary fixes that don't trace full chains, (4) hand-written popover positioning per-instance, (5) no all-mode screenshot walkthrough before delivery. 4 follow-up tasks created: window-regions-engine (maximized fix + unified popover engine + system-browser login), interaction-components (switch standardization + zero-review full-chain + copy hierarchy + predictive loading), review-layout (expanded-mode visual design), release-gate (state-matrix checklist as a permanent gate). The quality principles are now mandatory reading before any UI task.
+
+### Git Commits
+None (analysis-only)
+
+### Testing
+N/A
+
+### Status
+[OK] **Completed** — analysis delivered, follow-up tasks created
+
+### Next Steps
+- Task 10a: window-regions-engine (P0)
+- Task 10b: interaction-components (P0)
+- Task 10c: review-layout (P1)
+- Task 10d: release-gate (P1)
