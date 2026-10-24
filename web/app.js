@@ -2551,8 +2551,11 @@ function makeCover(row){
 
 // One explicit, song-level stream. It never calls chart detail, view or download APIs.
 let previewTrack=null,previewState='idle',previewFormat='ogg',previewExpectedSource='',previewGeneration=0,previewPlayAttempt=0,previewReady=false,previewResumeAt=0,previewWantsPlay=false,previewPlaybackConfirmed=false,previewFrame=0,previewSourceTimer=null,previewSourceCleanup=null,previewResolveWork=null,previewErrorCode='',previewCoverToken=0,previewArtworkSlot=0,previewArtworkMotions=[],previewLastAnnouncement='',previewRenderedSecond=-1,previewRenderedLimit=-1,previewShortcutPending=0,previewShortcutTimer=null,previewShortcutHintShown=APP_CONFIG.playerShortcutHintShown,previewHintTimer=null,previewHintMotion=null;
-// Volume: one persisted level (0-1); zero doubles as the muted state.
-let previewVolume=APP_CONFIG.playerVolume,previewLastVolume=previewVolume>0?previewVolume:1,previewVolumeTimer=null,previewVolumePopoverOpen=false,previewVolumeLeaveTimer=null,previewVolumeAnnouncement='';
+// Volume: one persisted level (0-1); zero doubles as the muted state. The
+// server always sends playerVolume, but a missing value must fall back to
+// full volume instead of poisoning audio.volume with undefined (it once
+// crashed the whole boot in the browser smoke harness).
+let previewVolume=typeof APP_CONFIG.playerVolume==='number'?APP_CONFIG.playerVolume:1,previewLastVolume=previewVolume>0?previewVolume:1,previewVolumeTimer=null,previewVolumePopoverOpen=false,previewVolumeLeaveTimer=null,previewVolumeAnnouncement='';
 function chartPreviewReference(row){
   const value=String(row?.[8]?.previewReference||row?.[8]?.fileReference||'');return PREVIEW_REFERENCE.test(value)?value:'';
 }

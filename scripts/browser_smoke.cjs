@@ -31,7 +31,8 @@ async function scenario(browser, language, width, firstFailure = false) {
   let indexFailure = firstFailure, lookupFailure = true;
   const config = {mode: 'desktop', version, key: '1'.repeat(64), origin,
     targetDirectory: 'C:\\SpinShare Test\\Custom', defaultDirectory: 'C:\\SpinShare Test\\Custom',
-    settingsRevision: revision, language, closeBehavior: 'ask', playerShortcutHintShown: true, installDirectoryConfirmed: true};
+    settingsRevision: revision, language, closeBehavior: 'ask', playerShortcutHintShown: true, installDirectoryConfirmed: true,
+    playerVolume: 1, autoUpdateCharts: false, session: {connected: false, username: null, userId: null, loginActive: false}};
   const html = template.replace(/__SPINSHARE_(RUNTIME_CONFIG|CONNECT_ORIGIN|MEDIA_ORIGIN|UI_CATALOG)__/g,
     (_, key) => ({RUNTIME_CONFIG: json(config), CONNECT_ORIGIN: origin, MEDIA_ORIGIN: origin, UI_CATALOG: json(messages)})[key]);
   page.on('pageerror', error => errors.push(error.message));
