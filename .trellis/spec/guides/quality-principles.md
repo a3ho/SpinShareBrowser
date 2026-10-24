@@ -47,3 +47,24 @@ popover 先 `showPopover()` → 强制 reflow（`void el.offsetWidth`）→ 再�
 3. **全模式**: 该功能的所有模式/状态截图走查（P7）
 4. **状态矩阵**: 如果涉及窗口/布局，normal + maximized 两种状态走查（P2）
 5. **测试更新**: 测试反映新行为，不是放松断言绕过问题
+
+---
+
+## 实施记录（2026-10-24 任务 10a）
+
+### 窗口区域修复
+- 视口容差从 ±2px 改为 DPI 感知（`max(2, round(scale*4))`），最大化/还原过渡不再因 ClientSize 跳变导致视口误判
+- 前端在收到 `window-state` 消息后延迟 120ms 重报 regions（等待布局稳定）
+- 原 last-good 回退方案已测试并放弃——会覆盖安全回退行为
+
+### 统一浮层引擎
+- `web/src/js/popover-engine.js` — `createPopoverEngine({popover, getAnchor, onDismiss})`
+- 强制 reflow（`void popover.offsetWidth`）后测量，解决首次显示时 offsetWidth=0
+- 内置：隐藏页守卫、顶栏锚点守卫（rect.bottom<0 才关）、rAF 跟随、生长动效 origin
+- 已迁移：account menu、notifications、playlist picker（三个引擎消费者）
+- 测试 harness 需 mock `createPopoverEngine`
+
+### 登录体验
+- 保留嵌入窗口（系统浏览器无法获取 spinsha.re 会话 cookie）
+- 改进：标题更清晰、检测轮询从 2s→2s（离开登录页时）/20s（在登录页时），登录成功后更快关闭
+- 后续可探索：ConnectCode 流程（无需 ApiKey 即可获取 token）

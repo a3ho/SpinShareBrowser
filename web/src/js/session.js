@@ -5,6 +5,8 @@ function syncSessionControls(){
   const connected=sessionConnected();
   if(typeof syncPlaylistsUI==='function')syncPlaylistsUI();
   if(typeof syncNotificationsUI==='function')syncNotificationsUI();
+  // P6: predictively load playlist data the moment the user connects.
+  if(typeof fetchMyPlaylists==='function'&&sessionConnected())void fetchMyPlaylists(true);
   $('session-signed-out').hidden=connected;
   $('session-signed-in').hidden=!connected;
   if(connected){$('settings-account-name').textContent=sessionAccount.username||'';}
