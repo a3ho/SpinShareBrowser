@@ -534,3 +534,34 @@ Installed-chart auto-update engine shipped. Semantics (owner clarified 2026-10-2
 ### Next Steps
 
 - Task 5/5: user profiles (design directions first)
+
+---
+
+## Session 18: User profiles (sprint 3, task 5/5) — blueprint complete
+
+**Date**: 2026-10-24
+**Task**: 10-24-user-profiles
+**Branch**: `main`
+
+### Summary
+
+Final sprint-1/2/3 task shipped: in-app user profiles (Direction B selected by the owner: gradient banner derived deterministically from userId + floating avatar + pill segments). web/src/js/user-profile.js fetches the four public user APIs directly (CSP already allows), LRU-cached per user. Tabs: Charts (real song cards through compact()+createChartCard with full install/review/cover states), Playlists (open into the existing filter view; sync-to-game available from ANY user's playlists — completing the sync feature's full reach), Reviews (title+verdict+date+comment list), SpinPlays (link list). My profile = same structure with an Upload chart button; entries: account menu "My profile" (replacing the two old items), charter names on cards (keyboard accessible), review author links now navigate in-app. E2E against production: own profile (刘易手: 5 charts, 48 reviews, 1 playlist with sync button), other profile (StoneTyph: 22 charts, no upload button), all four tabs, close restores browsing, charter-name click navigates.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: in-app user profiles with banner, tabs, and full navigation |
+
+### Testing
+
+- [OK] full suite 213 OK; Node all green; locale completeness gate passed (707 keys)
+- [OK] production E2E: own profile all tabs, other profile, charter entry, close/restore
+
+### Status
+
+[OK] **Completed** — all 5 tasks of the 2026-10-24 sprint delivered
+
+### Next Steps
+
+- Release 2.3.0 (owner decision on timing)

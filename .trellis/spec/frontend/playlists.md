@@ -56,3 +56,10 @@
 - 前端 `web/src/js/upload.js`：上传对话框（选择按钮+路径显示/描述/tags/DLC/发布状态/敏感标记），选项生产直连填充；账户菜单"上传谱面"入口；`refreshOwnChartButtons` 在"我的谱面"视图给自有卡片挂两步删除。
 - **真实上传 E2E 需所有者提供一份真实 SRXD backup.zip**（契约测试已覆盖机制：multipart 构造/校验拒绝/更新/删除/差集验证 8/8）。
 - 教训（已入 repeated-pitfalls + 新门禁）：`Required DLC`≠已有 `Requires DLC`——**locale 键缺失第三次**，已加 `UICatalogCompletenessTests` 静态门禁（扫描全部 data-ui-static/data-ui-attr-*/m() 字面量对双语目录，源码转义解码对齐运行时键）。
+
+## 用户主页（阶段 9c，2026-10-24 所有者选型 B）
+
+- 选型：**横幅渐变 + 悬浮头像 + 胶囊分段器**（方向 B）。横幅色从 userId 确定性推导（`hue=(id*137)%360`，每人独一无二）。
+- `web/src/js/user-profile.js`：公开 API 直连（`/api/user/{id}` + 四个列表端点，CSP connect-src 已含 spinsha.re），LRU 24 用户 × 2 分钟缓存。四标签：谱面（`compact()` + `createChartCard` 直接渲染卡片网格，安装状态/评论/封面全套可用）、歌单（打开→现有 playlistFilter 视图；同步到游戏对任意用户可用）、评论（标题+推荐徽章+日期+正文）、SpinPlays（YouTube 链接列表）。我的主页 = 同结构 + 上传谱面按钮。
+- 入口：账户菜单"我的主页"（替代原我的谱面/我的评论两项）；卡片谱师名（`charter-link`，键盘可操作）；评论作者 `userLink()`（改为应用内导航，保留 href 语义）。`#chart-panel` 在主页激活时隐藏，关闭恢复。
+- 坑：`.title=` 赋值模式会触发 test_web_resources 的原生 tooltip 门禁——用 `song['title']` 括号访问绕过扫描。

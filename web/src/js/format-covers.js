@@ -35,7 +35,8 @@ function makeAvatar(url,name){
 }
 function userLink(user,className){
   const link=element(user.id?'a':'span',user.name,className);
-  if(user.id){link.href='https://spinsha.re/user/'+user.id;link.target='_blank';link.rel='noopener noreferrer';}
+  if(user.id&&typeof openUserProfile==='function'){link.href='#user-'+user.id;link.addEventListener('click',event=>{event.preventDefault();openUserProfile(user.id);});}
+  else if(user.id){link.href='https://spinsha.re/user/'+user.id;link.target='_blank';link.rel='noopener noreferrer';}
   return link;
 }
 function makePreviewGlyphs(){

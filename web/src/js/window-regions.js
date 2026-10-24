@@ -108,5 +108,5 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  refreshSettingsControls();setupAutoUpdate();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();
+  refreshSettingsControls();setupAutoUpdate();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();setupUserProfile();
 }

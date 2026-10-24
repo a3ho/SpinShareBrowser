@@ -96,7 +96,10 @@ function createChartCard(row){
   const charterIdentity=element('span',undefined,'charter-identity');
   const uploader=element('div',undefined,'uploader');
   charterAvatar.append(makeAvatar('',row[4]||m('Charter')));
-  charterIdentity.append(element('span',m('Charter'),'meta-label'),element('span',row[4]||m('Unknown charter'),'charter-name'));
+  const charterName=element('span',row[4]||m('Unknown charter'),'charter-name');
+  const uploaderId=row[8]&&Number.isInteger(row[8].uploader)?row[8].uploader:null;
+  if(uploaderId&&typeof openUserProfile==='function'){charterName.classList.add('charter-link');charterName.tabIndex=0;charterName.setAttribute('role','link');charterName.addEventListener('click',()=>openUserProfile(uploaderId));charterName.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();openUserProfile(uploaderId);}});}
+  charterIdentity.append(element('span',m('Charter'),'meta-label'),charterName);
   charter.append(charterAvatar,charterIdentity);
   uploader.hidden=true;meta.append(charter,uploader);
   info.append(makeCover(row),copy,levels,meta);

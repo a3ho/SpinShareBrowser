@@ -72,8 +72,7 @@ function setupAccountMenu(){
   if(!chip||!menu)return;
   chip.addEventListener('click',()=>openAccountMenu(chip));
   $('account-menu-playlists').addEventListener('click',()=>{closeAccountMenu();openPlaylistsPanel();});
-  $('account-menu-charts').addEventListener('click',()=>openMyChartsView());
-  $('account-menu-reviews').addEventListener('click',()=>openMyReviewsView());
+  $('account-menu-profile').addEventListener('click',()=>{closeAccountMenu();openMyProfile();});
   $('account-menu-signout').addEventListener('click',()=>{closeAccountMenu();requestSessionLogout();});
   $('account-menu-upload').addEventListener('click',()=>{closeAccountMenu();openUploadDialog();});
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeAccountMenu();}});

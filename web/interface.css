@@ -882,6 +882,52 @@ body:has(#app-activity:not([hidden])) .catalog-sync-toast { bottom: 112px; }
 .upload-check input { accent-color: var(--pink); }
 .own-chart-delete { color: var(--muted); }
 .own-chart-delete:hover, .own-chart-delete[data-armed] { color: var(--error); }
+/* User profile view (Direction B: banner + floating avatar + segment pills). */
+.user-profile-view { display: grid; gap: 0; }
+.user-profile-view[hidden] { display: none; }
+.profile-banner { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.profile-banner-row { display: flex; align-items: flex-end; gap: 14px; padding: 0 18px 14px; background: var(--card); flex-wrap: wrap; }
+.profile-avatar { width: 72px; height: 72px; border-radius: 999px; border: 3px solid var(--card); margin-top: -36px; overflow: hidden; background: var(--surface); flex: none; }
+.profile-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.profile-info { min-width: 0; padding-bottom: 2px; }
+.profile-name { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.profile-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; flex: none; }
+.profile-badge.v { background: var(--pink); color: #19141a; }
+.profile-badge.p { background: #3a3226; color: #d8b46a; }
+.profile-sub { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.profile-actions { margin-left: auto; display: flex; gap: 8px; align-items: flex-end; padding-bottom: 2px; }
+.profile-segments { display: flex; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px; width: fit-content; margin: 12px 0 0; }
+.profile-segment { padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--muted); background: transparent; border: 0; }
+.profile-segment:hover { color: var(--text); }
+.profile-segment.is-active { background: var(--surface); color: var(--text); }
+.profile-close { position: absolute; top: 10px; right: 12px; width: 28px; height: 28px; border-radius: 999px; background: #0006; color: #fffc; display: flex; align-items: center; justify-content: center; font-size: 0; }
+.profile-close:hover { background: #0009; color: #fff; }
+.profile-close .sr-only, .profile-close span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.profile-tab-content { margin-top: 12px; min-height: 120px; }
+.profile-loading { padding: 24px 8px; color: var(--muted); font-size: var(--type-meta); text-align: center; }
+.profile-error { padding: 18px 8px; color: var(--error); font-size: var(--type-meta); }
+.profile-empty { padding: 22px 8px; color: var(--muted); font-size: var(--type-meta); text-align: center; }
+.profile-grid { display: grid; gap: 10px; }
+.charter-link { cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.charter-link:hover { color: var(--pink); text-decoration-color: var(--pink); }
+/* Playlists tab reuses .playlists-row from playlists.css */
+.profile-playlist-list { display: grid; gap: 8px; }
+/* Reviews tab */
+.profile-review-list { display: grid; gap: 8px; }
+.profile-review-row { padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.profile-review-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.profile-review-song { font-weight: 600; font-size: var(--type-control); }
+.profile-review-verdict { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); }
+.profile-review-verdict.is-up { background: #223129; color: var(--green); }
+.profile-review-verdict.is-down { background: #3a252e; color: var(--error); }
+.profile-review-date { margin-left: auto; font-size: var(--type-meta); color: var(--text-quiet); font-variant-numeric: tabular-nums; }
+.profile-review-text { margin: 8px 0 0; font-size: var(--type-meta); line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
+/* SpinPlays tab */
+.profile-spinplay-list { display: grid; gap: 6px; }
+.profile-spinplay-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: var(--text); }
+a.profile-spinplay-row:hover { background: var(--card-hover); }
+.profile-spinplay-title { font-size: var(--type-control); font-weight: 600; overflow-wrap: anywhere; }
+.profile-spinplay-link { margin-left: auto; color: var(--pink); font-size: var(--type-meta); }
 /* Keep the utility in the shell, clear of card actions at every scroll position. */
 .back-to-top { position: fixed; inset: 11px auto auto 20px; z-index: 35; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 8px; background: var(--surface); color: #d5d8e2; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(8px); transition: opacity var(--motion-feedback), transform var(--motion-standard) var(--ease-out), background var(--motion-feedback), visibility 0s var(--motion-standard); }
 .back-to-top.is-visible { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }

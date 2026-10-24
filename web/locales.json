@@ -692,7 +692,21 @@
     "\nDownloading again will replace files with the same name.": "\nDownloading again will replace files with the same name",
     "Checking your playlists…": "Checking your playlists…",
     "Keep installed charts up to date": "Keep installed charts up to date",
-    "Automatically reinstall installed charts when the publisher releases a new version": "Automatically reinstall installed charts when the publisher releases a new version"
+    "Automatically reinstall installed charts when the publisher releases a new version": "Automatically reinstall installed charts when the publisher releases a new version",
+    "My profile": "My profile",
+    "Profile sections": "Profile sections",
+    "Close profile": "Close profile",
+    "Loading…": "Loading…",
+    "Playlists": "Playlists",
+    "SpinPlays": "SpinPlays",
+    " playlists": " playlists",
+    " reviews": " reviews",
+    " SpinPlays": " SpinPlays",
+    "No charts yet": "No charts yet",
+    "No reviews yet": "No reviews yet",
+    "No SpinPlays yet": "No SpinPlays yet",
+    "Unknown chart": "Unknown chart",
+    "Profile unavailable": "Profile unavailable"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1387,6 +1401,20 @@
     "\nDownloading again will replace files with the same name.": "\n重新下载会覆盖同名文件",
     "Checking your playlists…": "正在核对你的歌单…",
     "Keep installed charts up to date": "保持已安装谱面为最新",
-    "Automatically reinstall installed charts when the publisher releases a new version": "发布者发布新版本时自动重新安装"
+    "Automatically reinstall installed charts when the publisher releases a new version": "发布者发布新版本时自动重新安装",
+    "My profile": "我的主页",
+    "Profile sections": "主页分区",
+    "Close profile": "关闭主页",
+    "Loading…": "加载中…",
+    "Playlists": "歌单",
+    "SpinPlays": "SpinPlays",
+    " playlists": " 个歌单",
+    " reviews": " 条评论",
+    " SpinPlays": " 个 SpinPlays",
+    "No charts yet": "还没有谱面",
+    "No reviews yet": "还没有评论",
+    "No SpinPlays yet": "还没有 SpinPlays",
+    "Unknown chart": "未知谱面",
+    "Profile unavailable": "主页暂不可用"
   }
 }
