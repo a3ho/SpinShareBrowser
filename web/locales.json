@@ -670,7 +670,10 @@
     "No notifications": "No notifications",
     "Loading notifications…": "Loading notifications…",
     "Go to chart": "Go to chart",
-    "Clear notification": "Clear notification"
+    "Clear notification": "Clear notification",
+    "Account": "Account",
+    "My charts": "My charts",
+    "My reviews": "My reviews"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1343,6 +1346,9 @@
     "No notifications": "暂无通知",
     "Loading notifications…": "正在加载通知…",
     "Go to chart": "查看谱面",
-    "Clear notification": "清除通知"
+    "Clear notification": "清除通知",
+    "Account": "账户",
+    "My charts": "我的谱面",
+    "My reviews": "我的评论"
   }
 }

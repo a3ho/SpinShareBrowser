@@ -207,7 +207,6 @@ test('playlist filter bar renders the chip and clears it', async () => {
 test('session gating hides the entry and refuses panel opens', async () => {
   const h = harness({connected: false});
   h.run('syncPlaylistsUI()');
-  assert.equal(h.node('playlists-open').hidden, true);
   h.run('renderPlaylistsPanel()');
   assert.match(h.node('playlists-list').children[0].textContent, /Sign in/);
   await h.run('fetchMyPlaylists(true)');

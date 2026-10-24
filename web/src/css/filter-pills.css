@@ -1,0 +1,19 @@
+/* C2 (2026-10-24 owner selection): the filter form becomes one compact pill row. */
+#filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 4px 20px 18px; }
+.filter-main-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 0; margin: 0; border: 0; min-width: 0; }
+.filter-heading { display: none; }
+#custom-dates { flex-wrap: wrap; row-gap: 6px; }
+.difficulty-options { gap: 6px; }
+.difficulty-options label { min-height: 30px; padding: 5px 13px; border-radius: 999px; }
+.difficulty-options label:has(:checked) { background: var(--text); color: #15161b; }
+.difficulty-options input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.difficulty-options label:has(:focus-visible) { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
+.range-fields { display: flex; align-items: center; gap: 6px; }
+#filters .field { display: flex; align-items: center; gap: 0; min-height: 30px; border-radius: 999px; background: var(--surface); padding: 0 4px 0 12px; color: var(--muted); }
+#filters .field > span:first-child { font-size: var(--type-meta); font-weight: var(--weight-medium); white-space: nowrap; padding-right: 8px; }
+#filters .field input { min-height: 28px; width: 62px; padding: 4px 10px 4px 2px; background: transparent; border: 0; border-radius: 999px; }
+#filters .field input:focus { outline: 1px solid var(--focus-ring); }
+#filters .field:has(.choice-trigger) { padding: 0; }
+#filters .field .choice-trigger { min-height: 30px; padding: 4px 14px; border-radius: 999px; background: var(--surface); }
+.filter-actions { padding-top: 0; min-width: 0; }
+.filter-apply { min-width: 104px; min-height: 30px; padding: 5px 16px; }

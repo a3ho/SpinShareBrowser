@@ -346,3 +346,34 @@ Notification reading and clearing over the session channel. src/notifications.py
 ### Next Steps
 
 - Phase 7/8: home recentering (design directions first); phase 8: chart upload
+
+---
+
+## Session 12: Home recentering C2 (phase 7/8)
+
+**Date**: 2026-10-24
+**Task**: 10-23-home-recentering
+**Branch**: `main`
+
+### Summary
+
+Two rounds of interactive design drafts (7 directions total) converged on the owner's ruling: browsing stays the protagonist and playlists are profile-level content. Selected C2: personal content in the topbar + filter pills. Implemented: filter form restyled into a compact pill row (pure CSS, all control ids unchanged); topbar account chip (avatar + username, login-gated) opening a personal menu (my playlists / my charts / my reviews / sign out); bookmark button retired; playlistFilter gained a kind field so personal views don't carry the playlist prefix; my-charts view (local catalog uploader filter) and my-reviews view (live public API, 60s cache). Fixed a pipeline subtlety found in verification: personal views must run through the full apply() pipeline after visibly resetting the date preset to all-time — rebuild() alone reuses the date-compacted set and showed 0 cards. Visual walkthrough PASS (account chip, menu, pills, views).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: C2 home recentering with account menu and filter pills |
+
+### Testing
+
+- [OK] full suite 194 OK; Node all green
+- [OK] live verification: chip renders with username, menu works, my-charts shows 5/5 owner charts, my-reviews shows 48/48
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Phase 8/8: chart upload (real E2E needs an actual SRXD backup from the owner; contract tests cover the machinery)

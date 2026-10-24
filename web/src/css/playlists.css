@@ -82,3 +82,18 @@
 .notifications-clear { color: var(--muted); }
 .notifications-clear:hover { color: var(--text); }
 .notifications-empty { padding: 14px 6px; color: var(--muted); text-align: center; }
+
+/* Account chip and its personal menu (C2 topbar entry). */
+.account-chip { color: var(--muted); gap: 7px; }
+.account-chip:hover, .account-chip:focus-visible { color: var(--text); }
+.account-chip-avatar { width: 18px; height: 18px; border-radius: 999px; background: linear-gradient(135deg, #2b2d36, var(--pink)); display: inline-block; }
+.account-chip-avatar.is-on { background: linear-gradient(135deg, #3d2f45, var(--pink)); }
+.account-menu { position: fixed; z-index: 60; min-width: 200px; padding: 8px; background: #2a2b33; border: 0; border-radius: 12px; box-shadow: 0 14px 40px #0009; color: var(--text); font: inherit; }
+.account-menu::backdrop { background: transparent; }
+.account-menu-head { padding: 6px 10px 8px; font-size: var(--type-meta); color: var(--muted); font-weight: var(--weight-medium); }
+.account-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: var(--type-control); text-align: left; }
+.account-menu-item:hover { background: #ffffff0c; color: var(--text); }
+.account-menu-item .icon { width: 15px; height: 15px; color: var(--muted); }
+.account-menu-item.is-danger { color: var(--muted); }
+.account-menu-item.is-danger:hover { color: var(--error); background: #ffffff08; }
+.account-menu-sep { height: 1px; margin: 6px 4px; background: var(--line); }

@@ -41,3 +41,10 @@
 - `src/notifications.py`：fetch/clear_one/clear_all，清除后从重定向回的首页再解析验证。端点 GET `/v1/notifications`、POST `/v1/notifications/clear|clear-all`。
 - 前端 `notifications.js`：顶栏铃铛（登录才显示、未读粉点在首次拉取后）；浮层仅打开时拉取（**零后台零定时器**，红线）；行操作 = 查看谱面（若可反查）/ 清除。
 - 教训：**连环 Python 编辑脚本每段要独立落盘 + 段间断言失败会静默丢后续步骤**（本次 manifest/locales 被丢，缺 locale 键使启动链在 setupLanguage 后中断——铃铛不显示的表象）。修复后验证：铃铛显示、浮层空态、生产读取/清全部通过。
+
+## 首页 C2（阶段 7，2026-10-24 所有者选型）
+
+- **所有者裁定**：浏览是主角；歌单是个人资料的一部分（原站心智），不做"主场舞台"。选 **C2 = 顶栏一行直达 + 筛选胶囊化**（演示稿曾误画侧栏——现应用本就是顶部筛选布局）。
+- 落地：`filter-pills.css`（难度胶囊化：选中=浅底深字；等级/日期变胶囊行，全部纯 CSS、控件 id 不动）；顶栏**账户胶囊**（头像+用户名，登录才显示）+ 账户菜单（我的歌单/我的谱面/我的评论/退出登录，`web/src/js/account.js`）；书签按钮退役（卡片收藏按钮仍在）；`playlistFilter` 增 `kind` 字段（playlist 视图带"歌单："前缀，个人视图不带）。
+- 个人视图：我的谱面（纯本地 catalog 按 uploader 过滤）；我的评论（spinsha.re 公开 API 直连拉 songIds，60s 缓存）。**必须经 `apply()` 全管线**（个人视图跨全部日期——先把 date-preset 可见地归位 'all' 再 apply；只 rebuild 会沿用旧的日期压缩集）。
+- 窗口排除矩形：#account-chip 替代 #playlists-open。

@@ -225,6 +225,25 @@ body:has(#app-activity:not([hidden])) { --content-bottom: 120px; }
 .status.error { background: #3a252e; }
 .status.error, .search-feedback.is-error { color: #ffabb9; }
 
+/* C2 (2026-10-24 owner selection): the filter form becomes one compact pill row. */
+#filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 4px 20px 18px; }
+.filter-main-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 0; margin: 0; border: 0; min-width: 0; }
+.filter-heading { display: none; }
+#custom-dates { flex-wrap: wrap; row-gap: 6px; }
+.difficulty-options { gap: 6px; }
+.difficulty-options label { min-height: 30px; padding: 5px 13px; border-radius: 999px; }
+.difficulty-options label:has(:checked) { background: var(--text); color: #15161b; }
+.difficulty-options input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.difficulty-options label:has(:focus-visible) { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
+.range-fields { display: flex; align-items: center; gap: 6px; }
+#filters .field { display: flex; align-items: center; gap: 0; min-height: 30px; border-radius: 999px; background: var(--surface); padding: 0 4px 0 12px; color: var(--muted); }
+#filters .field > span:first-child { font-size: var(--type-meta); font-weight: var(--weight-medium); white-space: nowrap; padding-right: 8px; }
+#filters .field input { min-height: 28px; width: 62px; padding: 4px 10px 4px 2px; background: transparent; border: 0; border-radius: 999px; }
+#filters .field input:focus { outline: 1px solid var(--focus-ring); }
+#filters .field:has(.choice-trigger) { padding: 0; }
+#filters .field .choice-trigger { min-height: 30px; padding: 4px 14px; border-radius: 999px; background: var(--surface); }
+.filter-actions { padding-top: 0; min-width: 0; }
+.filter-apply { min-width: 104px; min-height: 30px; padding: 5px 16px; }
 /* Search and result navigation. Tag filtering keeps its own state. */
 .result-tools.is-transitioning { overflow: hidden; }
 .result-tools-content { display: grid; gap: 12px; padding: 0 0 12px; }
@@ -809,6 +828,21 @@ body:has(#app-activity:not([hidden])) .catalog-sync-toast { bottom: 112px; }
 .notifications-clear { color: var(--muted); }
 .notifications-clear:hover { color: var(--text); }
 .notifications-empty { padding: 14px 6px; color: var(--muted); text-align: center; }
+
+/* Account chip and its personal menu (C2 topbar entry). */
+.account-chip { color: var(--muted); gap: 7px; }
+.account-chip:hover, .account-chip:focus-visible { color: var(--text); }
+.account-chip-avatar { width: 18px; height: 18px; border-radius: 999px; background: linear-gradient(135deg, #2b2d36, var(--pink)); display: inline-block; }
+.account-chip-avatar.is-on { background: linear-gradient(135deg, #3d2f45, var(--pink)); }
+.account-menu { position: fixed; z-index: 60; min-width: 200px; padding: 8px; background: #2a2b33; border: 0; border-radius: 12px; box-shadow: 0 14px 40px #0009; color: var(--text); font: inherit; }
+.account-menu::backdrop { background: transparent; }
+.account-menu-head { padding: 6px 10px 8px; font-size: var(--type-meta); color: var(--muted); font-weight: var(--weight-medium); }
+.account-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: var(--type-control); text-align: left; }
+.account-menu-item:hover { background: #ffffff0c; color: var(--text); }
+.account-menu-item .icon { width: 15px; height: 15px; color: var(--muted); }
+.account-menu-item.is-danger { color: var(--muted); }
+.account-menu-item.is-danger:hover { color: var(--error); background: #ffffff08; }
+.account-menu-sep { height: 1px; margin: 6px 4px; background: var(--line); }
 /* Keep the utility in the shell, clear of card actions at every scroll position. */
 .back-to-top { position: fixed; inset: 11px auto auto 20px; z-index: 35; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 8px; background: var(--surface); color: #d5d8e2; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(8px); transition: opacity var(--motion-feedback), transform var(--motion-standard) var(--ease-out), background var(--motion-feedback), visibility 0s var(--motion-standard); }
 .back-to-top.is-visible { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }

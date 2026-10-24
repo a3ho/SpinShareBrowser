@@ -38,7 +38,7 @@ function updatePlaylistMembershipIndex(playlistId,songIds){
 }
 function playlistHint(message,error=false){playlistsHintText=message;playlistsHintError=error;renderPlaylistsPanel();}
 function syncPlaylistsUI(){
-  $('playlists-open').hidden=!playlistSessionReady();
+  if(typeof syncAccountChip==='function')syncAccountChip();
   renderPlaylistsPanel();
   renderPlaylistFilterBar();
   refreshPlaylistButtons();
@@ -119,7 +119,7 @@ function closePlaylistsPanel(){$('playlists-panel').close();}
 async function openPlaylistFilter(playlistId){
   try{
     const detail=await playlistDetailCached(playlistId);
-    playlistFilter={id:playlistId,title:detail.title||'',songIds:new Set(detail.songIds)};
+    playlistFilter={id:playlistId,title:detail.title||'',songIds:new Set(detail.songIds),kind:'playlist'};
     closePlaylistsPanel();
     page=1;visibleCount=scrollBatchSize;
     rebuild(false);
@@ -137,7 +137,7 @@ function renderPlaylistFilterBar(){
   bar.hidden=false;bar.replaceChildren();
   const chip=element('span',undefined,'playlist-chip');
   const iconNode=element('span',undefined,'playlist-chip-icon');iconNode.append(icon('playlist'));
-  const label=element('span',undefined,'playlist-chip-label');uiText(label,m('Playlist')+': '+playlistFilter.title+' ('+number(playlistFilter.songIds.size)+')');
+  const label=element('span',undefined,'playlist-chip-label');uiText(label,(playlistFilter.kind==='playlist'?m('Playlist')+': ':'')+playlistFilter.title+' ('+number(playlistFilter.songIds.size)+')');
   const close=element('button',undefined,'playlist-chip-close');close.type='button';
   uiAttr(close,'aria-label',m('Clear playlist filter'));
   close.append(element('span',m('Clear playlist filter')));
@@ -247,7 +247,6 @@ function makePlaylistCardButton(row){
   return button;
 }
 function setupPlaylists(){
-  $('playlists-open').addEventListener('click',openPlaylistsPanel);
   $('playlists-close').addEventListener('click',closePlaylistsPanel);
   $('playlists-panel').addEventListener('cancel',event=>{event.preventDefault();closePlaylistsPanel();});
   $('playlists-create').addEventListener('submit',async event=>{
