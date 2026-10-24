@@ -56,4 +56,4 @@ for(const suffix of ['','-bottom']){
 $('load-more').addEventListener('click',loadMore);
 pagerMedia?.addEventListener('change',()=>{for(const suffix of ['','-bottom'])renderPageLinks(suffix,phase==='ready');});
 globalThis.addEventListener?.('focus',()=>{if(!document.hidden){refreshInstallationChecks();maybeRunAutomaticCatalogSync();}});
-setupTagFilters();setupRuntime();setupPageControls();applyDatePreset();render();syncFilters();startCatalogRuntime();
+setupTagFilters();setupRuntime();setupPageControls();applyDatePreset();captureDefaultCriteria();render();syncFilters();startCatalogRuntime();

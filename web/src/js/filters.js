@@ -42,12 +42,28 @@ function syncFilters(){
   for(const id of ['local-search','search-submit','search-clear'])$(id).disabled=!ready;
   $('installation-filter').disabled=!ready||appExiting;
   const dirty=!busy&&filtersChanged(),applyButton=$('apply-filters');
+  // Clean, ready forms have nothing to apply; the first run (not ready yet)
+  // and any pending change stay enabled. Reset goes quiet only when the form
+  // also matches the captured startup defaults.
+  const clean=ready&&!dirty;
+  applyButton.disabled=busy||appExiting||clean;
+  $('reset-filters').disabled=busy||appExiting||clean&&!filtersDifferFromDefaults();
   uiText(applyButton,dirty?m('Apply changes'):m('Filter charts'));applyButton.classList.toggle('has-pending-changes',dirty);
   const dirtyStatus=$('filter-dirty'),dirtyMessage=dirty?m('Filters changed. Select Apply changes to update the results.'):'';
   if(dirtyStatus.textContent!==renderUI(dirtyMessage))uiText(dirtyStatus,dirtyMessage);
   syncResultTools(ready,previousFocus);
   syncTagControls();
   if(typeof syncChoiceMenus==='function')syncChoiceMenus();
+}
+let defaultCriteriaSnapshot=null;
+function filtersDifferFromDefaults(){
+  if(!defaultCriteriaSnapshot)return false;
+  const current=readCriteria();
+  return JSON.stringify(current)!==JSON.stringify(defaultCriteriaSnapshot);
+}
+function captureDefaultCriteria(){
+  if(defaultCriteriaSnapshot)return;
+  defaultCriteriaSnapshot=readCriteria();
 }
 function cancelQuery(){
   const active=controller;controller=null;active?.abort();

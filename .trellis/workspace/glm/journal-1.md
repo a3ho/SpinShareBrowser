@@ -441,3 +441,34 @@ Owner-reported UX debt on the playlist picker and notifications popover fixed at
 ### Next Steps
 
 - Task 2/5: interaction-logic (filter area fixes + control audit)
+
+---
+
+## Session 15: Filter interaction logic (sprint 1, task 2/5)
+
+**Date**: 2026-10-24
+**Task**: 10-24-interaction-logic
+**Branch**: `main`
+
+### Summary
+
+Owner-directed filter interaction overhaul. Reset filters moved from the collapsible summary row (next to Update data) into the actions row beside Apply, restyled as a pill button. Apply and Reset are now dirty-state gated: a clean, ready form disables both (first run before any query stays enabled); Apply keeps its existing dirty label/highlight ("Apply changes" + pink). Reset additionally goes quiet when the form matches a captured startup-defaults snapshot (captureDefaultCriteria at boot). The gating surfaced a real TDZ bug first (clean used before dirty's declaration — caught by the extraction test before any manual run) and required updating test_catalog_ui's old contract ("apply always usable") to the new directive-driven one. Live verification: clean → both disabled; check a difficulty → Apply enables as "应用更改" with pending highlight, Reset enables; uncheck → both quiet again. Control audit across the app (search/tags/choice menus/pagination/reviews/volume/account/upload/picker/sync) found the remaining controls already correctly gated; the apply/reset pair was the offender.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | fix: dirty-state gating and reset relocation in the filter bar |
+
+### Testing
+
+- [OK] test_catalog_ui contract updated and passing; full suite 203 OK; Node all green
+- [OK] live: clean/dirty/reset-defaults transitions verified with real clicks
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Sprint 2: settings redesign + chart auto-update

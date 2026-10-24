@@ -17,3 +17,8 @@
 #filters .field .choice-trigger { min-height: 30px; padding: 4px 14px; border-radius: 999px; background: var(--surface); }
 .filter-actions { padding-top: 0; min-width: 0; }
 .filter-apply { min-width: 104px; min-height: 30px; padding: 5px 16px; }
+
+/* Reset lives beside Apply in the actions row; both go quiet when clean. */
+.filter-actions .filter-reset { min-height: 30px; padding: 5px 14px; font-size: var(--type-control); border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); }
+.filter-actions .filter-reset:hover:not(:disabled) { background: var(--surface); color: var(--text); }
+.filter-actions .filter-reset:disabled { opacity: 1; color: #7f8290; cursor: default; }

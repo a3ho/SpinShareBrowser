@@ -79,9 +79,13 @@ vm.runInContext([
 function checkCachedSearchAvailable() {
   api.syncFilters();
   api.syncSearchControls();
-  for (const id of ['difficulty-fields', 'date-fields', 'apply-filters', 'local-search', 'search-submit', 'search-clear']) {
+  for (const id of ['difficulty-fields', 'date-fields', 'local-search', 'search-submit', 'search-clear']) {
     assert.equal(node(id).disabled, false, `${id} must remain usable while saved data is current`);
   }
+  // A clean, ready form has nothing to apply: the apply and reset actions go
+  // quiet until the criteria change (2026-10-24 owner directive).
+  assert.equal(node('apply-filters').disabled, true, 'apply must be quiet while the form is clean and ready');
+  assert.equal(node('reset-filters').disabled, true, 'reset must be quiet while the form matches the applied defaults');
   assert.equal(node('refresh-data').disabled, false, 'Refresh list can reuse data during the server interval');
 }
 function checkNoCountdown() {
