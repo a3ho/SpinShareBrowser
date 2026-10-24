@@ -644,7 +644,6 @@ html.tag-viewport-update { overflow-anchor: none; }
 .language-feedback { position: fixed; top: calc(var(--top) + 10px); right: 18px; z-index: 45; max-width: min(440px, calc(100vw - 36px)); padding: 12px 15px; background: #3c2933; border-radius: 10px; color: #ffd3e8; font-size: var(--type-control); line-height: var(--leading-body); box-shadow: 0 8px 24px #0005; }
 .language-feedback button { margin-top: 8px; padding: 5px 9px; background: #ffffff10; color: inherit; }
 .settings-language-feedback { position: static; max-width: none; margin-bottom: 16px; box-shadow: none; }
-.settings-field { display: grid; gap: 8px; font-size: var(--type-control); font-weight: var(--weight-medium); }
 .settings-path { display: block; min-width: 0; padding: 12px; background: #16171c; border-radius: 8px; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 400; line-height: 1.65; overflow-wrap: anywhere; word-break: break-word; color: #d3d6e0; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .settings-actions .button { white-space: normal; }
@@ -688,18 +687,15 @@ html.tag-viewport-update { overflow-anchor: none; }
 
 
 /* Settings dialog sections breathe; OK replaces the old quit affordance. */
-.settings-language { margin: 14px 0 6px; }
-.settings-close-options { margin: 14px 0 4px; }
-.settings-field { margin-top: 16px; }
-.settings-data-field { margin-top: 22px; }
-.settings-switch { display: flex; align-items: center; gap: 9px; margin-top: 8px; cursor: pointer; }
-.settings-switch input { accent-color: var(--pink); width: 18px; height: 18px; }
-.settings-data-field { margin-top: 22px; }
-.settings-account-field { margin-top: 22px; }
 .settings-actions { margin-top: 10px; }
 .settings-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }
 .settings-ok { min-width: 96px; }
-.settings-field-heading { display: flex; align-items: center; gap: 6px; font-weight: var(--weight-medium); }
+/* Settings: natural vertical rhythm — spacing comes from section semantics, not ad-hoc margins. */
+.settings-field { display: grid; gap: 8px; font-size: var(--type-control); font-weight: var(--weight-medium); margin-top: 20px; }
+.settings-field-heading { display: flex; align-items: center; gap: 6px; }
+.settings-switch { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.settings-switch input { accent-color: var(--pink); width: 18px; height: 18px; }
+.settings-actions { margin-top: 10px; }
 /* Queue and feedback motion: one small, anchored dock. */
 .app-activity { position: fixed; left: 28px; right: 28px; bottom: 18px; z-index: 40; max-width: 760px; margin: 0 auto; padding: 12px 18px; background: #30303a; border: 0; border-radius: 12px; color: #e8eaf1; font-size: var(--type-control); line-height: var(--leading-ui); box-shadow: 0 10px 36px #0008; }
 .app-activity.is-exiting { background: #3d2d39; }
