@@ -591,3 +591,32 @@ N/A
 - Task 10b: interaction-components (P0)
 - Task 10c: review-layout (P1)
 - Task 10d: release-gate (P1)
+
+---
+
+## Session 20: Quality doctrine implementation (tasks 10a-10d)
+
+**Date**: 2026-10-24
+**Tasks**: 10-24-window-regions-engine, 10-24-interaction-components, 10-24-review-layout, 10-24-release-gate
+**Branch**: `main`
+
+### Summary
+All 4 follow-up tasks from the quality doctrine completed. 10a: maximized window regions fixed with DPI-tolerant viewport check + delayed frontend re-publish; unified popover engine created (popover-engine.js) replacing 3 hand-written position functions across account/notifications/playlist-picker (with rAF tracking, hidden-page guard, topbar-anchor guard, grow animation, forced reflow); login window improved with 2s fast-poll detection. 10b: settings switch standardized to plain accent-color checkbox with single change listener (removed double-trigger); chart auto-update renamed to "谱面自动更新" with help tooltip (P3 info hierarchy); playlist data preloaded immediately on login (P6 predictive loading). 10c: review layout improved — inline mode gets head/body separation with subtle border, pinned mode gets card-like rounded separation. 10d: release gate checklist created (spec/guides/release-gate.md) with state matrix, visual walkthrough list, functional checks, and the 5-step self-review protocol.
+
+### Git Commits
+| Hash | Message |
+|------|---------|
+| 3c1dcf0 | feat: window regions maximize fix, unified popover engine, improved login UX |
+| 8429912 | fix: settings switch standard component, playlist preload, auto-update tooltip, filter button labels |
+| a6e731b | fix: remove terminal stop from auto-update tooltip locale |
+| 529bc75 | fix: improved review layout separation in inline and pinned modes |
+
+### Testing
+- [OK] 213 Python + all Node tests green throughout
+
+### Status
+[OK] **All 4 tasks completed**
+
+### Next Steps
+- Build 2.3.2 installer and hand to owner for verification
+- Apply the release gate checklist before delivery
