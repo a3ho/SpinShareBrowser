@@ -714,7 +714,7 @@
     "Apply": "Apply",
     "Chart auto-update": "Chart auto-update",
     "About chart auto-update": "About chart auto-update",
-    "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone.": "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone."
+    "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone.": "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1431,6 +1431,6 @@
     "Apply": "应用",
     "Chart auto-update": "谱面自动更新",
     "About chart auto-update": "关于谱面自动更新",
-    "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone.": "当已安装谱面的本地内容与云端最新版本不同时，自动更新本地谱面。手动修改过的谱面不会被触碰。已从 spinsha.re 下架的谱面保持原样。"
+    "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone.": "当已安装谱面的本地内容与云端最新版本不同时，自动更新本地谱面。手动修改过的谱面不会被触碰。已从 spinsha.re 下架的谱面保持原样"
   }
 }
