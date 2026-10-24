@@ -654,3 +654,15 @@ repeated-pitfalls.md 新增 #7-#11 并修正 #6（UA popover 劫持、冻结 APP
 
 ### 状态
 代码完成待提交；2.3.4 构建到 dist/ 进行中。
+
+## 2026-10-25（晚）— 2.3.4 正式发布（glm）
+
+网络恢复后走完发布流程：
+
+- **发布检查单补课**：browser_smoke 自音量功能落地后就没再跑过——冒烟夹具配置缺 `playerVolume` → `audio.volume=undefined` → 整个启动脚本崩溃（真机永不触发，因服务端始终下发该字段）。修了双保险：前端缺省回退到 1（format-covers.js），夹具补齐 playerVolume/autoUpdateCharts/session 与真实配置同形。修后 5 场景全过。installer_cancel_smoke 4 场景（en/zh × cancel/retry，私有桌面）全过。
+- **正式构建**：dist/ 四件套，purpose=release，commit c6d4f052，哈希核对一致。
+- **发布**：push main（57 提交）+ tag v2.3.4 → GitHub Release（双语 CHANGELOG 条目）→ 公开附件哈希逐一核对 MATCH → 按只留最新政策删除 v2.1.1 Release+远端 tag+本地 tag。线上现仅 v2.3.4。
+- 教训（已入 pitfalls #11 精神）：**冒烟脚本本身也要随功能演进维护**——发布检查单里躺着没人跑的冒烟=没有防线。
+
+### 状态
+[OK] 2.3.4 已正式发布并完成公开核对。dist/ 留有本地安装包（含旧版本历史文件，未动）。
