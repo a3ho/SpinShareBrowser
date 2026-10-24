@@ -97,7 +97,7 @@ function setupRuntime(){
   setupWindowControls();
   setupAppDialogs();setupCloseHelp();setupCatalogSyncUI();setupActivity();setupScrolling();
   uiText($('install-directory'),INSTALL_DIRECTORY);$('settings-open').hidden=false;uiText($('settings-version'),'SpinShare Browser '+APP_CONFIG.version);
-  $('settings-open').addEventListener('click',openSettings);$('settings-close').addEventListener('click',closeSettings);
+  $('settings-open').addEventListener('click',openSettings);$('settings-ok').addEventListener('click',closeSettings);
   $('settings-panel').addEventListener('cancel',event=>{event.preventDefault();if(!dismissCloseHelp($('settings-panel')))closeSettings();});
   $('settings-select').addEventListener('click',()=>selectDirectory());
   refreshInstallDirectoryConfirmation();
@@ -108,5 +108,5 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();
+  refreshSettingsControls();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();
 }

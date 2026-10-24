@@ -3,12 +3,9 @@ function refreshSettingsControls(){
   const locked=Boolean(settingsBusy)||appExiting,active=hasActiveInstallations();
   $('settings-default').disabled=locked||!settingsLoaded||active||INSTALL_DIRECTORY===DEFAULT_INSTALL_DIRECTORY;
   $('settings-select').disabled=locked||!settingsLoaded||active;
-  $('settings-exit').disabled=Boolean(settingsBusy)||(appExiting&&!exitFailed);
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.disabled=locked||!settingsLoaded;
-  for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=languageBusy||appExiting;
-  $('settings-close').disabled=settingsBusy==='saving'||settingsBusy==='shutdown';
+  for(const id of ['settings-language','settings-language-retry'])$(id).disabled=languageBusy||appExiting;
   if(!settingsBusy)loadingIndicator($('settings-message'),false);
-  loadingIndicator($('settings-exit'),settingsBusy==='shutdown');
 }
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){

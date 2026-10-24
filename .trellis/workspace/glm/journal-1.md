@@ -472,3 +472,34 @@ Owner-directed filter interaction overhaul. Reset filters moved from the collaps
 ### Next Steps
 
 - Sprint 2: settings redesign + chart auto-update
+
+---
+
+## Session 16: Settings & topbar cleanup (sprint 2, task 3/5)
+
+**Date**: 2026-10-24
+**Task**: 10-24-settings-topbar-cleanup
+**Branch**: `main`
+
+### Summary
+
+Settings dialog redesigned per owner directives: header X button removed; bottom-right Quit app replaced by an OK button that closes the dialog (same closeSettings path with the closing animation and settingsBusy guards); section spacing fixed (directory vs account rows now breathe via per-section margins); topbar language selector removed entirely (language lives only in Settings, wired through the settings-language select). Dangling references cleaned in i18n.js/settings.js/window-regions.js (ui-language lists trimmed, exit binding removed). The OK button's closing animation stalls in a backgrounded IAB tab (Web Animations pause off-screen — same limitation as the old X, documented; cannot occur in the real always-visible desktop window). DOM verification: no topbar language, no X, no exit, OK present and bound, dialog opens with new spacing. Screenshot surface was unavailable in this session (timed out on all attempts); visual confirmation deferred to the owner's next walkthrough.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | fix: settings dialog OK action, no X/quit, section spacing, topbar language removed |
+
+### Testing
+
+- [OK] test_focus_modality select list updated; full suite 203 OK; Node all green
+- [OK] live DOM verification of all removals/additions; OK closes via the standard animation path
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Task 4/5: chart auto-update engine + settings toggle

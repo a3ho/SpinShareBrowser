@@ -55,7 +55,7 @@ assert.match(html, /documentElement\.dataset\.inputModality==='keyboard'&&button
   'Help popovers retain pointer focus only for genuine keyboard navigation');
 assert.match(html, /documentElement\.dataset\.inputModality==='keyboard'&&focused\?\.matches\(':focus-visible'\)/,
   'Tag popovers retain pointer focus only for genuine keyboard navigation');
-for (const id of ['ui-language', 'date-preset', 'installation-filter', 'sort', 'sort-direction', 'page-size', 'page-size-bottom', 'settings-language']) {
+for (const id of ['date-preset', 'installation-filter', 'sort', 'sort-direction', 'page-size', 'page-size-bottom', 'settings-language']) {
   assert.match(html, new RegExp(`<select id="${id}"`), `Global select policy covers #${id}`);
 }
 for (const className of ['calendar-year', 'calendar-month']) {

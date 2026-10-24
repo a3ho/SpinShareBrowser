@@ -675,6 +675,15 @@ html.tag-viewport-update { overflow-anchor: none; }
 .close-help strong { display: block; margin-bottom: 3px; color: var(--text); font-weight: var(--weight-semibold); }
 .close-help .close-help-task { padding-top: 10px; border-top: 1px solid var(--line); color: #e5c0d4; }
 
+
+/* Settings dialog sections breathe; OK replaces the old quit affordance. */
+.settings-language { margin: 14px 0 6px; }
+.settings-close-options { margin: 14px 0 4px; }
+.settings-field { margin-top: 16px; }
+.settings-account-field { margin-top: 22px; }
+.settings-actions { margin-top: 10px; }
+.settings-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }
+.settings-ok { min-width: 96px; }
 /* Queue and feedback motion: one small, anchored dock. */
 .app-activity { position: fixed; left: 28px; right: 28px; bottom: 18px; z-index: 40; max-width: 760px; margin: 0 auto; padding: 12px 18px; background: #30303a; border: 0; border-radius: 12px; color: #e8eaf1; font-size: var(--type-control); line-height: var(--leading-ui); box-shadow: 0 10px 36px #0008; }
 .app-activity.is-exiting { background: #3d2d39; }

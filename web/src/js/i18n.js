@@ -17,24 +17,24 @@ function setUILanguage(language){
   if(!['zh-CN','en'].includes(language))return;
   uiLanguage=language;document.documentElement.lang=language;
   for(const node of document.querySelectorAll('[data-ui-text],[data-ui-attributes]')){const binding=uiBindings.get(node);if(!binding)continue;if(binding.text!==undefined)node.textContent=renderUI(binding.text);for(const [name,value] of binding.attributes)node.setAttribute(name,renderUI(value));}
-  for(const id of ['ui-language','settings-language'])$(id).value=language;
+  $('settings-language').value=language;
   if(typeof syncChoiceMenus==='function')syncChoiceMenus(true);syncTagControls();scheduleChartTagsRefresh();scheduleChartDescriptions();syncCatalogRefresh();renderDateCalendar();if(typeof syncPreviewInterface==='function')syncPreviewInterface();
 }
 async function saveLanguage(language=uiLanguage){
   if(languageBusy||appExiting)return;
   if(!['zh-CN','en'].includes(language))return;
   setUILanguage(language);for(const prefix of ['language','settings-language'])$(prefix+'-feedback').hidden=true;
-  languageBusy=true;for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=true;
+  languageBusy=true;for(const id of ['settings-language','settings-language-retry'])$(id).disabled=true;
   languageFeedback(m('Saving...'),false,true);let saved=false;
   try{const result=await installerRequest('POST','/v1/language',{language});if(result?.language!==language)throw uiError(m('The language could not be saved. Please retry.'));saved=true;}
   catch(error){languageFeedback(m('Could not save the language. Please retry.')+'\n'+errorText(error),true);}
-  finally{languageBusy=false;for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=appExiting;for(const prefix of ['language','settings-language']){loadingIndicator($(prefix+'-message'),false);if(saved)$(prefix+'-feedback').hidden=true;}}
+  finally{languageBusy=false;for(const id of ['settings-language','settings-language-retry'])$(id).disabled=appExiting;for(const prefix of ['language','settings-language']){loadingIndicator($(prefix+'-message'),false);if(saved)$(prefix+'-feedback').hidden=true;}}
 }
 function languageFeedback(message,retry=false,loading=false){for(const prefix of ['language','settings-language']){uiText($(prefix+'-message'),message);loadingIndicator($(prefix+'-message'),loading);$(prefix+'-feedback').hidden=false;$(prefix+'-retry').hidden=!retry;}}
 function setupLanguage(){
   for(const node of document.querySelectorAll('[data-ui-static]'))uiText(node,m(node.getAttribute('data-ui-static')));
   for(const name of ['aria-label','alt','placeholder'])for(const node of document.querySelectorAll('[data-ui-attr-'+name+']'))uiAttr(node,name,m(node.getAttribute('data-ui-attr-'+name)));
   setUILanguage(APP_CONFIG.language);
-  for(const id of ['ui-language','settings-language'])$(id).addEventListener('change',event=>saveLanguage(event.target.value));
+  $('settings-language').addEventListener('change',event=>saveLanguage(event.target.value));
   for(const id of ['language-retry','settings-language-retry'])$(id).addEventListener('click',()=>saveLanguage());
 }

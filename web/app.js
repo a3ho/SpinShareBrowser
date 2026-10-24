@@ -25,25 +25,25 @@ function setUILanguage(language){
   if(!['zh-CN','en'].includes(language))return;
   uiLanguage=language;document.documentElement.lang=language;
   for(const node of document.querySelectorAll('[data-ui-text],[data-ui-attributes]')){const binding=uiBindings.get(node);if(!binding)continue;if(binding.text!==undefined)node.textContent=renderUI(binding.text);for(const [name,value] of binding.attributes)node.setAttribute(name,renderUI(value));}
-  for(const id of ['ui-language','settings-language'])$(id).value=language;
+  $('settings-language').value=language;
   if(typeof syncChoiceMenus==='function')syncChoiceMenus(true);syncTagControls();scheduleChartTagsRefresh();scheduleChartDescriptions();syncCatalogRefresh();renderDateCalendar();if(typeof syncPreviewInterface==='function')syncPreviewInterface();
 }
 async function saveLanguage(language=uiLanguage){
   if(languageBusy||appExiting)return;
   if(!['zh-CN','en'].includes(language))return;
   setUILanguage(language);for(const prefix of ['language','settings-language'])$(prefix+'-feedback').hidden=true;
-  languageBusy=true;for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=true;
+  languageBusy=true;for(const id of ['settings-language','settings-language-retry'])$(id).disabled=true;
   languageFeedback(m('Saving...'),false,true);let saved=false;
   try{const result=await installerRequest('POST','/v1/language',{language});if(result?.language!==language)throw uiError(m('The language could not be saved. Please retry.'));saved=true;}
   catch(error){languageFeedback(m('Could not save the language. Please retry.')+'\n'+errorText(error),true);}
-  finally{languageBusy=false;for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=appExiting;for(const prefix of ['language','settings-language']){loadingIndicator($(prefix+'-message'),false);if(saved)$(prefix+'-feedback').hidden=true;}}
+  finally{languageBusy=false;for(const id of ['settings-language','settings-language-retry'])$(id).disabled=appExiting;for(const prefix of ['language','settings-language']){loadingIndicator($(prefix+'-message'),false);if(saved)$(prefix+'-feedback').hidden=true;}}
 }
 function languageFeedback(message,retry=false,loading=false){for(const prefix of ['language','settings-language']){uiText($(prefix+'-message'),message);loadingIndicator($(prefix+'-message'),loading);$(prefix+'-feedback').hidden=false;$(prefix+'-retry').hidden=!retry;}}
 function setupLanguage(){
   for(const node of document.querySelectorAll('[data-ui-static]'))uiText(node,m(node.getAttribute('data-ui-static')));
   for(const name of ['aria-label','alt','placeholder'])for(const node of document.querySelectorAll('[data-ui-attr-'+name+']'))uiAttr(node,name,m(node.getAttribute('data-ui-attr-'+name)));
   setUILanguage(APP_CONFIG.language);
-  for(const id of ['ui-language','settings-language'])$(id).addEventListener('change',event=>saveLanguage(event.target.value));
+  $('settings-language').addEventListener('change',event=>saveLanguage(event.target.value));
   for(const id of ['language-retry','settings-language-retry'])$(id).addEventListener('click',()=>saveLanguage());
 }
 const $ = id => document.getElementById(id);
@@ -195,12 +195,9 @@ function refreshSettingsControls(){
   const locked=Boolean(settingsBusy)||appExiting,active=hasActiveInstallations();
   $('settings-default').disabled=locked||!settingsLoaded||active||INSTALL_DIRECTORY===DEFAULT_INSTALL_DIRECTORY;
   $('settings-select').disabled=locked||!settingsLoaded||active;
-  $('settings-exit').disabled=Boolean(settingsBusy)||(appExiting&&!exitFailed);
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.disabled=locked||!settingsLoaded;
-  for(const id of ['ui-language','settings-language','language-retry','settings-language-retry'])$(id).disabled=languageBusy||appExiting;
-  $('settings-close').disabled=settingsBusy==='saving'||settingsBusy==='shutdown';
+  for(const id of ['settings-language','settings-language-retry'])$(id).disabled=languageBusy||appExiting;
   if(!settingsBusy)loadingIndicator($('settings-message'),false);
-  loadingIndicator($('settings-exit'),settingsBusy==='shutdown');
 }
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){
@@ -1490,7 +1487,7 @@ function setupRuntime(){
   setupWindowControls();
   setupAppDialogs();setupCloseHelp();setupCatalogSyncUI();setupActivity();setupScrolling();
   uiText($('install-directory'),INSTALL_DIRECTORY);$('settings-open').hidden=false;uiText($('settings-version'),'SpinShare Browser '+APP_CONFIG.version);
-  $('settings-open').addEventListener('click',openSettings);$('settings-close').addEventListener('click',closeSettings);
+  $('settings-open').addEventListener('click',openSettings);$('settings-ok').addEventListener('click',closeSettings);
   $('settings-panel').addEventListener('cancel',event=>{event.preventDefault();if(!dismissCloseHelp($('settings-panel')))closeSettings();});
   $('settings-select').addEventListener('click',()=>selectDirectory());
   refreshInstallDirectoryConfirmation();
@@ -1501,7 +1498,7 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();
+  refreshSettingsControls();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();
 }
 function readDifficulty(){
   const min=Number($('min').value),max=Number($('max').value),diffs=Array.from(document.querySelectorAll('input[name="diff"]:checked'),el=>Number(el.value));
