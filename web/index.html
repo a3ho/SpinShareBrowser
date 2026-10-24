@@ -307,14 +307,19 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <div class="settings-actions"><button id="upload-submit" class="button primary" type="button" disabled><span data-ui-static="Upload">Upload</span></button></div>
 </dialog>
 <div id="notifications-popover" popover="manual" role="dialog" class="notifications-popover" aria-labelledby="notifications-heading">
+  <div class="notifications-inner">
   <div class="notifications-header"><span id="notifications-heading" class="notifications-heading" data-ui-static="Notifications">Notifications</span><button id="notifications-clear-all" class="notifications-clear-all" type="button"><span data-ui-static="Clear all">Clear all</span></button></div>
   <div id="notifications-list" class="notifications-list" role="list"></div>
+  </div>
 </div>
 <div id="playlist-picker" popover="manual" role="dialog" class="playlist-picker" aria-labelledby="playlist-picker-title">
+  <div class="playlist-picker-inner">
   <div class="playlist-picker-heading" id="playlist-picker-title"><span data-ui-static="Add to playlist">Add to playlist</span></div>
   <div id="playlist-picker-list" class="playlist-picker-list" role="group" aria-labelledby="playlist-picker-title"></div>
+  <p id="playlist-picker-status" class="playlist-picker-status" role="status" aria-live="polite" hidden></p>
   <form id="playlist-picker-new" class="playlist-picker-new" hidden><label class="sr-only" for="playlist-picker-new-title" data-ui-static="New playlist name">New playlist name</label><input id="playlist-picker-new-title" type="text" maxlength="64" autocomplete="off" placeholder="New playlist name" data-ui-attr-placeholder="New playlist name"><button id="playlist-picker-create" class="button secondary" type="submit"><span data-ui-static="Create playlist">Create playlist</span></button></form>
   <div class="playlist-picker-actions"><button id="playlist-picker-new-toggle" class="button secondary" type="button"><span data-ui-static="New playlist">New playlist</span></button><button id="playlist-picker-save" class="button primary" type="button"><span data-ui-static="Save">Save</span></button></div>
+  </div>
 </div>
 <dialog id="install-directory-dialog" class="settings-panel install-directory-dialog" aria-labelledby="install-directory-title" aria-describedby="install-directory-error">
   <div class="settings-header">

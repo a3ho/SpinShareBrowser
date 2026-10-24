@@ -1,0 +1,29 @@
+{
+  "id": "chart-auto-update",
+  "name": "chart-auto-update",
+  "title": "已安装谱面自动更新为云端最新",
+  "description": "已安装谱面版本自动更新：目录刷新后比对安装时哈希 vs 目录哈希，云端有新版（安装哈希≠目录哈希）的谱面自动重装为最新；用户本地修改（安装哈希=目录哈希但文件不同）永不触碰；串行+间隔+退避；开关在设置，默认关；红线1修订（用户此请求即裁定）随实现记录",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "9e",
+    "depends": "settings-topbar-cleanup"
+  }
+}

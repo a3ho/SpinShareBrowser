@@ -1,0 +1,29 @@
+{
+  "id": "interaction-logic",
+  "name": "interaction-logic",
+  "title": "交互逻辑全面审计与筛选区修复",
+  "description": "全面交互逻辑审计与修复：重置筛选移至筛选谱面旁；筛选谱面按钮改为脏状态驱动（无未应用修改时禁用）；系统性梳理全部按钮/控件的可用性、脏状态与反馈时序",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "9d",
+    "depends": "none"
+  }
+}

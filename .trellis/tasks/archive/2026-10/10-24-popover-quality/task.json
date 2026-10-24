@@ -1,0 +1,29 @@
+{
+  "id": "popover-quality",
+  "name": "popover-quality",
+  "title": "浮层与卡片交互质量修复",
+  "description": "收藏按钮移入卡片操作区；收藏浮层与通知浮窗重做为锚定跟随式（对齐评论抽屉/标签浮层的定位、动效与焦点管理语言）；收藏浮层即时打开（缓存先行、后台刷新）",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": "2026-10-24",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "9a",
+    "depends": "none"
+  }
+}

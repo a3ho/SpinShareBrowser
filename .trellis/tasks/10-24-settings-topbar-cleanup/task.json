@@ -1,0 +1,29 @@
+{
+  "id": "settings-topbar-cleanup",
+  "name": "settings-topbar-cleanup",
+  "title": "设置与顶栏精简",
+  "description": "设置面板：删除右下角完全退出、右上角X移除、右下角改为OK关闭、目录行与账户行间距修复；顶栏移除语言选择器（仅设置保留）",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "glm",
+  "assignee": "glm",
+  "createdAt": "2026-10-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "9b",
+    "depends": "none"
+  }
+}

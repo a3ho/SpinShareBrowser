@@ -689,7 +689,8 @@
     "None": "None",
     "Public": "Public",
     "Required DLC": "Required DLC",
-    "\nDownloading again will replace files with the same name.": "\nDownloading again will replace files with the same name"
+    "\nDownloading again will replace files with the same name.": "\nDownloading again will replace files with the same name",
+    "Checking your playlists…": "Checking your playlists…"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1381,6 +1382,7 @@
     "None": "无",
     "Public": "公开",
     "Required DLC": "需要 DLC",
-    "\nDownloading again will replace files with the same name.": "\n重新下载会覆盖同名文件"
+    "\nDownloading again will replace files with the same name.": "\n重新下载会覆盖同名文件",
+    "Checking your playlists…": "正在核对你的歌单…"
   }
 }

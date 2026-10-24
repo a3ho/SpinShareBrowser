@@ -31,8 +31,12 @@
 .playlist-chip-close:hover { background: var(--surface-hover); color: var(--text); }
 .playlist-chip-close .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
-.playlist-picker { position: fixed; z-index: 60; width: min(320px, calc(100vw - 24px)); padding: 14px; background: #2a2b33; border: 0; border-radius: 12px; box-shadow: 0 14px 40px #0009; color: var(--text); font: inherit; }
-.playlist-picker::backdrop { background: transparent; }
+.playlist-picker { position: fixed; inset: auto; z-index: 60; width: min(320px, calc(100vw - 24px)); padding: 3px 0; border: 0; background: transparent; color: var(--text); font: inherit; }
+.playlist-picker[popover] { margin: 0; }
+.playlist-picker[popover]:popover-open { display: block; animation: playlist-picker-in var(--motion-panel, 220ms) var(--ease-out, ease-out); }
+.playlist-picker[popover]::backdrop { background: transparent; }
+@keyframes playlist-picker-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+.playlist-picker-inner { padding: 14px; background: #25262e; border-radius: 12px; box-shadow: 0 16px 44px #0009; }
 .playlist-picker-heading { font-weight: var(--weight-medium); margin-bottom: 10px; }
 .playlist-picker-list { display: grid; gap: 2px; max-height: min(280px, 40vh); overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
 .playlist-picker-option { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
@@ -40,15 +44,17 @@
 .playlist-picker-option input { accent-color: var(--pink); width: 15px; height: 15px; flex: none; }
 .playlist-picker-name { overflow-wrap: anywhere; }
 .playlist-picker-empty { color: var(--muted); font-size: var(--type-meta); padding: 8px 2px; }
+.playlist-picker-status { margin: 0 0 8px; color: var(--muted); font-size: var(--type-meta); }
 .playlist-picker-new { display: flex; gap: 8px; margin-top: 10px; }
 .playlist-picker-new input { flex: 1; min-width: 0; padding: 8px 10px; background: #16171c; border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-size: var(--type-control); }
 .playlist-picker-new input:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; }
 .playlist-picker-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; }
 .playlist-picker-error { margin: 10px 0 0; color: var(--error); font-size: var(--type-meta); }
 
-.metric-playlist .icon { fill: none; }
-.metric-playlist.is-saved .icon { fill: var(--pink); }
-.metric-playlist.is-saved { color: var(--pink); }
+.playlist-save-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: none; min-height: 34px; padding: 8px 13px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--text-secondary); font-size: var(--type-control); font-weight: var(--weight-medium); white-space: nowrap; }
+.playlist-save-button:hover { background: var(--surface); color: var(--text); }
+.playlist-save-button .icon { width: 15px; height: 15px; }
+.playlist-save-button.is-saved { color: var(--pink); border-color: #eb5ba140; }
 
 /* Playlist sync dialog: summary, per-song status list, actions. */
 .playlist-sync-summary { display: grid; gap: 4px; margin: 12px 0 10px; }
@@ -65,8 +71,11 @@
 .notifications-toggle { color: var(--muted); position: relative; }
 .notifications-toggle:hover { color: var(--text); }
 .notifications-badge { position: absolute; top: 4px; right: 2px; width: 8px; height: 8px; border-radius: 999px; background: var(--pink); }
-.notifications-popover { position: fixed; z-index: 60; width: min(360px, calc(100vw - 24px)); padding: 12px; background: #2a2b33; border: 0; border-radius: 12px; box-shadow: 0 14px 40px #0009; color: var(--text); font: inherit; }
-.notifications-popover::backdrop { background: transparent; }
+.notifications-popover { position: fixed; inset: auto; z-index: 60; width: min(360px, calc(100vw - 24px)); padding: 3px 0; border: 0; background: transparent; color: var(--text); font: inherit; }
+.notifications-popover[popover] { margin: 0; }
+.notifications-popover[popover]:popover-open { display: block; animation: playlist-picker-in var(--motion-panel, 220ms) var(--ease-out, ease-out); }
+.notifications-popover[popover]::backdrop { background: transparent; }
+.notifications-inner { padding: 12px; background: #25262e; border-radius: 12px; box-shadow: 0 16px 44px #0009; }
 .notifications-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .notifications-heading { font-weight: var(--weight-medium); }
 .notifications-clear-all { color: var(--muted); }

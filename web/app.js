@@ -630,55 +630,103 @@ function renderPlaylistFilterBar(){
   close.addEventListener('click',clearPlaylistFilter);
   chip.append(iconNode,label,close);bar.append(chip);
 }
-async function openPlaylistPicker(row,anchor){
+function openPlaylistPicker(row,anchor){
   if(!playlistSessionReady())return;
+  // Open instantly with whatever is cached; membership is confirmed in the
+  // background and the checkboxes update in place.
+  const known=playlistMembershipIndex.get(row[0]);
+  showPlaylistPicker(anchor,row,known?new Set(known):new Set(),myPlaylists===null);
+  void refreshPickerData(row[0]);
+}
+async function refreshPickerData(songId){
   await fetchMyPlaylists(true);
-  if(!Array.isArray(myPlaylists)||!myPlaylists.length){showPlaylistPicker(anchor,row,[]);return;}
-  let membership=new Set();
+  if(!playlistPickerState||playlistPickerState.songId!==songId)return;
+  let membership=new Set(),failed=false;
   try{
     const details=await Promise.all(myPlaylists.map(entry=>playlistDetailCached(entry.id)));
-    membership=new Set(myPlaylists.filter((entry,index)=>details[index].songIds.includes(row[0])).map(entry=>entry.id));
-  }catch(error){/* open with unknown state; saving still sends the desired set */}
-  showPlaylistPicker(anchor,row,membership);
+    membership=new Set(myPlaylists.filter((entry,index)=>details[index].songIds.includes(songId)).map(entry=>entry.id));
+  }catch(error){failed=true;}
+  if(!playlistPickerState||playlistPickerState.songId!==songId)return;
+  playlistPickerState.loading=false;
+  if(!failed){
+    for(const entry of myPlaylists){
+      if(!playlistPickerState.touched.has(entry.id))playlistPickerState.checks.set(entry.id,membership.has(entry.id));
+    }
+  }
+  renderPlaylistPicker();
+  positionPlaylistPicker();
 }
-function showPlaylistPicker(anchor,row,membership){
+function showPlaylistPicker(anchor,row,membership,loading){
   playlistPickerAnchor=anchor;
-  playlistPickerState={songId:row[0],title:row[1],checks:new Map((myPlaylists||[]).map(entry=>[entry.id,membership.has(entry.id)]))};
+  playlistPickerState={songId:row[0],title:row[1],loading:Boolean(loading),
+    touched:new Set(),checks:new Map((myPlaylists||[]).map(entry=>[entry.id,membership.has(entry.id)]))};
   playlistPickerNewVisible=false;
   renderPlaylistPicker();
   const picker=$('playlist-picker');
   picker.showPopover();
   positionPlaylistPicker();
+  schedulePickerFrame();
   picker.querySelector('.playlist-picker-option input, .playlist-picker-new input, #playlist-picker-new-toggle')?.focus({preventScroll:true});
 }
 function renderPlaylistPicker(){
   const list=$('playlist-picker-list');list.replaceChildren();
   const state=playlistPickerState;
   if(!state)return;
-  if(!myPlaylists||!myPlaylists.length){
+  const status=$('playlist-picker-status');
+  if(status){
+    const needsConfirm=state.loading&&Array.isArray(myPlaylists)&&myPlaylists.length>0;
+    uiText(status,needsConfirm?m('Checking your playlists…'):'');
+    status.hidden=!needsConfirm;
+  }
+  if(!myPlaylists){
+    const empty=element('p',undefined,'playlist-picker-empty');uiText(empty,m('Loading playlists…'));list.append(empty);
+  }else if(!myPlaylists.length){
     const empty=element('p',undefined,'playlist-picker-empty');uiText(empty,m('No playlists yet'));list.append(empty);
   }
   for(const entry of myPlaylists||[]){
     const label=element('label',undefined,'playlist-picker-option');
     const box=element('input');box.type='checkbox';box.checked=state.checks.get(entry.id)===true;
-    box.addEventListener('change',()=>state.checks.set(entry.id,box.checked));
+    box.addEventListener('change',()=>{state.checks.set(entry.id,box.checked);state.touched.add(entry.id);renderPlaylistPicker();});
     const name=element('span',entry.title,'playlist-picker-name');
     label.append(box,name);list.append(label);
   }
   $('playlist-picker-new').hidden=!playlistPickerNewVisible;
-  $('playlist-picker-save').disabled=!myPlaylists||!myPlaylists.length;
+  const hasList=Array.isArray(myPlaylists)&&myPlaylists.length>0;
+  const confirmed=!state.loading||state.touched.size>0;
+  $('playlist-picker-save').disabled=!hasList||!confirmed;
 }
+let playlistPickerFrame=null;
 function positionPlaylistPicker(){
   const picker=$('playlist-picker'),anchor=playlistPickerAnchor;
-  if(!picker||!anchor||!anchor.isConnected)return;
+  if(!picker||!anchor)return;
+  if(typeof picker.matches==='function'&&!picker.matches(':popover-open'))return;
+  // A hidden page reports a zero viewport; that is not "anchor out of view".
+  // The rAF loop repositions once the page is visible again.
+  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
+  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
   const rect=anchor.getBoundingClientRect();
-  picker.style.visibility='hidden';picker.style.left='0px';picker.style.top='0px';
-  const width=picker.offsetWidth||300;
-  const left=Math.max(8,Math.min(rect.left,innerWidth-width-8));
-  const top=rect.bottom+8+ (picker.offsetHeight||0)>innerHeight-8?Math.max(8,rect.top-(picker.offsetHeight||240)-8):rect.bottom+8;
-  picker.style.left=left+'px';picker.style.top=top+'px';picker.style.visibility='';
+  // Topbar anchors (the bell) legitimately live above the content top; only a
+  // truly off-screen anchor dismisses.
+  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closePlaylistPicker();return;}
+  const width=picker.offsetWidth||300,height=picker.offsetHeight||220;
+  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
+  const below=rect.bottom+8+height<=innerHeight-12;
+  picker.style.left=left+'px';
+  picker.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
+  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
+  picker.style.transformOrigin=originX+'px '+(below?'top':'bottom');
+}
+function schedulePickerFrame(){
+  if(playlistPickerFrame!==null)return;
+  const step=()=>{
+    playlistPickerFrame=null;
+    positionPlaylistPicker();
+    if(playlistPickerState)playlistPickerFrame=requestAnimationFrame(step);
+  };
+  playlistPickerFrame=requestAnimationFrame(step);
 }
 function closePlaylistPicker(){
+  if(playlistPickerFrame!==null){cancelAnimationFrame(playlistPickerFrame);playlistPickerFrame=null;}
   const picker=$('playlist-picker');
   if(typeof picker.matches==='function'&&picker.matches(':popover-open')&&typeof picker.hidePopover==='function')picker.hidePopover();
   playlistPickerState=null;playlistPickerAnchor=null;
@@ -713,22 +761,22 @@ function refreshPlaylistButtons(){
   for(const view of cardViews.values()){
     const card=view.card;
     if(!card||typeof card.querySelector!=='function')continue;
-    let button=card.querySelector('.metric-playlist');
+    let button=card.querySelector('.playlist-save-button');
     if(connected&&!button){
-      const metrics=card.querySelector('.card-metrics');
-      if(!metrics)continue;
+      const group=card.querySelector('.card-action-buttons');
+      if(!group)continue;
       button=makePlaylistCardButton(view.row);
-      metrics.append(button);
+      group.append(button);
     }else if(!connected&&button&&typeof button.remove==='function'){button.remove();}
     if(button)button.classList.toggle('is-saved',playlistMembershipIndex.has(view.row[0]));
   }
 }
 let playlistMembershipIndex=new Map();
 function makePlaylistCardButton(row){
-  const button=element('button',undefined,'metric metric-playlist playlist-toggle');
+  const button=element('button',undefined,'playlist-save-button');
   button.type='button';
   uiAttr(button,'aria-label',m('Add to playlist')+': '+row[1]);
-  button.append(icon('playlist'),element('span',m('Add to playlist'),'metric-label'));
+  button.append(icon('playlist'),element('span',m('Add to playlist')));
   button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();openPlaylistPicker(row,button);});
   return button;
 }
@@ -1085,16 +1133,33 @@ async function clearAllNotificationsUI(){
   notificationsBusy=false;
 }
 function icon_(name){return icon(name);}
+let notificationsFrame=null;
 function positionNotificationsPopover(){
   const popover=$('notifications-popover'),anchor=notificationsAnchor;
-  if(!popover||!anchor||!anchor.isConnected)return;
+  if(!popover||!anchor)return;
+  if(typeof popover.matches==='function'&&!popover.matches(':popover-open'))return;
+  if(document.hidden||!innerHeight||!document.documentElement.clientHeight)return;
+  const bar=(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top'))||64)+8;
   const rect=anchor.getBoundingClientRect();
-  popover.style.visibility='hidden';popover.style.left='0px';popover.style.top='0px';
-  const width=popover.offsetWidth||320;
-  const left=Math.max(8,Math.min(rect.left,innerWidth-width-8));
-  const below=rect.bottom+8+(popover.offsetHeight||200);
-  const top=below>innerHeight-8?Math.max(8,rect.top-(popover.offsetHeight||200)-8):rect.bottom+8;
-  popover.style.left=left+'px';popover.style.top=top+'px';popover.style.visibility='';
+  // Topbar anchors (the bell) legitimately live above the content top; only a
+  // truly off-screen anchor dismisses.
+  if(!anchor.isConnected||rect.bottom<0||rect.top>innerHeight){closeNotificationsPopover();return;}
+  const width=popover.offsetWidth||320,height=popover.offsetHeight||200;
+  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
+  const below=rect.bottom+8+height<=innerHeight-12;
+  popover.style.left=left+'px';
+  popover.style.top=(below?rect.bottom+8:Math.max(bar,rect.top-height-8))+'px';
+  const originX=Math.max(16,Math.min(width-16,rect.left+rect.width/2-left));
+  popover.style.transformOrigin=originX+'px '+(below?'top':'bottom');
+}
+function scheduleNotificationsFrame(){
+  if(notificationsFrame!==null)return;
+  const step=()=>{
+    notificationsFrame=null;
+    positionNotificationsPopover();
+    if(typeof $('notifications-popover').matches==='function'&&$('notifications-popover').matches(':popover-open'))notificationsFrame=requestAnimationFrame(step);
+  };
+  notificationsFrame=requestAnimationFrame(step);
 }
 function openNotificationsPopover(anchor){
   if(!notificationsConnected())return;
@@ -1102,11 +1167,13 @@ function openNotificationsPopover(anchor){
   const popover=$('notifications-popover');
   popover.showPopover();
   positionNotificationsPopover();
+  scheduleNotificationsFrame();
   renderNotifications();
   void fetchNotifications();
   popover.querySelector('.notifications-row button, .notifications-empty')?.focus({preventScroll:true});
 }
 function closeNotificationsPopover(){
+  if(notificationsFrame!==null){cancelAnimationFrame(notificationsFrame);notificationsFrame=null;}
   const popover=$('notifications-popover');
   if(typeof popover.matches==='function'&&popover.matches(':popover-open')&&typeof popover.hidePopover==='function')popover.hidePopover();
 }

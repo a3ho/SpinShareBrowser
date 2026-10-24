@@ -410,3 +410,34 @@ Final phase shipped. src/upload.py (options parse from the upload page, streamin
 
 - Owner-supplied SRXD backup for the real upload E2E
 - Release 2.2.0 when the owner decides (versioning policy + README/CHANGELOG/DESIGN updates)
+
+---
+
+## Session 14: Popover quality overhaul (sprint 1, task 1/5)
+
+**Date**: 2026-10-24
+**Task**: 10-24-popover-quality
+**Branch**: `main`
+
+### Summary
+
+Owner-reported UX debt on the playlist picker and notifications popover fixed at the architectural level. Bookmark button moved from the metrics row into the card actions group (matching download/delete buttons, styled as an outline action). Picker rewritten: opens instantly from cache (~7ms measured, previously multi-second network wait), membership confirmed by a background refresh that updates checkboxes in place while preserving user toggles (touched-set), save disabled until membership is confirmed or the user acts. Both pickers rebuilt on the app's anchored-popover language: reading-popover surface quality (inner card #25262e, radius 12, shadow), tag-panel anchor following (rAF loop, viewport guard, flip above/below), grow-in animation from the anchor. Two latent guard bugs found and fixed live: hidden tabs report a zero viewport (guard must skip, not close) and topbar anchors legitimately sit above --top (off-screen check now 0, --top clamps position only). New regression tests: instant open, in-place refresh, toggle preservation; harness checklist extended (getComputedStyle/rAF/rect mocks).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | fix: anchored popover architecture for playlist picker and notifications |
+
+### Testing
+
+- [OK] test_playlists.cjs 8/8 (2 new: instant open + toggle preservation); full suite 203 OK; Node all green
+- [OK] live verification: 7ms open, options arrive in place, bell popover anchored with empty state; screenshot review
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Task 2/5: interaction-logic (filter area fixes + control audit)

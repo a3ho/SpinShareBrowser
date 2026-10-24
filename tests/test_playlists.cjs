@@ -65,6 +65,8 @@ class Element {
     return all ? found : found[0] || null;
   }
   matches(selector) { return selector.startsWith('.') ? this.classList.contains(selector.slice(1)) : false; }
+  getBoundingClientRect() { return { left: 400, right: 480, top: 200, bottom: 226, width: 80, height: 26 }; }
+  get isConnected() { return true; }
   addEventListener(name, callback) { this.events.set(name, callback); }
   emit(name, event = {}) { const handler = this.events.get(name); if (handler) handler(event); }
   focus() {}
@@ -102,6 +104,9 @@ function harness(options = {}) {
     element: (tag, text, className) => { const el = new Element(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; },
     icon: () => new Element('svg'),
     focusResults() {}, scrollBatchSize: 20, page: 1, visibleCount: 20,
+    getComputedStyle: () => ({ getPropertyValue: () => '64' }),
+    requestAnimationFrame: () => 0,
+    cancelAnimationFrame() {},
     rebuild() {}, renderPlaylistFilterBar() {}, renderPlaylistsPanel() {}, refreshPlaylistButtons() {},
   });
   vm.runInContext(extract('let myPlaylists=', 'function setupPlaylists('), context);
@@ -151,7 +156,7 @@ test('delete posts the id and drops it from the cached list', async () => {
   assert.equal(h.run('myPlaylists.length'), 0);
 });
 
-test('picker renders membership and saves the desired set', async () => {
+test('picker opens instantly, confirms membership in place, and saves', async () => {
   const h = harness({responses: [
     ['/v1/playlists', {playlists: [{id: 827, title: '1', songs: 1, cover: null}, {id: 830, title: 'Two', songs: 0, cover: null}]}],
     ['/v1/playlists/827', {id: 827, title: '1', songIds: [15188]}],
@@ -161,9 +166,13 @@ test('picker renders membership and saves the desired set', async () => {
   await h.run('fetchMyPlaylists(true)');
   const row = [15188, 'Song', '', '', '', '2026-01-01', [[4, 20]], 20, {}];
   const anchor = new Element('button');
-  await h.run('openPlaylistPicker(__row,__anchor)', {__row: row, __anchor: anchor});
+  h.run('openPlaylistPicker(__row,__anchor)', {__row: row, __anchor: anchor});
+  // The picker is open before any detail request resolves.
   let boxes = h.node('playlist-picker-list').children.filter(child => child.tagName === 'label');
-  assert.equal(boxes.length, 2);
+  assert.equal(boxes.length, 2, 'picker renders from the cached list immediately');
+  // Let the background membership refresh settle.
+  await new Promise(resolve => setImmediate(resolve));
+  boxes = h.node('playlist-picker-list').children.filter(child => child.tagName === 'label');
   assert.equal(boxes[0].children[0].checked, true, 'song is already in playlist 827');
   assert.equal(boxes[1].children[0].checked, false);
   // Toggle: remove from 827, add to 830.
@@ -177,6 +186,21 @@ test('picker renders membership and saves the desired set', async () => {
   assert.equal(h.run('myPlaylists.find(p=>p.id===830).songs'), 1);
 });
 
+test('picker keeps user toggles over a late membership refresh', async () => {
+  const h = harness({responses: [
+    ['/v1/playlists', {playlists: [{id: 827, title: '1', songs: 1, cover: null}]}],
+    ['/v1/playlists/827', {id: 827, title: '1', songIds: [15188]}],
+  ]});
+  await h.run('fetchMyPlaylists(true)');
+  const row = [15188, 'Song', '', '', '', '2026-01-01', [[4, 20]], 20, {}];
+  h.run('openPlaylistPicker(__row,__anchor)', {__row: row, __anchor: new Element('button')});
+  // The user unchecks before the background refresh lands.
+  h.run('playlistPickerState.checks.set(827,false);playlistPickerState.touched.add(827)');
+  await new Promise(resolve => setImmediate(resolve));
+  const boxes = h.node('playlist-picker-list').children.filter(child => child.tagName === 'label');
+  assert.equal(boxes[0].children[0].checked, false, 'the user toggle wins over the refresh');
+});
+
 test('picker new-playlist flow creates and pre-checks the fresh list', async () => {
   const h = harness({responses: [
     ['/v1/playlists', {playlists: []}],
@@ -184,7 +208,7 @@ test('picker new-playlist flow creates and pre-checks the fresh list', async () 
   ]});
   await h.run('fetchMyPlaylists(true)');
   const row = [42, 'Song', '', '', '', '2026-01-01', [[4, 20]], 20, {}];
-  h.run('showPlaylistPicker(new Object(), __row, new Set())', {__row: row});
+  h.run('showPlaylistPicker(__anchor, __row, new Set(), false)', {__row: row, __anchor: new Element('button')});
   const created = await h.run('createPlaylist("New")');
   assert.equal(created.id, 970);
   h.run('attachPickerCreate(__created)', {__created: created});
