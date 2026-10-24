@@ -4,6 +4,17 @@ SpinShare Browser retains, maintains, and supports only the latest stable releas
 
 SpinShare Browser 仅保留、维护和支持最新稳定版。新版验证并发布后，删除全部旧版发布页、下载附件和版本标签，旧版本不再保留。以下条目仅记录开发历史。
 
+## 2.3.0 — 2026-10-24
+
+- In-app user profiles: click any charter name or review author to see their charts, playlists, reviews and SpinPlays. Each profile has a unique gradient banner; your own profile includes an Upload chart shortcut. Opening someone's playlist also offers one-click sync to the game.
+- 应用内用户主页：点击谱师名或评论作者查看其谱面、歌单、评论与 SpinPlays；每个主页有独特渐变横幅；自己的主页含上传谱面入口；他人歌单同样支持一键同步到游戏。
+- The "Add to playlist" popover now opens instantly, follows its anchor while scrolling, and updates checkboxes in place. The notifications popover matches the same quality.
+- "收藏到歌单"浮层即时打开、滚动时跟随锚点、勾选状态原位刷新；通知浮窗同规格。
+- The filter bar is honest: Reset lives beside Filter charts, and both stay quiet until the criteria actually change.
+- 筛选区更诚实：重置按钮移至"筛选谱面"旁边，两个按钮在条件未变时保持安静禁用。
+- Settings gains an OK button (replacing Quit app and the corner close), clearer section spacing, a topbar free of the language selector, and a new "Keep installed charts up to date" switch that automatically reinstalls installed charts when publishers release new versions — locally modified files are never touched.
+- 设置面板新增 OK 按钮（替代完全退出与右上角关闭）、分区间距更清晰、顶栏移除语言选择器，并新增"保持已安装谱面为最新"开关：发布者发布新版本时自动重装，本地手动修改的文件永不触碰。
+
 ## 2.2.0 — 2026-10-24
 
 - Sign in to spinsha.re from Settings. Sign-in happens on the real website inside a dedicated window (two-factor included); the session is stored encrypted on this computer only and can be signed out at any time. Browsing and installing keep working without signing in.
