@@ -10,6 +10,9 @@
 
 ## 关键设计与坑
 
+- **生产站模板 ≠ 开源镜像 master**（2026-10-24 真机实证）：镜像 base.html.twig 的 `user-actions`/`item-user` 标记在生产站不存在；生产匿名首页 aside 只有 `<a href="/login" title="Login/Register">`。**凡涉及解析生产 HTML，一律不信镜像模板，以真机 DOM 为准**。当前方案：身份判定在登录窗页面 DOM 里做（`aside a[href^="/user/"]` 取 `{id}`），Python 侧只调公开 API（无 CF 拦截，nginx/Ubuntu，urllib 直连 200）。
+- **pywebview 6.2.1 `get_cookies()` 返回每条一个 SimpleCookie**（`webview/util.py create_cookie`），不是 cookiejar.Cookie——`normalize_webview_cookies()` 统一转换（含 RFC1123 expires 解析、pre-2000 视为会话 cookie、域过滤）。
+
 - **cookie = 账号本体**：`<state>/session.dat` = DPAPI CryptProtectData（熵固定字节）的 JSON（identity{userId,username,userAgent,connectedAt}+cookies[]）；读失败=未登录；**任何日志/错误不含 cookie 值**（错误只带类型名）。
 - **身份解析**：authed 页 header `user-actions` 块里第一个 `/user/{id}/charts` 链接 → userId；username 走公开 `/api/user/{id}`。
 - **会话失效判定**：最终 URL 落 /login **或** 页面含 `name="_username"`（前 64KB）→ SessionExpired。
@@ -17,8 +20,10 @@
 - **disconnect 同时清 login_active**：用户显式登出使挂起的登录态作废（防假 opener 卡 busy 的死锁）。
 - **WriteQueue**：daemon worker + 最小间隔 1.2s；失败即抛、无自动重试；仅 UI 触发入队（红线）。`submit_write` 是后续任务（歌单/评论/上传）的统一写入口。
 - **Symfony 表单**：`parse_csrf_token` 取 `form[_token]`（实体名作前缀时换参）；`parse_checkbox_indexes` 取 `playlist_{N}` 勾选组（含 checked 态）——加歌替换集的原料。
-- **UA 一致性**：登录时从窗口抓 UA 存进 store，后端 HTTP 全程回放（登录浏览器与 Python 客户端指纹一致）。
+- **UA 一致性**：登录时从窗口抓 UA 存进 store，后端 HTTP 全程回放（登录浏览器与 Python 客户端指纹一致）——真机已验证：urllib+存档 cookie 回放生产首页返回已登录态。
 - remember_me（1 周）由网站 always_remember_me=true 自动发放，cookie 全量保存即可。
+- **登录窗与主窗共享 WebView2 profile**（pywebview 全局 cache_dir=storage_path）：成功捕获后 `clear_cookies()` 清理；也意味着"重启后登录窗带着旧会话自动捕获"可行（2026-10-24 真机复现：用户登录一次，重启实例后无需再登）。
+- `complete_login` 失败尝试**不得**清 login_active（曾致看门狗活着但状态谎报"已取消"）；只有成功/cancel/disconnect 清。
 
 ## 前端（web/src/js/session.js，26 模块）
 

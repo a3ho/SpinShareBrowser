@@ -627,30 +627,49 @@ class Desktop:
 
     def _login_window_closed(self):
         with self.login_lock:
+            was_open = self.login_window is not None
             self.login_window = None
         import session_client
 
-        session_client.cancel_login()
+        if was_open:
+            print("session-login: window closed by user", file=sys.stderr, flush=True)
+            session_client.cancel_login()
 
     def _watch_session_login(self, window):
         import session_client
         from urllib.parse import urlsplit
 
         deadline = time.monotonic() + 600.0
+        capture_gap = 20.0
+        last_attempt = 0.0
         completed = False
+
+        def note(message):
+            print("session-login: " + message, file=sys.stderr, flush=True)
+
         try:
             time.sleep(3.0)
             while time.monotonic() < deadline and not self.exiting:
                 try:
                     url = window.get_current_url()
-                except Exception:
+                except Exception as exc:
+                    note("watch stops: url poll failed: " + type(exc).__name__)
                     break
-                if url and not urlsplit(url).path.startswith("/login"):
-                    time.sleep(1.5)
+                left_login = url and not urlsplit(url).path.startswith("/login")
+                due = time.monotonic() - last_attempt >= (4.0 if left_login else capture_gap)
+                if due:
+                    last_attempt = time.monotonic()
+                    note("capture attempt (url=" + str(urlsplit(url).path if url else None) + ")")
                     if self._try_capture_session(window):
                         completed = True
                         break
                 time.sleep(2.0)
+            else:
+                pass
+            if not completed and time.monotonic() >= deadline:
+                note("watch stops: timeout")
+            elif not completed and self.exiting:
+                note("watch stops: app exiting")
         finally:
             with self.login_lock:
                 if self.login_window is window:
@@ -658,19 +677,40 @@ class Desktop:
             if not completed:
                 session_client.cancel_login()
             self._close_login_window(window)
+            note("watch ends (completed=" + str(completed) + ")")
 
     def _try_capture_session(self, window):
+        """One bounded capture attempt. Never raises: surprises just retry later.
+
+        Identity comes from the live page DOM in the login window (aside nav
+        links to /user/{id}/...): production markup differs from the open-source
+        mirror, so we read what the signed-in browser actually renders instead
+        of guessing template markers server-side.
+        """
         import session_client
 
         try:
+            user_links = window.evaluate_js(
+                'JSON.stringify(Array.from(document.querySelectorAll('
+                '\'aside a[href^="/user/"]\')).map(a=>a.getAttribute("href")).slice(0,8))')
+            user_id = None
+            if isinstance(user_links, str):
+                try:
+                    for href in json.loads(user_links):
+                        match = re.match(r"^/user/(\d+)(?:/|$)", str(href))
+                        if match:
+                            user_id = int(match.group(1))
+                            break
+                except ValueError:
+                    pass
+            if user_id is None:
+                return False
             cookies = window.get_cookies()
             user_agent = window.evaluate_js("navigator.userAgent")
-        except Exception:
-            return False
-        spinshare_cookies = [cookie for cookie in cookies if "spinsha.re" in (cookie.domain or "")]
-        if not spinshare_cookies:
-            return False
-        if not session_client.complete_login(spinshare_cookies, user_agent or ""):
+            if not session_client.complete_login(cookies, user_agent or "", user_id):
+                return False
+        except Exception as exc:
+            print("session capture failed: " + type(exc).__name__, file=sys.stderr, flush=True)
             return False
         # The login window shares the app's WebView2 profile: leave no site
         # cookies behind once the session is safely stored.

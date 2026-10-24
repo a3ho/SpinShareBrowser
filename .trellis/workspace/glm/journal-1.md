@@ -186,3 +186,34 @@ Implemented the session channel foundation. src/session_client.py: DPAPI-encrypt
 
 - Owner-assisted final login E2E (real account): connect -> status shows username -> session.dat is DPAPI ciphertext -> disconnect clears
 - Phase 3/8: playlists-favorites on top of submit_write + form driver
+
+---
+
+## Session 7: Session login E2E on production (owner-assisted) + three real bugs fixed
+
+**Date**: 2026-10-24
+**Task**: 10-23-session-client (final verification)
+**Branch**: `main`
+
+### Summary
+
+Owner logged in on the real spinsha.re through the login window. Three production-only bugs surfaced and were fixed with regression tests: (1) pywebview 6.2.1 get_cookies() returns SimpleCookie objects, not cookiejar.Cookie — added normalize_webview_cookies(); (2) complete_login cleared login_active on every failed attempt, making the UI report "cancelled" while the watcher kept polling — now only success/cancel/disconnect clears it; (3) production templates differ from the open-source mirror (no user-actions/item-user markers) — identity now read from the login window's live DOM (aside /user/{id} links) and Python only resolves the username via the public API. Final state: auto-capture without re-login (shared WebView2 profile), status connected as 刘易手 (userId 1074), session.dat is DPAPI ciphertext with zero plaintext leak, and a fresh-process urllib replay of the stored session returns the signed-in production homepage — the whole write-channel foundation is proven against production (nginx, no Cloudflare interference).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | fix: session capture against production (cookie shape, flag, DOM identity) |
+
+### Testing
+
+- [OK] tests.test_session_client 19/19; full suite 173 OK; Node 12/12
+- [OK] real E2E: login -> connected true -> DPAPI ciphertext -> urllib replay authed -> window auto-closed
+
+### Status
+
+[OK] **Completed** — phase 2/8 fully closed including owner verification
+
+### Next Steps
+
+- Phase 3/8: playlists-favorites (design drafts to owner first); E2E state dir tmp/agent-e2e keeps the live session for phase-3 verification

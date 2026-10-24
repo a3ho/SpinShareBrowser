@@ -178,6 +178,43 @@ class DpapiStoreTests(unittest.TestCase):
                          (cookie.name, cookie.value, cookie.domain, cookie.path,
                           cookie.expires, cookie.secure))
 
+    def test_normalize_webview_cookies_handles_pywebview_simplecookie_shape(self):
+        # pywebview 6.2.1 returns one SimpleCookie per cookie, built exactly
+        # like this (webview.util.create_cookie). This shape crashed the login
+        # watcher once — the regression test that would have caught it.
+        from http.cookies import SimpleCookie
+
+        def webview_cookie(name, value, domain, secure, expires, path="/"):
+            cookie = SimpleCookie()
+            cookie[name] = value
+            cookie[name]["path"] = path
+            cookie[name]["domain"] = domain
+            cookie[name]["expires"] = expires
+            cookie[name]["secure"] = secure
+            cookie[name]["httponly"] = True
+            return cookie
+
+        items = [
+            webview_cookie("PHPSESSID", "s3cret", "spinsha.re", True,
+                           "Thu, 01 Jan 2026 00:00:00 GMT"),
+            webview_cookie("REMEMBERME", "long", "spinsha.re", True,
+                           "Thu, 01 Jan 2026 00:00:00 GMT"),
+            webview_cookie("other", "x", "example.com", False,
+                           "Thu, 01 Jan 2026 00:00:00 GMT"),
+            webview_cookie("sessionish", "y", "spinsha.re", False,
+                           "Mon, 01 Jan 1601 00:00:00 GMT"),
+            make_cookie(name="plain", value="jar", domain="spinsha.re"),
+            "not-a-cookie",
+        ]
+        normalized = session_client.normalize_webview_cookies(items)
+        by_name = {cookie.name: cookie for cookie in normalized}
+        self.assertEqual(set(by_name), {"PHPSESSID", "REMEMBERME", "sessionish", "plain"})
+        self.assertEqual(by_name["PHPSESSID"].value, "s3cret")
+        self.assertTrue(by_name["PHPSESSID"].secure)
+        self.assertEqual(by_name["PHPSESSID"].expires, 1767225600)
+        self.assertIsNone(by_name["sessionish"].expires)  # pre-2000 = session cookie
+        self.assertEqual(by_name["plain"].value, "jar")
+
 
 class ParserTests(unittest.TestCase):
     def test_csrf_token_extraction(self):
@@ -336,7 +373,7 @@ class ModuleStateTests(unittest.TestCase):
             session_client.request_login()
             self.assertTrue(session_client.complete_login(
                 [make_cookie(domain="127.0.0.1"), make_cookie(name="other", domain="example.com")],
-                "UA", origin=site.origin, cookie_domain="127.0.0.1"))
+                "UA", 42, origin=site.origin, cookie_domain="127.0.0.1"))
             summary = session_client.status_summary()
             self.assertEqual(summary, {"connected": True, "username": "tester",
                                        "userId": 42, "loginActive": False})
@@ -354,16 +391,22 @@ class ModuleStateTests(unittest.TestCase):
             site.server_close()
             thread.join(3)
 
-    def test_complete_login_rejects_anonymous_and_login_pages(self):
-        for home in (ANON_HOME, LOGIN_PAGE):
-            site = FakeSite(home=home)
+    def test_complete_login_rejects_unresolvable_identity(self):
+        for user_api in ('{"version":1,"status":404,"data":[]}', "not-json"):
+            site = FakeSite(user_api=user_api)
             thread = threading.Thread(target=site.serve_forever, daemon=True)
             thread.start()
             try:
+                session_client.set_login_window_opener(lambda: None)
+                session_client.request_login()
                 self.assertFalse(session_client.complete_login(
-                    [make_cookie(domain="127.0.0.1")], "UA", origin=site.origin,
+                    [make_cookie(domain="127.0.0.1")], "UA", 42, origin=site.origin,
                     cookie_domain="127.0.0.1"))
                 self.assertFalse(session_client.status_summary()["connected"])
+                # A failed attempt must NOT clear the in-progress flag: the
+                # watcher keeps polling until success, cancel, or disconnect.
+                self.assertTrue(session_client.status_summary()["loginActive"])
+                session_client.cancel_login()
             finally:
                 site.shutdown()
                 site.server_close()

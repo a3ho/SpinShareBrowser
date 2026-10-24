@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+import email.utils
 from html.parser import HTMLParser
 import http.cookiejar
 import io
@@ -126,6 +127,51 @@ def record_to_cookie(record: dict) -> http.cookiejar.Cookie:
         domain_initial_dot=dotted, path=str(record.get("path") or "/"), path_specified=True,
         secure=bool(record.get("secure")), expires=expires, discard=expires is None,
         comment=None, comment_url=None, rest={}, rfc2109=False)
+
+
+def _parse_expires(value) -> int | None:
+    """pywebview hands cookie expiry as an RFC 1123 string; pre-2000 = session."""
+    if value in (None, ""):
+        return None
+    try:
+        parsed = email.utils.parsedate_to_datetime(str(value))
+        if parsed.year < 2000:
+            return None
+        return int(parsed.timestamp())
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def normalize_webview_cookies(items, cookie_domain: str = "spinsha.re") -> list[http.cookiejar.Cookie]:
+    """Convert whatever pywebview's get_cookies() returns into cookiejar cookies.
+
+    pywebview 6.2.1 returns one SimpleCookie per captured cookie (name → Morsel
+    with domain/path/expires/secure/httponly attributes). Anything already
+    cookiejar-shaped passes through. Only cookies for the site domain survive.
+    """
+    result = []
+    for item in items or []:
+        try:
+            if isinstance(item, http.cookiejar.Cookie):
+                cookies = [item]
+            else:
+                cookies = []
+                for name in item.keys():
+                    morsel = item[name]
+                    cookies.append(http.cookiejar.Cookie(
+                        version=0, name=str(name), value=str(morsel.value),
+                        port=None, port_specified=False,
+                        domain=str(morsel["domain"] or ""), domain_specified=False,
+                        domain_initial_dot=False, path=str(morsel["path"] or "/"),
+                        path_specified=True, secure=str(morsel["secure"]).lower() == "true",
+                        expires=_parse_expires(morsel["expires"]), discard=False,
+                        comment=None, comment_url=None, rest={}, rfc2109=False))
+            for cookie in cookies:
+                if cookie.name and cookie.value and cookie_domain in (cookie.domain or ""):
+                    result.append(cookie)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -481,26 +527,25 @@ def web_client() -> SpinShareWeb:
     return SpinShareWeb(cookies, state["identity"]["userAgent"])
 
 
-def complete_login(cookies: list, user_agent: str, *, origin: str = SITE_ORIGIN,
-                   cookie_domain: str = "spinsha.re") -> bool:
-    """Verify a cookie jar captured by the login window and persist the session.
+def complete_login(cookies: list, user_agent: str, user_id: int, *,
+                   origin: str = SITE_ORIGIN, cookie_domain: str = "spinsha.re") -> bool:
+    """Persist the session captured by the login window.
 
-    Returns True when the session is signed in and stored. Cookies that do not
-    belong to the site domain are ignored. Failure keeps the previous state intact.
+    The window-side caller proves the session is signed in (it read the signed-in
+    header links from the live page DOM — production markup differs from the
+    open-source mirror, so marker guessing stays out of here). This side only
+    resolves the username via the public API and stores the DPAPI-encrypted state.
+    Failed attempts keep the previous state and the in-progress flag intact.
     """
     with _state_lock:
         global _login_in_progress
         try:
-            jar = [cookie for cookie in cookies if cookie_domain in (cookie.domain or "")]
-            if not jar or not isinstance(user_agent, str) or not user_agent:
+            # Accepts raw pywebview cookies (SimpleCookie items) or cookiejar cookies.
+            jar = normalize_webview_cookies(cookies, cookie_domain)
+            if (not jar or not isinstance(user_agent, str) or not user_agent
+                    or not isinstance(user_id, int) or user_id <= 0):
                 return False
             client = SpinShareWeb(jar, user_agent)
-            final_url, html = client.get(origin + "/")
-            if looks_like_login_page(final_url, html):
-                return False
-            user_id = parse_signed_in_user_id(html)
-            if user_id is None:
-                return False
             final_url, profile_body = client.get(origin + "/api/user/" + str(user_id), timeout=20.0)
             username = _parse_public_username(profile_body)
             if not username:
@@ -509,13 +554,14 @@ def complete_login(cookies: list, user_agent: str, *, origin: str = SITE_ORIGIN,
                          "identity": {"userId": user_id, "username": username,
                                       "userAgent": user_agent, "connectedAt": _now_iso()},
                          "cookies": [cookie_to_record(cookie) for cookie in jar]})
+            # Only a completed login ends the in-progress state; failed
+            # attempts leave the flag for the watcher to keep trying.
+            _login_in_progress = False
             return True
         except SessionError:
             return False
         except OSError:
             return False
-        finally:
-            _login_in_progress = False
 
 
 def _now_iso() -> str:
