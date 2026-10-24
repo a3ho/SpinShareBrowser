@@ -738,7 +738,7 @@ def download_archive(song_id, target_dir, report, limits=DEFAULT_LIMITS, deadlin
     opener = urllib.request.build_opener(OfficialRedirects())
     request = urllib.request.Request(
         "https://spinsha.re/api/song/" + str(song_id) + "/download",
-        headers={"User-Agent": "SpinShareBrowser/2.3.1", "Cache-Control": "no-store", "Pragma": "no-cache", "Accept": "application/zip"},
+        headers={"User-Agent": "SpinShareBrowser/2.3.2", "Cache-Control": "no-store", "Pragma": "no-cache", "Accept": "application/zip"},
     )
     temp = None
     try:
