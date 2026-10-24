@@ -43,6 +43,7 @@ function render(append=false){
   syncCovers();
   if(typeof syncPreviewButtons==='function')syncPreviewButtons();
   if(typeof refreshPlaylistButtons==='function')refreshPlaylistButtons();
+  if(typeof refreshOwnChartButtons==='function')refreshOwnChartButtons();
   if(ready){if(installationFilterMode()==='all')trimPresenceQueue(shown);queueInstallationChecks(append?shown.slice(-scrollBatchSize):shown);}
   if(ready||pendingTagAnchor?.viewport)restoreTagAnchor();
 }

@@ -289,8 +289,23 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <button id="account-menu-charts" class="account-menu-item" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-music"/></svg><span data-ui-static="My charts">My charts</span></button>
   <button id="account-menu-reviews" class="account-menu-item" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-comments"/></svg><span data-ui-static="My reviews">My reviews</span></button>
   <div class="account-menu-sep" role="separator"></div>
+  <button id="account-menu-upload" class="account-menu-item" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-music"/></svg><span data-ui-static="Upload chart">Upload chart</span></button>
+  <div class="account-menu-sep" role="separator"></div>
   <button id="account-menu-signout" class="account-menu-item is-danger" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg><span data-ui-static="Sign out">Sign out</span></button>
 </div>
+<dialog id="upload-dialog" class="settings-panel upload-dialog" aria-labelledby="upload-title">
+  <div class="settings-header"><h2 id="upload-title"><span data-ui-static="Upload chart">Upload chart</span></h2><button id="upload-close" class="settings-close" type="button" aria-label="Close upload" data-ui-attr-aria-label="Close upload"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+  <div class="upload-drop"><button id="upload-pick" class="button primary" type="button"><span data-ui-static="Choose backup .zip">Choose backup .zip</span></button><output id="upload-file" class="upload-file" aria-live="polite"></output></div>
+  <label class="upload-field"><span data-ui-static="Description (Markdown, optional)">Description (Markdown, optional)</span><textarea id="upload-description" class="upload-textarea" rows="3" maxlength="4000"></textarea></label>
+  <label class="upload-field"><span data-ui-static="Tags (comma separated)">Tags (comma separated)</span><input id="upload-tags" class="upload-input" type="text" maxlength="200" autocomplete="off"></label>
+  <div class="upload-row">
+    <label class="upload-field"><span data-ui-static="Required DLC">Required DLC</span><select id="upload-dlc" data-choice-menu><option value="0" selected data-ui-static="None">None</option></select></label>
+    <label class="upload-field"><span data-ui-static="Publication status">Publication status</span><select id="upload-publication" data-choice-menu><option value="0" selected data-ui-static="Public">Public</option></select></label>
+  </div>
+  <label class="upload-check"><input id="upload-explicit" type="checkbox"><span data-ui-static="Mark content as explicit">Mark content as explicit</span></label>
+  <p id="upload-note" class="settings-message" role="status" aria-live="polite" hidden></p>
+  <div class="settings-actions"><button id="upload-submit" class="button primary" type="button" disabled><span data-ui-static="Upload">Upload</span></button></div>
+</dialog>
 <div id="notifications-popover" popover="manual" role="dialog" class="notifications-popover" aria-labelledby="notifications-heading">
   <div class="notifications-header"><span id="notifications-heading" class="notifications-heading" data-ui-static="Notifications">Notifications</span><button id="notifications-clear-all" class="notifications-clear-all" type="button"><span data-ui-static="Clear all">Clear all</span></button></div>
   <div id="notifications-list" class="notifications-list" role="list"></div>

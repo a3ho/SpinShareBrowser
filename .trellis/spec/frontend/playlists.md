@@ -48,3 +48,11 @@
 - 落地：`filter-pills.css`（难度胶囊化：选中=浅底深字；等级/日期变胶囊行，全部纯 CSS、控件 id 不动）；顶栏**账户胶囊**（头像+用户名，登录才显示）+ 账户菜单（我的歌单/我的谱面/我的评论/退出登录，`web/src/js/account.js`）；书签按钮退役（卡片收藏按钮仍在）；`playlistFilter` 增 `kind` 字段（playlist 视图带"歌单："前缀，个人视图不带）。
 - 个人视图：我的谱面（纯本地 catalog 按 uploader 过滤）；我的评论（spinsha.re 公开 API 直连拉 songIds，60s 缓存）。**必须经 `apply()` 全管线**（个人视图跨全部日期——先把 date-preset 可见地归位 'all' 再 apply；只 rebuild 会沿用旧的日期压缩集）。
 - 窗口排除矩形：#account-chip 替代 #playlists-open。
+
+## 谱面上传（阶段 8，2026-10-24）
+
+- `src/upload.py`：选项解析（GET /upload 的 dlc/publicationStatus select）+ `upload_chart`（本地 zip 校验[存在/.zip/≤512MB] → CSRF → multipart 流式上传 → 我的谱面前后差集验证）+ `update_chart`（元数据更新，无 zip 部件，重定向即成功）+ `delete_chart`（差集验证）。全部走串行写队列。
+- 端点：GET `/v1/upload/options`、POST `/v1/upload/pick`（原生 GetOpenFileNameW 文件选择器——`spinshare_portable.choose_zip_file`，comdlg32，过滤器串用 chr(0) 拼接零转义）|`/start`|`/update`|`/delete`。
+- 前端 `web/src/js/upload.js`：上传对话框（选择按钮+路径显示/描述/tags/DLC/发布状态/敏感标记），选项生产直连填充；账户菜单"上传谱面"入口；`refreshOwnChartButtons` 在"我的谱面"视图给自有卡片挂两步删除。
+- **真实上传 E2E 需所有者提供一份真实 SRXD backup.zip**（契约测试已覆盖机制：multipart 构造/校验拒绝/更新/删除/差集验证 8/8）。
+- 教训（已入 repeated-pitfalls + 新门禁）：`Required DLC`≠已有 `Requires DLC`——**locale 键缺失第三次**，已加 `UICatalogCompletenessTests` 静态门禁（扫描全部 data-ui-static/data-ui-attr-*/m() 字面量对双语目录，源码转义解码对齐运行时键）。

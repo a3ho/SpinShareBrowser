@@ -25,6 +25,7 @@ import session_client
 import playlists
 import reviews
 import notifications
+import upload
 
 VERSION = "2.1.1"
 HOST = "127.0.0.1"
@@ -162,6 +163,44 @@ def validate_directory(value):
     if os.path.normcase(str(path.resolve(strict=False))) != os.path.normcase(str(path)):
         raise PortableError("The directory resolves to a different location.")
     return path
+
+
+def choose_zip_file(title, *, owner_handle=None):
+    """Open the classic Windows open-file dialog for one .zip on the current thread."""
+    if os.name != "nt":
+        raise OSError("The file dialog requires Windows.")
+    import ctypes
+    from ctypes import wintypes
+
+    class _OpenFileName(ctypes.Structure):
+        _fields_ = [("lStructSize", wintypes.DWORD), ("hwndOwner", wintypes.HWND),
+                    ("hInstance", wintypes.HINSTANCE), ("lpstrFilter", wintypes.LPCWSTR),
+                    ("lpstrCustomFilter", wintypes.LPWSTR), ("nMaxCustFilter", wintypes.DWORD),
+                    ("nFilterIndex", wintypes.DWORD), ("lpstrFile", wintypes.LPWSTR),
+                    ("nMaxFile", wintypes.DWORD), ("lpstrFileTitle", wintypes.LPWSTR),
+                    ("nMaxFileTitle", wintypes.DWORD), ("lpstrInitialDir", wintypes.LPCWSTR),
+                    ("lpstrTitle", wintypes.LPCWSTR), ("Flags", wintypes.DWORD),
+                    ("nFileOffset", wintypes.WORD), ("nFileExtension", wintypes.WORD),
+                    ("lpstrDefExt", wintypes.LPCWSTR), ("lCustData", wintypes.LPARAM),
+                    ("lpfnHook", wintypes.LPVOID), ("lpTemplateName", wintypes.LPCWSTR),
+                    ("pvReserved", wintypes.LPVOID), ("dwReserved", wintypes.DWORD),
+                    ("FlagsEx", wintypes.DWORD)]
+
+    comdlg32 = ctypes.WinDLL("comdlg32")
+    comdlg32.GetOpenFileNameW.argtypes = [ctypes.POINTER(_OpenFileName)]
+    comdlg32.GetOpenFileNameW.restype = wintypes.BOOL
+    buffer = ctypes.create_unicode_buffer(1024)
+    structure = _OpenFileName()
+    structure.lStructSize = ctypes.sizeof(_OpenFileName)
+    structure.hwndOwner = wintypes.HWND(owner_handle or 0)
+    structure.lpstrFilter = "SRXD backup (*.zip)" + chr(0) + "*.zip" + chr(0) + "All files (*.*)" + chr(0) + "*.*" + chr(0) + chr(0)
+    structure.lpstrFile = buffer
+    structure.nMaxFile = len(buffer)
+    structure.lpstrTitle = title
+    structure.Flags = 0x1000 | 0x8 | 0x4 | 0x2
+    if not comdlg32.GetOpenFileNameW(ctypes.byref(structure)):
+        return None
+    return buffer.value
 
 
 def choose_directory(initial_directory, title, *, owner_handle=None):
@@ -1586,7 +1625,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self._context_allowed():
             return
-        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/status", "/v1/playlists", "/v1/notifications"} and
+        if (self.path not in {"/v1/preview/resolve", "/v1/health", "/v1/activity", "/v1/charts", "/v1/charts/status", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/shutdown", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/dialog", "/v1/desktop/exit", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/status", "/v1/playlists", "/v1/notifications", "/v1/upload/options"} and
                 not re.fullmatch(r"/v1/jobs/[a-f0-9]{32}|/v1/playlists/[0-9]+", self.path)):
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
@@ -1721,6 +1760,12 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
             self._respond(200, manager.activity())
         elif self.path == "/v1/session/status":
             self._respond(200, session_client.status_summary())
+        elif self.path == "/v1/upload/options":
+            try:
+                self._respond(200, upload.upload_options())
+            except session_client.SessionError as exc:
+                status, code = playlist_failure(exc)
+                self._respond(status, {"error": "Open Settings and sign in to spinsha.re first.", "code": code})
         elif self.path == "/v1/notifications":
             try:
                 self._respond(200, notifications.fetch_notifications())
@@ -1781,7 +1826,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song", "/v1/reviews/add", "/v1/reviews/delete", "/v1/notifications/clear", "/v1/notifications/clear-all"}:
+        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song", "/v1/reviews/add", "/v1/reviews/delete", "/v1/notifications/clear", "/v1/notifications/clear-all", "/v1/upload/pick", "/v1/upload/start", "/v1/upload/update", "/v1/upload/delete"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
@@ -1924,6 +1969,65 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                 except session_client.SessionError as exc:
                     status, code = playlist_failure(exc)
                     raise APIError(status, code, "The playlist could not be deleted.")
+                self._respond(200, {"ok": True})
+                return
+            if self.path == "/v1/upload/pick":
+                if data:
+                    raise APIError(400, "invalid_body", "The picker request does not accept fields.")
+                manager = self.server.manager
+                if manager.closed or manager.exiting:
+                    raise APIError(409, "shutting_down", "Exiting. Reopen SpinShareBrowser.exe to continue.")
+                picker = getattr(manager, "file_picker", None)
+                if picker is None:
+                    raise APIError(409, "picker_unavailable", "The file dialog needs the app window.")
+                try:
+                    chosen = picker()
+                except OSError:
+                    raise APIError(409, "picker_error", "Choosing a file failed. Try again.")
+                self._respond(200, {"cancelled": True} if not chosen else {"path": chosen})
+                return
+            if self.path == "/v1/upload/start":
+                if (not {"backupPath", "dlc", "publicationStatus", "isExplicit"} <= set(data)
+                        <= {"backupPath", "dlc", "publicationStatus", "isExplicit", "description", "tags"}
+                        or not isinstance(data["backupPath"], str)
+                        or type(data["isExplicit"]) is not bool
+                        or data["dlc"] not in (0, 1, 2, 3)
+                        or data["publicationStatus"] not in (0, 1, 2)):
+                    raise APIError(400, "invalid_body", "Upload accepts backupPath, description, tags, dlc, publicationStatus and isExplicit.")
+                try:
+                    result = upload.upload_chart(data["backupPath"], data.get("description", ""),
+                                                 data.get("tags", ""), data["dlc"],
+                                                 data["publicationStatus"], data["isExplicit"])
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The chart could not be uploaded.")
+                self._respond(200, result)
+                return
+            if self.path == "/v1/upload/update":
+                if (not {"songId", "dlc", "publicationStatus", "isExplicit"} <= set(data)
+                        <= {"songId", "dlc", "publicationStatus", "isExplicit", "description", "tags"}
+                        or not isinstance(data["songId"], int)
+                        or type(data["isExplicit"]) is not bool
+                        or data["dlc"] not in (0, 1, 2, 3)
+                        or data["publicationStatus"] not in (0, 1, 2)):
+                    raise APIError(400, "invalid_body", "Chart update accepts songId, description, tags, dlc, publicationStatus and isExplicit.")
+                try:
+                    result = upload.update_chart(data["songId"], data.get("description", ""),
+                                                 data.get("tags", ""), data["dlc"],
+                                                 data["publicationStatus"], data["isExplicit"])
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The chart could not be updated.")
+                self._respond(200, result)
+                return
+            if self.path == "/v1/upload/delete":
+                if set(data) != {"songId"} or not isinstance(data["songId"], int):
+                    raise APIError(400, "invalid_body", "Chart deletion accepts only songId.")
+                try:
+                    upload.delete_chart(data["songId"])
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The chart could not be deleted.")
                 self._respond(200, {"ok": True})
                 return
             if self.path == "/v1/notifications/clear":
@@ -2097,6 +2201,7 @@ class PortableApplication:
         self.server.desktop = value
         self.manager.directory_picker = value.choose_directory if value is not None else None
         self.manager.settings_changed = value.settings_changed if value is not None else None
+        self.manager.file_picker = getattr(value, "choose_zip", None) if value is not None else None
         session_client.set_login_window_opener(
             getattr(value, "open_session_login", None) if value is not None else None)
 

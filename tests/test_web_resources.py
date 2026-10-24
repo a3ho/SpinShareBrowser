@@ -227,3 +227,32 @@ class PlayerShortcutPersistenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class UICatalogCompletenessTests(unittest.TestCase):
+    """Every UI literal in the shipped sources must exist in both catalogs.
+
+    Root-cause gate (2026-10-24, third occurrence of this class): a missing
+    data-ui-static or m('...') key makes m() throw inside setupLanguage, which
+    kills the whole startup chain — the app boots to a dead idle page.
+    """
+
+    def test_every_ui_literal_has_catalog_entries(self):
+        import re as _re
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        js_dir = ROOT / "web" / "src" / "js"
+        js_text = "\n".join(path.read_text(encoding="utf-8") for path in sorted(js_dir.glob("*.js")))
+        catalog = json.loads((ROOT / "web" / "locales.json").read_text(encoding="utf-8"))
+        used = set()
+        for pattern in (r'data-ui-static="([^"]+)"', r'data-ui-attr-aria-label="([^"]+)"',
+                        r'data-ui-attr-placeholder="([^"]+)"'):
+            used.update(_re.findall(pattern, html))
+        for pattern in (r"\bm\('([^'\n]+)'\)", r'\bm\("([^"\n]+)"\)'):
+            for key in _re.findall(pattern, js_text):
+                # Source escapes (e.g. m("\n...")) become real characters at
+                # runtime; decode them so the static scan matches the catalog.
+                used.add(key.replace("\\n", "\n").replace("\\'", "'").replace('\\"', '"').replace("\\\\", "\\"))
+        self.assertTrue(used)
+        missing_en = sorted(key for key in used if key not in catalog["en"])
+        missing_zh = sorted(key for key in used if key not in catalog["zh-CN"])
+        self.assertEqual(missing_en, [], "keys missing from the en catalog")
+        self.assertEqual(missing_zh, [], "keys missing from the zh-CN catalog")

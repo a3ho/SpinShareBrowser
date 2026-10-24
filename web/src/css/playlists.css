@@ -97,3 +97,16 @@
 .account-menu-item.is-danger { color: var(--muted); }
 .account-menu-item.is-danger:hover { color: var(--error); background: #ffffff08; }
 .account-menu-sep { height: 1px; margin: 6px 4px; background: var(--line); }
+
+/* Upload dialog and own-chart management. */
+.upload-drop { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; flex-wrap: wrap; }
+.upload-file { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--type-meta); color: var(--muted); overflow-wrap: anywhere; }
+.upload-field { display: grid; gap: 5px; margin-top: 12px; font-size: var(--type-meta); font-weight: var(--weight-medium); color: var(--muted); }
+.upload-textarea, .upload-input { width: 100%; background: #16171c; border: 1px solid var(--line); border-radius: 8px; color: var(--text); font: inherit; font-size: var(--type-control); padding: 9px 11px; }
+.upload-textarea { resize: vertical; min-height: 60px; }
+.upload-textarea:focus-visible, .upload-input:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; }
+.upload-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.upload-check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: var(--type-control); color: var(--text-secondary); }
+.upload-check input { accent-color: var(--pink); }
+.own-chart-delete { color: var(--muted); }
+.own-chart-delete:hover, .own-chart-delete[data-armed] { color: var(--error); }

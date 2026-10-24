@@ -19,6 +19,7 @@
 !/src/playlists.py
 !/src/reviews.py
 !/src/notifications.py
+!/src/upload.py
 
 !/web/
 !/web/index.html
@@ -35,6 +36,7 @@
 !/tests/test_playlists.py
 !/tests/test_reviews.py
 !/tests/test_notifications.py
+!/tests/test_upload.py
 !/tests/test_playlists.cjs
 !/tests/test_playlist_sync.cjs
 !/tests/test_reviews_write.cjs

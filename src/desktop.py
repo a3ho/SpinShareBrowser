@@ -722,6 +722,39 @@ class Desktop:
         with contextlib.suppress(Exception):
             window.destroy()
 
+    def choose_zip(self, title):
+        import spinshare_portable as core
+
+        if not self.ready.wait(15) or self.exiting:
+            raise OSError("The app window is unavailable.")
+        result = concurrent.futures.Future()
+
+        def choose():
+            if not result.set_running_or_notify_cancel():
+                return
+            with self.manager.lock:
+                if self.exiting or self.manager.exiting or self.dialog is not None or self.prompt is not None:
+                    result.set_exception(OSError("The app is exiting or another dialog is open."))
+                    return
+                self.picker_open = True
+            try:
+                self._show()
+                result.set_result(core.choose_zip_file(title, owner_handle=self.form.Handle.ToInt64()))
+            except Exception as exc:
+                result.set_exception(exc)
+            finally:
+                self.picker_open = False
+
+        if not self.form.InvokeRequired:
+            choose()
+        elif not self.post(choose):
+            raise OSError("The app window is unavailable.")
+        try:
+            return result.result(timeout=600)
+        except concurrent.futures.TimeoutError as exc:
+            result.cancel()
+            raise OSError("File selection timed out.") from exc
+
     def _renderer(self, renderer):
         if renderer != "edgechromium":
             self.error = "Microsoft Edge WebView2 Runtime is required to open SpinShare Browser."

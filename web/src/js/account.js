@@ -75,6 +75,7 @@ function setupAccountMenu(){
   $('account-menu-charts').addEventListener('click',()=>openMyChartsView());
   $('account-menu-reviews').addEventListener('click',()=>openMyReviewsView());
   $('account-menu-signout').addEventListener('click',()=>{closeAccountMenu();requestSessionLogout();});
+  $('account-menu-upload').addEventListener('click',()=>{closeAccountMenu();openUploadDialog();});
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeAccountMenu();}});
   document.addEventListener('pointerdown',event=>{
     if(typeof menu.matches!=='function'||!menu.matches(':popover-open'))return;
@@ -83,4 +84,42 @@ function setupAccountMenu(){
   },true);
   addEventListener('resize',()=>{if(typeof menu.matches==='function'&&menu.matches(':popover-open'))positionAccountMenu();});
   syncAccountChip();
+}
+
+function refreshOwnChartButtons(){
+  if(typeof playlistFilter==='undefined'||!playlistFilter||playlistFilter.kind!=='view')return;
+  const identity=myReviewIdentity();if(!identity)return;
+  for(const view of cardViews.values()){
+    const card=view.card;
+    if(!card||typeof card.querySelector!=='function')continue;
+    const existing=card.querySelector('.own-chart-delete');
+    if(existing)existing.remove();
+    if(view.row[8]&&view.row[8].uploader===identity.userId){
+      const del=element('button',undefined,'metric own-chart-delete');
+      del.type='button';
+      uiAttr(del,'aria-label',m('Delete chart')+': '+view.row[1]);
+      del.append(element('span',m('Delete chart')));
+      del.addEventListener('click',()=>{
+        if(!del.dataset.armed){
+          del.dataset.armed='1';uiText(del.firstChild,m('Confirm delete'));
+          del._timer=setTimeout(()=>{delete del.dataset.armed;uiText(del.firstChild,m('Delete chart'));},3600);
+          return;
+        }
+        clearTimeout(del._timer);delete del.dataset.armed;
+        void deleteOwnChart(view.row[0],del);
+      });
+      const metrics=card.querySelector('.card-metrics');
+      if(metrics)metrics.append(del);
+    }
+  }
+}
+async function deleteOwnChart(songId,button){
+  button.disabled=true;
+  try{
+    await installerRequest('POST','/v1/upload/delete',{songId});
+    if(typeof playlistFilter!=='undefined'&&playlistFilter&&playlistFilter.songIds)playlistFilter.songIds.delete(songId);
+    const view=[...cardViews.values()].find(v=>v.row[0]===songId);
+    if(view&&view.card&&typeof view.card.remove==='function')view.card.remove();
+    renderPlaylistFilterBar();
+  }catch(error){button.disabled=false;uiText(button.firstChild,errorText(error));}
 }

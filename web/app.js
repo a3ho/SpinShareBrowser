@@ -1201,6 +1201,7 @@ function setupAccountMenu(){
   $('account-menu-charts').addEventListener('click',()=>openMyChartsView());
   $('account-menu-reviews').addEventListener('click',()=>openMyReviewsView());
   $('account-menu-signout').addEventListener('click',()=>{closeAccountMenu();requestSessionLogout();});
+  $('account-menu-upload').addEventListener('click',()=>{closeAccountMenu();openUploadDialog();});
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeAccountMenu();}});
   document.addEventListener('pointerdown',event=>{
     if(typeof menu.matches!=='function'||!menu.matches(':popover-open'))return;
@@ -1209,6 +1210,119 @@ function setupAccountMenu(){
   },true);
   addEventListener('resize',()=>{if(typeof menu.matches==='function'&&menu.matches(':popover-open'))positionAccountMenu();});
   syncAccountChip();
+}
+
+function refreshOwnChartButtons(){
+  if(typeof playlistFilter==='undefined'||!playlistFilter||playlistFilter.kind!=='view')return;
+  const identity=myReviewIdentity();if(!identity)return;
+  for(const view of cardViews.values()){
+    const card=view.card;
+    if(!card||typeof card.querySelector!=='function')continue;
+    const existing=card.querySelector('.own-chart-delete');
+    if(existing)existing.remove();
+    if(view.row[8]&&view.row[8].uploader===identity.userId){
+      const del=element('button',undefined,'metric own-chart-delete');
+      del.type='button';
+      uiAttr(del,'aria-label',m('Delete chart')+': '+view.row[1]);
+      del.append(element('span',m('Delete chart')));
+      del.addEventListener('click',()=>{
+        if(!del.dataset.armed){
+          del.dataset.armed='1';uiText(del.firstChild,m('Confirm delete'));
+          del._timer=setTimeout(()=>{delete del.dataset.armed;uiText(del.firstChild,m('Delete chart'));},3600);
+          return;
+        }
+        clearTimeout(del._timer);delete del.dataset.armed;
+        void deleteOwnChart(view.row[0],del);
+      });
+      const metrics=card.querySelector('.card-metrics');
+      if(metrics)metrics.append(del);
+    }
+  }
+}
+async function deleteOwnChart(songId,button){
+  button.disabled=true;
+  try{
+    await installerRequest('POST','/v1/upload/delete',{songId});
+    if(typeof playlistFilter!=='undefined'&&playlistFilter&&playlistFilter.songIds)playlistFilter.songIds.delete(songId);
+    const view=[...cardViews.values()].find(v=>v.row[0]===songId);
+    if(view&&view.card&&typeof view.card.remove==='function')view.card.remove();
+    renderPlaylistFilterBar();
+  }catch(error){button.disabled=false;uiText(button.firstChild,errorText(error));}
+}
+let uploadBusy=false,uploadChosenPath='';
+function openUploadDialog(){
+  if(!sessionConnected())return;
+  $('upload-dialog').showModal();
+  uiText($('upload-file'),uploadChosenPath?uploadChosenPath:m('No file chosen'));
+  $('upload-note').hidden=true;
+  $('upload-submit').disabled=!uploadChosenPath||uploadBusy;
+  void loadUploadOptions();
+}
+function closeUploadDialog(){$('upload-dialog').close();}
+async function loadUploadOptions(){
+  try{
+    const options=await installerRequest('GET','/v1/upload/options');
+    if(!options||typeof options!=='object')return;
+    fillUploadSelect('upload-dlc',options.dlc,0);
+    fillUploadSelect('upload-publication',options.publication,0);
+  }catch(error){/* keep the previous options; defaults below */}
+}
+function fillUploadSelect(id,entries,fallbackValue){
+  const select=$(id);
+  if(!select||!Array.isArray(entries)||!entries.length)return;
+  select.replaceChildren();
+  for(const entry of entries){
+    const option=element('option',entry.label);
+    option.value=String(entry.value);
+    select.append(option);
+  }
+  select.value=String(fallbackValue);
+  if(typeof syncChoiceMenus==='function')syncChoiceMenus(id);
+}
+async function pickUploadFile(){
+  if(uploadBusy)return;
+  try{
+    const result=await installerRequest('POST','/v1/upload/pick',{});
+    if(result&&typeof result.path==='string'){
+      uploadChosenPath=result.path;
+      uiText($('upload-file'),uploadChosenPath);
+      $('upload-submit').disabled=false;
+      $('upload-note').hidden=true;
+    }
+  }catch(error){
+    uiText($('upload-note'),errorText(error));$('upload-note').hidden=false;$('upload-note').classList.add('is-error');
+  }
+}
+async function submitUpload(){
+  if(uploadBusy||!uploadChosenPath)return;
+  uploadBusy=true;
+  const submit=$('upload-submit');submit.disabled=true;
+  uiText($('upload-note'),m('Uploading…'));$('upload-note').hidden=false;$('upload-note').classList.remove('is-error');
+  try{
+    const result=await installerRequest('POST','/v1/upload/start',{
+      backupPath:uploadChosenPath,
+      description:$('upload-description').value,
+      tags:$('upload-tags').value,
+      dlc:Number($('upload-dlc').value||0),
+      publicationStatus:Number($('upload-publication').value||0),
+      isExplicit:$('upload-explicit').checked});
+    if(!result||!Number.isInteger(result.songId))throw uiError(m('The chart could not be uploaded'));
+    uiText($('upload-note'),m('Chart uploaded'));$('upload-note').classList.remove('is-error');
+    uploadChosenPath='';uiText($('upload-file'),m('No file chosen'));
+    $('upload-description').value='';$('upload-tags').value='';$('upload-explicit').checked=false;
+    $('upload-submit').disabled=true;
+    myReviewsCache=null;
+  }catch(error){
+    uiText($('upload-note'),errorText(error));$('upload-note').classList.add('is-error');
+    $('upload-submit').disabled=false;
+  }
+  uploadBusy=false;
+}
+function setupUpload(){
+  $('upload-close').addEventListener('click',closeUploadDialog);
+  $('upload-dialog').addEventListener('cancel',event=>{event.preventDefault();closeUploadDialog();});
+  $('upload-pick').addEventListener('click',()=>pickUploadFile());
+  $('upload-submit').addEventListener('click',()=>submitUpload());
 }
 async function windowCommand(action){
   try{const result=await installerRequest('POST','/v1/desktop/window',{action});if(result?.ok!==true)throw uiError(m('The window control could not be used. Please try again.'));}
@@ -1320,7 +1434,7 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();setupNotifications();setupAccountMenu();setupPlaylists();setupPlaylistSync();
+  $('settings-exit').addEventListener('click',exitTool);refreshSettingsControls();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();
 }
 function readDifficulty(){
   const min=Number($('min').value),max=Number($('max').value),diffs=Array.from(document.querySelectorAll('input[name="diff"]:checked'),el=>Number(el.value));
@@ -2589,7 +2703,7 @@ function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIREC
   return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
 }
 async function installerRequest(method,path,body,revision='',signal=null){
-  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status','/v1/playlists','/v1/notifications'].includes(path)||(/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path)||/^\/v1\/playlists\/\d+$/.test(path)))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/playlists/create','/v1/playlists/delete','/v1/playlists/song','/v1/reviews/add','/v1/reviews/delete','/v1/notifications/clear','/v1/notifications/clear-all','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status','/v1/playlists','/v1/notifications','/v1/upload/options'].includes(path)||(/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path)||/^\/v1\/playlists\/\d+$/.test(path)))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/playlists/create','/v1/playlists/delete','/v1/playlists/song','/v1/reviews/add','/v1/reviews/delete','/v1/notifications/clear','/v1/notifications/clear-all','/v1/upload/pick','/v1/upload/start','/v1/upload/update','/v1/upload/delete','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
   if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
   if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
   const request=new AbortController();let timedOut=false;
@@ -3387,6 +3501,7 @@ function render(append=false){
   syncCovers();
   if(typeof syncPreviewButtons==='function')syncPreviewButtons();
   if(typeof refreshPlaylistButtons==='function')refreshPlaylistButtons();
+  if(typeof refreshOwnChartButtons==='function')refreshOwnChartButtons();
   if(ready){if(installationFilterMode()==='all')trimPresenceQueue(shown);queueInstallationChecks(append?shown.slice(-scrollBatchSize):shown);}
   if(ready||pendingTagAnchor?.viewport)restoreTagAnchor();
 }

@@ -377,3 +377,36 @@ Two rounds of interactive design drafts (7 directions total) converged on the ow
 ### Next Steps
 
 - Phase 8/8: chart upload (real E2E needs an actual SRXD backup from the owner; contract tests cover the machinery)
+
+---
+
+## Session 13: Chart upload (phase 8/8) + repeated-pitfall gates
+
+**Date**: 2026-10-24
+**Task**: 10-23-chart-upload
+**Branch**: `main`
+
+### Summary
+
+Final phase shipped. src/upload.py (options parse from the upload page, streaming multipart upload with local zip validation and before/after chart-list diff verification, metadata update without zip, delete with diff verify), native GetOpenFileNameW zip picker (choose_zip_file + desktop.choose_zip + manager.file_picker), endpoints /v1/upload/options|pick|start|update|delete. Frontend: upload dialog in the settings language (live production DLC/publication options), account-menu upload entry, two-step delete buttons on own charts inside the my-charts view. Contract tests 8/8 against a stateful fake (multipart construction, local rejections, update-without-zip, foreign-chart rejection, delete verify, expired session). Real upload E2E deferred to the owner supplying an actual SRXD backup zip. Mid-phase the app booted to a dead idle page: the third locale-key-missing occurrence ("Required DLC" vs existing "Requires DLC") killed setupLanguage and the whole startup chain — per the owner's same-day directive, this class is now gated by UICatalogCompletenessTests (static scan of every data-ui-static/data-ui-attr/m() literal against both catalogs, with source-escape decoding), and repeated-pitfalls.md gained the full defense list.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: chart upload with native zip picker and own-chart management |
+
+### Testing
+
+- [OK] tests.test_upload.py 8/8; UICatalogCompletenessTests gate live (12/12 in test_web_resources)
+- [OK] full suite 203 OK; Node all green
+- [OK] UI walkthrough: browse 6 cards ready; my-charts view 5 cards + 5 delete buttons; upload dialog with live options
+
+### Status
+
+[OK] **Completed** — the 8-phase session-channel blueprint (2026-10-23/24) is fully delivered
+
+### Next Steps
+
+- Owner-supplied SRXD backup for the real upload E2E
+- Release 2.2.0 when the owner decides (versioning policy + README/CHANGELOG/DESIGN updates)

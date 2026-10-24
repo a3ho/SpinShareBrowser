@@ -13,6 +13,7 @@ SpinShare Browser：Windows 桌面工具，浏览/试听/安装/管理 spinsha.r
 - 动代码之前先读 `.trellis/spec/index.md`，按需加载相关层的 spec；这些 spec 是我对本项目的深度认知库，比从源码重新推导快得多。
 - 任务生命周期用 `.trellis/scripts/task.py`（create/start/finish/archive/list）；会话结束把记录追加到 `.trellis/workspace/glm/journal-*.md`。
 - 学到的长期教训要提升回 `.trellis/spec/`，不要只留在任务目录或日志里。
+- **踩过两次以上的坑必须全局根除**：防线清单在 `.trellis/spec/guides/repeated-pitfalls.md`（heredoc 禁令、跨 realm 断言、文案句号、cjs mock 检查清单等）。写新测试或做连环编辑前先对照。
 
 ## 验证纪律（硬性）
 
