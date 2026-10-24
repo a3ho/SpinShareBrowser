@@ -282,3 +282,35 @@ Shipped the differentiating feature: one-click playlist sync to the game. Fronte
 ### Next Steps
 
 - Phase 5/8: reviews-write; phase 6 notifications; phase 7 home; phase 8 upload
+
+---
+
+## Session 10: Reviews write/delete (phase 5/8)
+
+**Date**: 2026-10-24
+**Task**: 10-23-reviews-write
+**Branch**: `main`
+
+### Summary
+
+Review publishing over the session channel. src/reviews.py (post with before/after diff verification returning the new review id; delete with disappearance verification; 2000-char cap) + /v1/reviews/add|delete endpoints. Frontend reviews-write.js: compose section inside the per-card review drawer (recommend checkbox + textarea + post), local insertion on success (no full reload), own-review mode with badge and two-step delete removing the row locally, session-expiry handling, and an own-chart pre-block (production SongController silently ignores self-reviews — discovered live when the E2E on the owner's own chart returned post_unverified; guard added with a friendly message). Production E2E on chart 15394 (PRD sequence): post 22369 -> publicly visible via API -> delete -> gone.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (this session) | feat: review publishing and deletion over the session channel |
+
+### Testing
+
+- [OK] tests.test_reviews.py 5/5 (stateful fake with the add-form quirk + self-review silent-ignore); test_reviews_write.cjs 5/5
+- [OK] full suite 190 OK; Node 16/16
+- [OK] production E2E post->verify->delete; compose-section visual walkthrough PASS (screenshot review)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Phase 6/8: notifications read/clear

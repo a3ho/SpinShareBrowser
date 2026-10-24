@@ -9,7 +9,7 @@ async function readReviews(id,signal,refresh=false,priority='high',refreshOwner=
   // SpinShare omits reviews only for an empty collection, whose average is false.
   const entries=!Object.hasOwn(data,'reviews')&&data.average===false?[]:data.reviews;
   if(!Array.isArray(entries))throw uiError(m("Reviews could not be loaded."));
-  const items=entries.map(item=>{if(!item||typeof item!=='object')throw uiError(m("Reviews could not be loaded."));return {user:publicUser(item.user),text:String(item.comment||''),date:String(item.reviewDate?.date||''),timezone:String(item.reviewDate?.timezone||''),recommended:item.recommended===true?true:item.recommended===false?false:null};});
+  const items=entries.map(item=>{if(!item||typeof item!=='object')throw uiError(m("Reviews could not be loaded."));return {id:Number.isSafeInteger(item.id)?item.id:null,user:publicUser(item.user),text:String(item.comment||''),date:String(item.reviewDate?.date||''),timezone:String(item.reviewDate?.timezone||''),recommended:item.recommended===true?true:item.recommended===false?false:null};});
   const average=typeof data.average==='number'&&Number.isFinite(data.average)&&data.average>=0&&data.average<=100?data.average:null;
   const reviews={items,total:items.length,comments:items.filter(item=>item.text.trim()).length,average};
   if(!signal.aborted&&generation===cacheGeneration){reviewCache.delete(id);remember(reviewCache,id,reviews);}
@@ -198,6 +198,7 @@ async function loadInlineReviews(cell,state,refresh=false,refreshOwner=null){
     if(state.stopped||cell.retired||generation!==cacheGeneration)return;if(request.signal.aborted)throw new DOMException('Aborted','AbortError');
     reading=false;clearTimeout(timer);
     reviewCounts.set(cell.row[0],result.total);syncReviewCount(cell);
+    if(typeof syncReviewCompose==='function')syncReviewCompose(cell);
     if(!reviewsOpen(cell)||!await renderAllReviews(cell,result,state,request))return;
     cell.reviewLoaded=true;if(!state.stopped)uiText(cell.note,'');
   }catch(error){

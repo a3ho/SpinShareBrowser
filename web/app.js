@@ -886,6 +886,119 @@ function setupPlaylistSync(){
   $('playlist-sync-start').addEventListener('click',()=>runPlaylistSync());
   $('playlist-sync-stop').addEventListener('click',stopPlaylistSync);
 }
+let reviewComposeBusy=false;
+function myReviewIdentity(){return sessionConnected()&&APP_CONFIG.session&&Number.isInteger(APP_CONFIG.session.userId)?APP_CONFIG.session:null;}
+function findMyReview(cell){
+  const identity=myReviewIdentity();if(!identity)return null;
+  const cached=reviewCache.get(cell.row[0]);
+  if(!cached)return null;
+  return cached.items.find(item=>item.user&&item.user.id===identity.userId)||null;
+}
+function ensureReviewCompose(cell){
+  let host=cell.body.querySelector('.review-compose');
+  if(!host){
+    host=element('div',undefined,'review-compose');
+    cell.body.insertBefore(host,cell.note);
+    cell.compose=host;
+  }
+  return host;
+}
+function renderReviewCompose(cell){
+  const host=ensureReviewCompose(cell);
+  const identity=myReviewIdentity();
+  if(!identity){host.hidden=true;host.replaceChildren();return;}
+  host.hidden=false;
+  const mine=findMyReview(cell);
+  host.replaceChildren();
+  if(!mine&&cell.row[8]&&cell.row[8].uploader===identity.userId){
+    // The server silently ignores reviews on your own charts (SongController).
+    const own=element('p',undefined,'review-compose-note');
+    uiText(own,m('You cannot review your own chart'));
+    host.append(own);
+    return;
+  }
+  if(mine){
+    const row=element('div',undefined,'review-compose-mine');
+    const badge=element('span',undefined,'review-compose-badge');
+    uiText(badge,mine.recommended===true?m('Your recommendation'):mine.recommended===false?m('Your non-recommendation'):m('Your review'));
+    const remove=element('button',undefined,'review-compose-remove');
+    remove.type='button';remove.append(element('span',m('Delete review')));
+    uiAttr(remove,'aria-label',m('Delete your review of ')+cell.row[1]);
+    remove.addEventListener('click',()=>{
+      if(reviewComposeBusy)return;
+      if(!remove.dataset.armed){
+        remove.dataset.armed='1';uiText(remove.firstChild,m('Confirm delete review'));
+        remove._timer=setTimeout(()=>{delete remove.dataset.armed;uiText(remove.firstChild,m('Delete review'));},3200);
+        return;
+      }
+      clearTimeout(remove._timer);delete remove.dataset.armed;
+      void deleteMyReview(cell,mine,remove);
+    });
+    row.append(badge,remove);host.append(row);
+    return;
+  }
+  const form=element('form',undefined,'review-compose-form');
+  form.noValidate=true;
+  const recommend=element('label',undefined,'review-compose-recommend');
+  const box=element('input');box.type='checkbox';box.checked=true;
+  recommend.append(box,element('span',m('Recommend')));
+  const text=element('textarea',undefined,'review-compose-text');
+  text.rows=3;text.maxLength=2000;
+  uiAttr(text,'aria-label',m('Write a review')+": "+cell.row[1]);
+  text.placeholder=m('Write about the flow, difficulty or the patterns of the chart');
+  const actions=element('div',undefined,'review-compose-actions');
+  const submit=element('button',undefined,'button primary');
+  submit.type='submit';submit.append(element('span',m('Post review')));
+  uiAttr(submit,'aria-label',m('Post review for ')+cell.row[1]);
+  actions.append(submit);
+  const note=element('p',undefined,'review-compose-note');
+  note.setAttribute('role','status');note.hidden=true;
+  form.append(recommend,text,actions);
+  host.append(form,note);
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    if(reviewComposeBusy)return;
+    const comment=text.value.trim();
+    if(!comment){uiText(note,m('Write a review first'));note.hidden=false;note.classList.remove('is-error');return;}
+    reviewComposeBusy=true;submit.disabled=true;
+    uiText(note,m('Posting…'));note.hidden=false;note.classList.remove('is-error');
+    try{
+      const result=await installerRequest('POST','/v1/reviews/add',{songId:cell.row[0],recommended:box.checked,comment});
+      if(!result?.review||!Number.isInteger(result.review.reviewId))throw uiError(m('Review could not be posted'));
+      reviewCache.delete(cell.row[0]);
+      const identityNow=myReviewIdentity();
+      const item={id:result.review.reviewId,user:{id:identityNow.userId,name:identityNow.username||'',avatar:'',verified:false,patron:false,pronouns:''},
+        text:comment,date:new Date().toISOString().slice(0,19).replace('T',' '),timezone:'UTC',recommended:box.checked};
+      const article=reviewElement(item);
+      article.dataset.reviewId=String(item.id);
+      cell.list.prepend(article);pruneEntries();
+      reviewCounts.set(cell.row[0],(reviewCounts.get(cell.row[0])||0)+1);syncReviewCount(cell);
+      note.hidden=true;text.value='';
+      renderReviewCompose(cell);
+    }catch(error){
+      uiText(note,errorText(error));note.hidden=false;note.classList.add('is-error');
+      if(error.code==='session_expired'){sessionAccount={connected:false,username:null,userId:null,loginActive:false};syncSessionControls();}
+    }
+    reviewComposeBusy=false;submit.disabled=false;
+  });
+}
+function syncReviewCompose(cell){renderReviewCompose(cell);}
+async function deleteMyReview(cell,mine,remove){
+  reviewComposeBusy=true;remove.disabled=true;
+  try{
+    await installerRequest('POST','/v1/reviews/delete',{songId:cell.row[0],reviewId:mine.id});
+    reviewCache.delete(cell.row[0]);
+    const article=cell.list.querySelector('[data-review-id="'+mine.id+'"]');
+    if(article)article.remove();
+    reviewCounts.set(cell.row[0],Math.max(0,(reviewCounts.get(cell.row[0])||1)-1));syncReviewCount(cell);
+    renderReviewCompose(cell);
+  }catch(error){
+    uiText(remove.firstChild,errorText(error));
+    if(error.code==='session_expired'){sessionAccount={connected:false,username:null,userId:null,loginActive:false};syncSessionControls();}
+    remove.disabled=false;
+  }
+  reviewComposeBusy=false;
+}
 async function windowCommand(action){
   try{const result=await installerRequest('POST','/v1/desktop/window',{action});if(result?.ok!==true)throw uiError(m('The window control could not be used. Please try again.'));}
   catch(error){languageFeedback(errorText(error));}
@@ -2265,7 +2378,7 @@ function installerJob(payload,songId,expectedId='',targetDirectory=INSTALL_DIREC
   return {id:job.id,songId:job.songId,state:job.state,message:typeof job.message==='string'?job.message:'',downloadedBytes:countValue(job.downloadedBytes)??0,totalBytes:countValue(job.totalBytes),fileCount:countValue(job.fileCount)??0,filesWritten:countValue(job.filesWritten)??0,zipRemoved:job.zipRemoved===true,targetDirectory:job.targetDirectory};
 }
 async function installerRequest(method,path,body,revision='',signal=null){
-  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status','/v1/playlists'].includes(path)||(/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path)||/^\/v1\/playlists\/\d+$/.test(path)))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/playlists/create','/v1/playlists/delete','/v1/playlists/song','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
+  const permitted=method==='GET'&&(['/v1/settings','/v1/activity','/v1/desktop/window','/v1/desktop/dialog','/v1/session/status','/v1/playlists'].includes(path)||(/^\/v1\/jobs\/[a-f0-9]{32}$/.test(path)||/^\/v1\/playlists\/\d+$/.test(path)))||method==='POST'&&['/v1/install','/v1/installations/check','/v1/installations/index','/v1/installations/delete','/v1/settings','/v1/directory/select','/v1/shutdown','/v1/language','/v1/close-behavior','/v1/player-shortcuts-seen','/v1/player-volume','/v1/preview/resolve','/v1/session/login','/v1/session/logout','/v1/playlists/create','/v1/playlists/delete','/v1/playlists/song','/v1/reviews/add','/v1/reviews/delete','/v1/install-directory-confirmation','/v1/desktop/window','/v1/desktop/window/regions','/v1/desktop/dialog','/v1/desktop/exit'].includes(path);
   if(!permitted)throw uiError(m("Unable to complete this action. Reopen SpinShareBrowser.exe."));
   if(path==='/v1/install'&&!/^[a-f0-9]{32}$/.test(revision))throw uiError(m("Open Settings and choose the install folder again."));
   const request=new AbortController();let timedOut=false;
@@ -3369,7 +3482,7 @@ async function readReviews(id,signal,refresh=false,priority='high',refreshOwner=
   // SpinShare omits reviews only for an empty collection, whose average is false.
   const entries=!Object.hasOwn(data,'reviews')&&data.average===false?[]:data.reviews;
   if(!Array.isArray(entries))throw uiError(m("Reviews could not be loaded."));
-  const items=entries.map(item=>{if(!item||typeof item!=='object')throw uiError(m("Reviews could not be loaded."));return {user:publicUser(item.user),text:String(item.comment||''),date:String(item.reviewDate?.date||''),timezone:String(item.reviewDate?.timezone||''),recommended:item.recommended===true?true:item.recommended===false?false:null};});
+  const items=entries.map(item=>{if(!item||typeof item!=='object')throw uiError(m("Reviews could not be loaded."));return {id:Number.isSafeInteger(item.id)?item.id:null,user:publicUser(item.user),text:String(item.comment||''),date:String(item.reviewDate?.date||''),timezone:String(item.reviewDate?.timezone||''),recommended:item.recommended===true?true:item.recommended===false?false:null};});
   const average=typeof data.average==='number'&&Number.isFinite(data.average)&&data.average>=0&&data.average<=100?data.average:null;
   const reviews={items,total:items.length,comments:items.filter(item=>item.text.trim()).length,average};
   if(!signal.aborted&&generation===cacheGeneration){reviewCache.delete(id);remember(reviewCache,id,reviews);}
@@ -3558,6 +3671,7 @@ async function loadInlineReviews(cell,state,refresh=false,refreshOwner=null){
     if(state.stopped||cell.retired||generation!==cacheGeneration)return;if(request.signal.aborted)throw new DOMException('Aborted','AbortError');
     reading=false;clearTimeout(timer);
     reviewCounts.set(cell.row[0],result.total);syncReviewCount(cell);
+    if(typeof syncReviewCompose==='function')syncReviewCompose(cell);
     if(!reviewsOpen(cell)||!await renderAllReviews(cell,result,state,request))return;
     cell.reviewLoaded=true;if(!state.stopped)uiText(cell.note,'');
   }catch(error){

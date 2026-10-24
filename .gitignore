@@ -17,6 +17,7 @@
 !/src/audio_preview.py
 !/src/session_client.py
 !/src/playlists.py
+!/src/reviews.py
 
 !/web/
 !/web/index.html
@@ -31,8 +32,10 @@
 !/tests/test_web_resources.py
 !/tests/test_session_client.py
 !/tests/test_playlists.py
+!/tests/test_reviews.py
 !/tests/test_playlists.cjs
 !/tests/test_playlist_sync.cjs
+!/tests/test_reviews_write.cjs
 !/web/locales.json
 
 !/assets/

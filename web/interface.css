@@ -70,6 +70,21 @@ input { caret-color: var(--pink); }
 .icon { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: middle; }
 .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
+
+/* Review compose section inside the per-card reading popover. */
+.review-compose { display: grid; gap: 8px; padding: 10px 0 2px; border-top: 1px solid var(--line); margin-top: 6px; }
+.review-compose-form { display: grid; gap: 8px; }
+.review-compose-recommend { display: inline-flex; align-items: center; gap: 8px; font-size: var(--type-control); color: var(--text-secondary); }
+.review-compose-recommend input { accent-color: var(--pink); width: 14px; height: 14px; }
+.review-compose-text { width: 100%; min-height: 64px; resize: vertical; padding: 10px; background: #16171c; border: 1px solid var(--line); border-radius: 8px; color: var(--text); font: inherit; font-size: var(--type-meta); }
+.review-compose-text:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; }
+.review-compose-actions { display: flex; justify-content: flex-end; }
+.review-compose-note { font-size: var(--type-meta); color: var(--muted); }
+.review-compose-note.is-error { color: var(--error); }
+.review-compose-mine { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.review-compose-badge { font-size: var(--type-meta); color: var(--pink); }
+.review-compose-remove { color: var(--muted); }
+.review-compose-remove:hover, .review-compose-remove[data-armed] { color: var(--error); }
 /* Desktop shell. The content keeps a single document scroll container. */
 .topbar { position: fixed; inset: 0 0 auto; height: var(--top); z-index: 30; display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(220px, min(760px, 52vw)) minmax(max-content, 1fr); align-items: center; gap: 16px; padding: 0 24px; background: var(--sidebar); border-bottom: 1px solid var(--line); }
 .brand { grid-column: 1; justify-self: start; display: flex; align-items: center; gap: 10px; flex: none; }

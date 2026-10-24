@@ -27,3 +27,10 @@
 - `web/src/js/playlist-sync.js`（27 模块）：入口=歌单面板行"同步到游戏"（需 installDirectoryConfirmed，否则走目录确认流）。预览 = `playlistDetailCached` songIds → `compact(catalog, 全难度无日期)` 建行 → `POST /v1/installations/check` 批量存在性 → {将安装/已装跳过/下架/DLC 标注}。执行 = 复用 `startInstallation`（单装机制全套：视图/活动坞/存在性），逐首 `await installationPending===false` + 1.2s 间隔；**停止=停止后续提交，进行中的永不强杀（红线 9）**；单首失败不中断，末尾汇总。对话框关闭不中止循环（Esc 只关视图）。
 - E2E 已验证：两首歌真实下载安装到沙箱目录（隔离实例 config.customDirectory 指沙箱 + installDirectoryConfirmed），srtb 落盘核对，完成态截图走查 PASS。
 - 坑：vm 跨 realm 数组断言用 join(',') 比较；新 cjs 测试的 dialog 节点要 mock showModal/close。
+
+## 评论发布删除（阶段 5，2026-10-24）
+
+- 通道事实（生产实证）：表单在 `GET /song/{id}?tab=reviews&action=add`（`reviewRecommended` yes/no + `reviewComment` + `submitReview`，无 CSRF，POST 回同 URL，进门 views+1）；删除 `GET /song/{id}/review/{rid}/delete` 无 CSRF；**自评被服务器静默忽略**（SongController `if(getUser() != uploader)`，无任何报错）——前端按 `row[8].uploader===我的userId` 预拦并提示"不能评价自己的谱面"。
+- `src/reviews.py`：`post_review`（前后差集验证新评论 id）/`delete_review`（消失验证）；评论上限 2000 字符。端点 `/v1/reviews/add|delete`。
+- 前端 `web/src/js/reviews-write.js`：评论抽屉写作区（推荐勾选 + 文本 + 发布；**成功后局部插入**列表顶部 + 计数 +1 + 缓存失效，不整页重拉）；已评态显示徽标 + 两步删除（局部移除）；会话失效即整体登出 UI。`readReviews` 条目映射补 `id`。
+- 坑：异步 click 处理器后半段在微任务——测试要 `setImmediate` 等待；mock Element 的 append 必须设 parentElement、remove 必须真删，setTimeout mock 不能立即执行（两步确认会被瞬间解除）。

@@ -23,6 +23,7 @@ import installer
 import audio_preview
 import session_client
 import playlists
+import reviews
 
 VERSION = "2.1.1"
 HOST = "127.0.0.1"
@@ -1773,7 +1774,7 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authenticated():
             return
-        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song"}:
+        if self.path not in {"/v1/preview/resolve", "/v1/charts/manual", "/v1/charts/automatic", "/v1/install", "/v1/settings", "/v1/language", "/v1/close-behavior", "/v1/player-shortcuts-seen", "/v1/player-volume", "/v1/install-directory-confirmation", "/v1/desktop/window", "/v1/desktop/window/regions", "/v1/desktop/dialog", "/v1/desktop/show", "/v1/desktop/exit", "/v1/shutdown", "/v1/directory/select", "/v1/installations/check", "/v1/installations/index", "/v1/installations/delete", "/v1/session/login", "/v1/session/logout", "/v1/playlists/create", "/v1/playlists/delete", "/v1/playlists/song", "/v1/reviews/add", "/v1/reviews/delete"}:
             self._respond(404, {"error": "The endpoint does not exist.", "code": "not_found"})
             return
         try:
@@ -1916,6 +1917,28 @@ class PortableHandler(http.server.BaseHTTPRequestHandler):
                 except session_client.SessionError as exc:
                     status, code = playlist_failure(exc)
                     raise APIError(status, code, "The playlist could not be deleted.")
+                self._respond(200, {"ok": True})
+                return
+            if self.path == "/v1/reviews/add":
+                if (set(data) != {"songId", "recommended", "comment"} or not isinstance(data["songId"], int) or
+                        type(data["recommended"]) is not bool or not isinstance(data["comment"], str)):
+                    raise APIError(400, "invalid_body", "Review posting accepts songId, recommended and comment.")
+                try:
+                    result = reviews.post_review(data["songId"], data["recommended"], data["comment"])
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The review could not be posted.")
+                self._respond(200, {"review": result})
+                return
+            if self.path == "/v1/reviews/delete":
+                if (set(data) != {"songId", "reviewId"} or not isinstance(data["songId"], int) or
+                        not isinstance(data["reviewId"], int)):
+                    raise APIError(400, "invalid_body", "Review deletion accepts only songId and reviewId.")
+                try:
+                    reviews.delete_review(data["songId"], data["reviewId"])
+                except session_client.SessionError as exc:
+                    status, code = playlist_failure(exc)
+                    raise APIError(status, code, "The review could not be deleted.")
                 self._respond(200, {"ok": True})
                 return
             if self.path == "/v1/playlists/song":
