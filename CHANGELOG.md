@@ -4,6 +4,25 @@ SpinShare Browser retains, maintains, and supports only the latest stable releas
 
 SpinShare Browser 仅保留、维护和支持最新稳定版。新版验证并发布后，删除全部旧版发布页、下载附件和版本标签，旧版本不再保留。以下条目仅记录开发历史。
 
+## 2.2.0 — 2026-10-24
+
+- Sign in to spinsha.re from Settings. Sign-in happens on the real website inside a dedicated window (two-factor included); the session is stored encrypted on this computer only and can be signed out at any time. Browsing and installing keep working without signing in.
+- 在设置中登录 spinsha.re。登录在专属窗口内的官方网站完成（支持两步验证）；会话仅加密保存在本机，可随时断开。不登录不影响浏览与安装。
+- Manage playlists: create and delete playlists, add or remove charts, and open any playlist as a focused view of the catalog. Playlist covers are generated automatically; operations are verified against the website after every change.
+- 歌单管理：创建与删除歌单、添加或移除谱面，并可将任意歌单作为目录的聚焦视图打开。歌单封面自动生成；每次修改都会与网站核对结果。
+- One-click playlist sync: pick a playlist, review what is missing, and install everything through the same verified pipeline as manual installs. Stop only cancels the remaining queue; an in-flight install is never interrupted.
+- 歌单一键同步：选择歌单、查看缺口清单后，用与手动安装相同的验证管线批量安装。停止只取消后续任务，绝不打断进行中的安装。
+- Read and write reviews in the chart review panel: post a recommendation with your comment (shown immediately), delete your own review, and see your own state per chart. Reviews on your own charts are blocked, matching the website.
+- 在谱面评论面板中读写评论：发布推荐与评论（即时显示）、删除自己的评论、查看自己的评论状态。与网站一致，不能评价自己的谱面。
+- The top bar gains a notifications bell (checked only when opened, never in the background), an account chip with your playlists, charts and reviews, and an upload entry.
+- 顶栏新增通知铃铛（仅打开时检查，绝无后台轮询）、账户入口（歌单／我的谱面／我的评论）与上传入口。
+- Upload charts: pick an SRXD backup .zip, describe and tag it, choose the required DLC and publication status, and publish — all from the app. Manage your uploaded charts in the "My charts" view.
+- 上传谱面：选择 SRXD backup .zip、填写描述与标签、选择所需 DLC 与发布状态后直接发布。在“我的谱面”视图中管理已上传作品。
+- The volume slider appears in the header player and persists across restarts; filters render as a compact pill row.
+- 顶栏播放器新增音量调节并在重启后保持；筛选区重塑为紧凑的胶囊行。
+- Internal: web sources are authored in modular files and assembled at build time; the session channel runs all website writes through one serial, spaced queue with before/after verification.
+- 内部：前端源码模块化并改为构建期拼装；网站写操作统一经过串行、留间隔并带前后核对的会话通道。
+
 ## 2.1.1 — 2026-09-14
 
 - Recheck the catalog when a newly installed chart differs from its cached version. Batch these automatic checks, retain refresh cooldowns and failure backoff, and compare the actual local hash again after refreshing. New cache generations also invalidate displayed installation states when returned by cache-only or cooldown responses.

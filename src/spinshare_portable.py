@@ -27,7 +27,7 @@ import reviews
 import notifications
 import upload
 
-VERSION = "2.1.1"
+VERSION = "2.2.0"
 HOST = "127.0.0.1"
 CONFIG_NAME = "config.json"
 PAGE_NAME = "browser.html"
