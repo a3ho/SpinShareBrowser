@@ -1,8 +1,8 @@
 /* User profile view (Direction B: banner + floating avatar + segment pills). */
-.user-profile-view { display: grid; gap: 0; }
+.user-profile-view { display: grid; gap: 0; position: relative; }
 .user-profile-view[hidden] { display: none; }
 .profile-banner { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
-.profile-banner-row { display: flex; align-items: flex-end; gap: 14px; padding: 0 18px 14px; background: var(--card); flex-wrap: wrap; }
+.profile-banner-row { display: flex; align-items: flex-end; gap: 14px; padding: 38px 18px 14px; background: var(--card); flex-wrap: wrap; }
 .profile-avatar { width: 72px; height: 72px; border-radius: 999px; border: 3px solid var(--card); margin-top: -36px; overflow: hidden; background: var(--surface); flex: none; }
 .profile-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .profile-info { min-width: 0; padding-bottom: 2px; }
@@ -16,7 +16,10 @@
 .profile-segment { padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--muted); background: transparent; border: 0; }
 .profile-segment:hover { color: var(--text); }
 .profile-segment.is-active { background: var(--surface); color: var(--text); }
-.profile-close { position: absolute; top: 10px; right: 12px; width: 28px; height: 28px; border-radius: 999px; background: #0006; color: #fffc; display: flex; align-items: center; justify-content: center; font-size: 0; }
+.profile-close { position: absolute; top: 10px; right: 12px; width: 30px; height: 30px; border-radius: 999px; background: #0008; color: #fffc; display: flex; align-items: center; justify-content: center; }
+.profile-close .icon { width: 14px; height: 14px; }
+.profile-review-row.is-clickable { cursor: pointer; }
+.profile-review-row.is-clickable:hover, .profile-review-row.is-clickable:focus-visible { background: var(--surface); }
 .profile-close:hover { background: #0009; color: #fff; }
 .profile-close .sr-only, .profile-close span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .profile-tab-content { margin-top: 12px; min-height: 120px; }

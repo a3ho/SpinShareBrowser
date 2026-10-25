@@ -45,10 +45,8 @@ function renderNotifications(){
       uiAttr(jump,'aria-label',m('Go to chart')+': '+song[1]);
       jump.append(element('span',m('Go to chart')));
       jump.addEventListener('click',()=>{
-        playlistFilter={id:null,title:song[1],songIds:new Set([song[0]])};
         closeNotificationsPopover();
-        page=1;visibleCount=scrollBatchSize;
-        rebuild(false);renderPlaylistFilterBar();focusResults();
+        viewChartById(song[0],song[1]);
       });
       actions.append(jump);
     }

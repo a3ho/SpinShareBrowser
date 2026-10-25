@@ -714,7 +714,12 @@
     "Chart library sync": "Chart library sync",
     "The chart library is downloaded from spinsha.re. A local copy older than 12 hours syncs automatically, so you rarely need to do anything.": "The chart library is downloaded from spinsha.re. A local copy older than 12 hours syncs automatically, so you rarely need to do anything",
     "Manual sync": "Manual sync",
-    "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes.": "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes"
+    "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes.": "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes",
+    "View": "View",
+    "View playlist: ": "View playlist: ",
+    "View the reviewed chart": "View the reviewed chart",
+    "No charts found in the local chart library": "No charts found in the local chart library",
+    "Not in the local chart library": "Not in the local chart library"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1431,6 +1436,11 @@
     "Chart library sync": "谱面库同步",
     "The chart library is downloaded from spinsha.re. A local copy older than 12 hours syncs automatically, so you rarely need to do anything.": "谱面库从 spinsha.re 云端拉取。本地副本超过 12 小时会自动同步，通常无需手动操作",
     "Manual sync": "手动同步",
-    "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes.": "点击按钮从 spinsha.re 拉取最新谱面库；两次手动同步至少间隔 10 分钟"
+    "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes.": "点击按钮从 spinsha.re 拉取最新谱面库；两次手动同步至少间隔 10 分钟",
+    "View": "查看",
+    "View playlist: ": "查看歌单：",
+    "View the reviewed chart": "查看被评论的谱面",
+    "No charts found in the local chart library": "本地谱面库中没有找到谱面",
+    "Not in the local chart library": "不在本地谱面库中"
   }
 }

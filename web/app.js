@@ -177,7 +177,7 @@ const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not co
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
-  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.3.5'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
+  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.4.0'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
   if(valid){try{const url=new URL(config.origin);valid=url.protocol==='http:'&&url.hostname==='127.0.0.1'&&Number(url.port)>=1&&Number(url.port)<=65535&&url.origin===config.origin&&globalThis.location?.origin===config.origin&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}catch{valid=false;}}
   if(valid)valid=typeof config.settingsRevision==='string'&&/^[a-f0-9]{32}$/.test(config.settingsRevision);
   if(valid)valid=['zh-CN','en'].includes(config.language);
@@ -203,7 +203,7 @@ function refreshSettingsControls(){
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){
   const settings=payload?.settings;
-  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.3.5')throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.4.0')throw uiError(m("Settings could not be loaded. Reopen Settings."));
   if(settings.targetDirectory!==(settings.customDirectory===null?settings.defaultDirectory:settings.customDirectory))throw uiError(m("Open Settings and choose the install folder again."));
   if(settings.closeBehavior!==undefined&&!['ask','exit','tray'].includes(settings.closeBehavior))throw uiError(m("Settings could not be loaded. Reopen Settings."));
   return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',installDirectoryConfirmed:settings.installDirectoryConfirmed,exiting:settings.exiting===true};
@@ -487,7 +487,6 @@ function setupSession(){
   $('settings-session-logout').addEventListener('click',()=>requestSessionLogout());
 }
 let myPlaylists=null,playlistsFetchedAt=0,playlistsPanelBusy=false,playlistsHintText='',playlistsHintError=false;
-let playlistFilter=null;
 let playlistPickerState=null,playlistPickerAnchor=null,playlistPickerNewVisible=false,playlistPickerBusy=false;
 let playlistDetailsCache=new Map();
 const PLAYLISTS_FRESH_MS=45000;
@@ -528,7 +527,6 @@ function playlistHint(message,error=false){playlistsHintText=message;playlistsHi
 function syncPlaylistsUI(){
   if(typeof syncAccountChip==='function')syncAccountChip();
   renderPlaylistsPanel();
-  renderPlaylistFilterBar();
   refreshPlaylistButtons();
 }
 function playlistCountLabel(entry){return entry.songs===1?m('1 song'):number(entry.songs)+m(' songs');}
@@ -550,9 +548,9 @@ function renderPlaylistsPanel(){
     info.append(title,count);
     const actions=element('div',undefined,'playlists-actions');
     const open=element('button',undefined,'button secondary');open.type='button';
-    open.append(element('span',m('Open')));
-    uiAttr(open,'aria-label',m('Open playlist: ')+entry.title);
-    open.addEventListener('click',()=>openPlaylistFilter(entry.id));
+    open.append(element('span',m('View')));
+    uiAttr(open,'aria-label',m('View playlist: ')+entry.title);
+    open.addEventListener('click',()=>viewPlaylistCharts(entry.id));
     const sync=element('button',undefined,'button secondary');sync.type='button';
     sync.append(element('span',m('Sync to game')));
     uiAttr(sync,'aria-label',m('Sync playlist to game')+': '+entry.title);
@@ -580,7 +578,6 @@ async function deletePlaylist(playlistId){
     await installerRequest('POST','/v1/playlists/delete',{playlistId});
     if(Array.isArray(myPlaylists))myPlaylists=myPlaylists.filter(entry=>entry.id!==playlistId);
     playlistDetailsCache.delete(playlistId);
-    if(playlistFilter&&playlistFilter.id===playlistId)clearPlaylistFilter();
     playlistHint(m('Playlist deleted'));
   }catch(error){playlistHint(errorText(error),true);}
   playlistsPanelBusy=false;renderPlaylistsPanel();refreshPlaylistButtons();
@@ -604,34 +601,6 @@ function openPlaylistsPanel(){
   $('playlists-new-title').focus();
 }
 function closePlaylistsPanel(){$('playlists-panel').close();}
-async function openPlaylistFilter(playlistId){
-  try{
-    const detail=await playlistDetailCached(playlistId);
-    playlistFilter={id:playlistId,title:detail.title||'',songIds:new Set(detail.songIds),kind:'playlist'};
-    closePlaylistsPanel();
-    page=1;visibleCount=scrollBatchSize;
-    rebuild(false);
-    renderPlaylistFilterBar();
-  }catch(error){playlistHint(errorText(error),true);}
-}
-function clearPlaylistFilter(){
-  if(!playlistFilter)return;
-  playlistFilter=null;page=1;visibleCount=scrollBatchSize;
-  rebuild(false);renderPlaylistFilterBar();focusResults();
-}
-function renderPlaylistFilterBar(){
-  const bar=$('playlist-filter-bar');
-  if(!playlistFilter){bar.hidden=true;bar.replaceChildren();return;}
-  bar.hidden=false;bar.replaceChildren();
-  const chip=element('span',undefined,'playlist-chip');
-  const iconNode=element('span',undefined,'playlist-chip-icon');iconNode.append(icon('playlist'));
-  const label=element('span',undefined,'playlist-chip-label');uiText(label,(playlistFilter.kind==='playlist'?m('Playlist')+': ':'')+playlistFilter.title+' ('+number(playlistFilter.songIds.size)+')');
-  const close=element('button',undefined,'playlist-chip-close');close.type='button';
-  uiAttr(close,'aria-label',m('Clear playlist filter'));
-  close.append(element('span',m('Clear playlist filter')));
-  close.addEventListener('click',clearPlaylistFilter);
-  chip.append(iconNode,label,close);bar.append(chip);
-}
 function openPlaylistPicker(row,anchor){
   if(!playlistSessionReady())return;
   // Open instantly with whatever is cached; membership is confirmed in the
@@ -1085,10 +1054,8 @@ function renderNotifications(){
       uiAttr(jump,'aria-label',m('Go to chart')+': '+song[1]);
       jump.append(element('span',m('Go to chart')));
       jump.addEventListener('click',()=>{
-        playlistFilter={id:null,title:song[1],songIds:new Set([song[0]])};
         closeNotificationsPopover();
-        page=1;visibleCount=scrollBatchSize;
-        rebuild(false);renderPlaylistFilterBar();focusResults();
+        viewChartById(song[0],song[1]);
       });
       actions.append(jump);
     }
@@ -1159,7 +1126,7 @@ function setupNotifications(){
   addEventListener('resize',()=>{if(popover.matches(':popover-open'))positionNotificationsPopover();});
   syncNotificationsUI();
 }
-let accountMenuAnchor=null,myReviewsCache=null,myReviewsFetchedAt=0;
+let accountMenuAnchor=null;
 const MY_REVIEWS_FRESH_MS=60000;
 let accountAvatarURL='';
 async function syncAccountChip(){
@@ -1213,41 +1180,6 @@ function openAccountMenu(anchor){
 function closeAccountMenu(){
   getAccountMenuEngine().close();
 }
-async function applyPersonalView(title,songIds,kind='view'){
-  playlistFilter={id:null,title,songIds,kind};
-  closeAccountMenu();
-  // Personal views span all upload dates. Reset the preset visibly and run the
-  // full pipeline so currentRows is re-compacted without the date bound.
-  if(typeof applyDatePreset==='function'&&$('date-preset')&&$('date-preset').value!=='all'){
-    $('date-preset').value='all';applyDatePreset();
-  }
-  if(typeof apply==='function')await apply();
-  else await rebuild(false);
-  renderPlaylistFilterBar();focusResults();
-}
-async function openMyChartsView(){
-  const identity=myReviewIdentity();
-  if(!identity)return;
-  const rows=compact(catalog,{dateFrom:'',dateTo:'',diffs:[0,1,2,3,4],min:0,max:99});
-  const mine=rows.filter(row=>row[8]&&row[8].uploader===identity.userId);
-  applyPersonalView(m('My charts'),new Set(mine.map(row=>row[0])));
-}
-async function openMyReviewsView(){
-  const identity=myReviewIdentity();
-  if(!identity)return;
-  if(!myReviewsCache||Date.now()-myReviewsFetchedAt>MY_REVIEWS_FRESH_MS){
-    try{
-      const response=await fetch('https://spinsha.re/api/user/'+identity.userId+'/reviews',{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',redirect:'error'});
-      const result=await readJSONResponse(response,2*1024*1024);
-      if(result?.status===200&&Array.isArray(result.data)){
-        myReviewsCache=result.data.map(entry=>entry&&entry.song&&Number.isSafeInteger(entry.song.id)?entry.song.id:null).filter(id=>id!==null);
-        myReviewsFetchedAt=Date.now();
-      }
-    }catch(error){/* keep the last confirmed set (red line 13) */}
-  }
-  if(!myReviewsCache)return;
-  applyPersonalView(m('My reviews'),new Set(myReviewsCache));
-}
 function setupAccountMenu(){
   const chip=$('account-chip'),menu=$('account-menu');
   if(!chip||!menu)return;
@@ -1267,7 +1199,6 @@ function setupAccountMenu(){
 }
 
 function refreshOwnChartButtons(){
-  if(typeof playlistFilter==='undefined'||!playlistFilter||playlistFilter.kind!=='view')return;
   const identity=myReviewIdentity();if(!identity)return;
   for(const view of cardViews.values()){
     const card=view.card;
@@ -1297,10 +1228,8 @@ async function deleteOwnChart(songId,button){
   button.disabled=true;
   try{
     await installerRequest('POST','/v1/upload/delete',{songId});
-    if(typeof playlistFilter!=='undefined'&&playlistFilter&&playlistFilter.songIds)playlistFilter.songIds.delete(songId);
     const view=[...cardViews.values()].find(v=>v.row[0]===songId);
     if(view&&view.card&&typeof view.card.remove==='function')view.card.remove();
-    renderPlaylistFilterBar();
   }catch(error){button.disabled=false;uiText(button.firstChild,errorText(error));}
 }
 let uploadBusy=false,uploadChosenPath='';
@@ -1365,7 +1294,6 @@ async function submitUpload(){
     uploadChosenPath='';uiText($('upload-file'),m('No file chosen'));
     $('upload-description').value='';$('upload-tags').value='';$('upload-explicit').checked=false;
     $('upload-submit').disabled=true;
-    myReviewsCache=null;
   }catch(error){
     uiText($('upload-note'),errorText(error));$('upload-note').classList.add('is-error');
     $('upload-submit').disabled=false;
@@ -1598,7 +1526,7 @@ function renderUserProfileShell(userId,tab,loading){
   const close=element('button',undefined,'profile-close');
   close.type='button';
   uiAttr(close,'aria-label',m('Close profile'));
-  close.append(element('span',m('Close profile')));
+  close.append(icon('close'),element('span',m('Close profile')));
   close.addEventListener('click',closeUserProfile);
   const content=element('div',undefined,'profile-tab-content');
   content.id='profile-tab-content';
@@ -1637,14 +1565,22 @@ function renderProfileCharts(profile,content){
   if(!charts.length){const empty=element('p',undefined,'profile-empty');uiText(empty,m('No charts yet'));content.append(empty);return;}
   const grid=element('div',undefined,'chart-grid profile-grid');
   grid.setAttribute('role','list');
-  const rows=compact(charts,{dateFrom:'',dateTo:'',diffs:[0,1,2,3,4],min:0,max:99});
+  // /api/user/:id/charts returns slim songs (no views/downloads/dates); merge
+  // the full record from the local catalog so the cards carry real stats.
+  const byId=new Map();
+  if(Array.isArray(catalog))for(const song of catalog){const id=Number(song&&song.id);if(Number.isSafeInteger(id))byId.set(id,song);}
+  const enriched=charts.map(song=>byId.get(Number(song&&song.id))||song);
+  const rows=compact(enriched,{dateFrom:'',dateTo:'',diffs:[0,1,2,3,4],min:0,max:99});
+  const cells=[];
   for(const row of rows){
     const view=createChartCard(row);
     view.card.classList.add('profile-card-item');
+    cells.push(view.cell);
     grid.append(view.card);
   }
   content.append(grid);
   if(typeof syncCovers==='function')syncCovers();
+  if(typeof watchPageReviews==='function')watchPageReviews(cells.slice());
   if(typeof queueInstallationChecks==='function')queueInstallationChecks([...installationViews.values()].map(v=>v.row));
 }
 function renderProfilePlaylists(profile,content){
@@ -1670,17 +1606,9 @@ function renderProfilePlaylists(profile,content){
     const actions=element('div',undefined,'playlists-actions');
     const open=element('button',undefined,'button secondary');
     open.type='button';
-    open.append(element('span',m('Open')));
-    uiAttr(open,'aria-label',m('Open playlist: ')+entry.title);
-    open.addEventListener('click',async()=>{
-      try{
-        const detail=await playlistDetailCached(entry.id);
-        closeUserProfile();
-        playlistFilter={id:entry.id,title:detail.title||entry.title,songIds:new Set(detail.songIds),kind:'playlist'};
-        page=1;visibleCount=scrollBatchSize;
-        await apply();renderPlaylistFilterBar();focusResults();
-      }catch(error){/* leave profile open on failure */}
-    });
+    open.append(element('span',m('View')));
+    uiAttr(open,'aria-label',m('View playlist: ')+entry.title);
+    open.addEventListener('click',()=>viewPlaylistCharts(entry.id,entry.title));
     actions.append(open);
     if(mine){
       const sync=element('button',undefined,'button secondary');
@@ -1711,8 +1639,13 @@ function renderProfileReviews(profile,content){
     if(!item||typeof item!=='object')continue;
     const song=item.song&&typeof item.song==='object'?item.song:null;
     if(!song||typeof song.title!=='string')continue;
-    const row=element('div',undefined,'profile-review-row');
+    const row=element('div',undefined,'profile-review-row is-clickable');
     row.setAttribute('role','listitem');
+    row.tabIndex=0;
+    uiAttr(row,'aria-label',m('View the reviewed chart')+': '+song.title);
+    const openReviewed=()=>viewChartById(Number(song.id),song.title);
+    row.addEventListener('click',openReviewed);
+    row.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openReviewed();}});
     const head=element('div',undefined,'profile-review-head');
     const title=element('span',song.title,'profile-review-song');
     const verdict=element('span',undefined,'profile-review-verdict '+(item.recommended===true?'is-up':item.recommended===false?'is-down':''));
@@ -1751,6 +1684,90 @@ function renderProfileSpinplays(profile,content){
 }
 function setupUserProfile(){
   // no persistent bindings; the view builds its own controls per render
+}
+// Chart browse overlay: one large floating panel for browsing chart cards
+// without leaving the current page (owner design ruling 2026-10-25: fewer
+// page jumps; playlists, reviewed charts and notification jumps all open
+// here instead of navigating the filter view). No filters inside; the outer
+// top-bar player keeps working underneath.
+let chartOverlayFocus=null,chartOverlayCells=[];
+function catalogSongRows(songIds){
+  // Full-stat rows come from the local catalog cache: the slim API payloads
+  // (user charts, playlist entries) lack views/downloads/dates/tags.
+  if(!Array.isArray(catalog)||!songIds||!songIds.size)return [];
+  const byId=new Map();
+  for(const song of catalog){const id=Number(song&&song.id);if(Number.isSafeInteger(id))byId.set(id,song);}
+  const picked=[];
+  for(const id of songIds){const song=byId.get(id);if(song)picked.push(song);}
+  return compact(picked,{dateFrom:'',dateTo:'',diffs:[0,1,2,3,4],min:0,max:99});
+}
+function closeChartOverlayCells(){
+  for(const cell of chartOverlayCells){
+    cell.retired=true;
+    if(typeof retireReviewCell==='function')retireReviewCell(cell);
+  }
+  chartOverlayCells=[];
+}
+function openChartOverlay(title,rows,subtitle){
+  const dialog=$('chart-overlay');
+  if(!dialog||typeof dialog.showModal!=='function')return;
+  chartOverlayFocus=document.activeElement;
+  uiText($('chart-overlay-title'),title||'');
+  uiText($('chart-overlay-subtitle'),subtitle||'');
+  const body=$('chart-overlay-body');
+  body.replaceChildren();body.scrollTop=0;
+  closeChartOverlayCells();
+  if(rows&&rows.length){
+    const grid=element('div',undefined,'chart-grid chart-overlay-grid');
+    grid.setAttribute('role','list');
+    const cells=[];
+    for(const row of rows){
+      const view=createChartCard(row);
+      cells.push(view.cell);
+      grid.append(view.card);
+    }
+    chartOverlayCells=cells;
+    body.append(grid);
+    if(typeof syncCovers==='function')syncCovers();
+    if(typeof watchPageReviews==='function')watchPageReviews(cells.slice());
+    if(typeof queueInstallationChecks==='function')queueInstallationChecks(cells.map(cell=>cell.row));
+  }else{
+    const empty=element('p',undefined,'chart-overlay-empty');
+    uiText(empty,m('No charts found in the local chart library'));
+    body.append(empty);
+  }
+  dialog.showModal();
+  $('chart-overlay-close')?.focus({preventScroll:true});
+}
+function closeChartOverlay(){
+  const dialog=$('chart-overlay');
+  if(dialog&&dialog.open)dialog.close();
+}
+async function viewPlaylistCharts(playlistId,fallbackTitle){
+  try{
+    const detail=await playlistDetailCached(playlistId);
+    const songIds=new Set(Array.isArray(detail.songIds)?detail.songIds:[]);
+    const rows=catalogSongRows(songIds);
+    openChartOverlay(detail.title||fallbackTitle||m('Playlist'),rows,number(songIds.size)+m(' charts'));
+  }catch(error){
+    if(typeof playlistHint==='function')playlistHint(errorText(error),true);
+  }
+}
+function viewChartById(songId,title){
+  const rows=catalogSongRows(new Set([Number(songId)]));
+  openChartOverlay(title||'',rows,rows.length?'':m('Not in the local chart library'));
+}
+function setupChartOverlay(){
+  const dialog=$('chart-overlay');
+  if(!dialog)return;
+  $('chart-overlay-close').addEventListener('click',closeChartOverlay);
+  dialog.addEventListener('close',()=>{
+    closeChartOverlayCells();
+    chartOverlayFocus?.focus?.({preventScroll:true});
+    chartOverlayFocus=null;
+  });
+  dialog.addEventListener('cancel',event=>{event.preventDefault();closeChartOverlay();});
+  dialog.addEventListener('click',event=>{if(event.target===dialog)closeChartOverlay();});
 }
 async function windowCommand(action){
   try{const result=await installerRequest('POST','/v1/desktop/window',{action});if(result?.ok!==true)throw uiError(m('The window control could not be used. Please try again.'));}
@@ -1878,7 +1895,7 @@ function setupRuntime(){
   syncCloseOptions();
   for(const input of document.querySelectorAll('input[name="close-behavior"]'))input.addEventListener('change',()=>{if(input.checked)return saveCloseBehavior(input.value);});
   $('settings-default').addEventListener('click',()=>{if(!$('settings-default').disabled)return selectDirectory(true);});
-  refreshSettingsControls();setupAutoUpdate();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();setupUserProfile();
+  refreshSettingsControls();setupAutoUpdate();setupSession();setupNotifications();setupAccountMenu();setupUpload();setupPlaylists();setupPlaylistSync();setupUserProfile();setupChartOverlay();
 }
 function readDifficulty(){
   const min=Number($('min').value),max=Number($('max').value),diffs=Array.from(document.querySelectorAll('input[name="diff"]:checked'),el=>Number(el.value));
@@ -3911,7 +3928,6 @@ async function rebuild(resolveUsers=true,preservePage=false){
   filtered=installationMode==='all'?installationCandidates.slice():installationCandidates.filter(row=>{
     const value=installationPresence(row);return installationMode==='installed'?value===true||value==='different':installationMode==='different'?value==='different':value===false;
   });
-  if(typeof playlistFilter!=='undefined'&&playlistFilter)filtered=filtered.filter(row=>playlistFilter.songIds.has(row[0]));
   tagResultCounts=countTagResults(filtered);
   if(!preservePage){page=1;visibleCount=scrollBatchSize;}
   if(resolveUsers)startTextSearch(text);

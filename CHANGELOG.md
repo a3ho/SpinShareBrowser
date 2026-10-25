@@ -4,6 +4,19 @@ SpinShare Browser retains, maintains, and supports only the latest stable releas
 
 SpinShare Browser 仅保留、维护和支持最新稳定版。新版验证并发布后，删除全部旧版发布页、下载附件和版本标签，旧版本不再保留。以下条目仅记录开发历史。
 
+## 2.4.0 — 2026-10-25
+
+- Playlists are viewed, not opened: a large floating panel grows over the current page with the playlist's charts — full cards with real stats, no filters, the player keeps playing. Close with the button, Escape, or a click outside.
+- 歌单从“打开”改为“查看”：当前页面直接长出一个大浮窗浏览歌单内全部谱面——完整卡片带真实统计、没有筛选器、播放器照常工作；按钮、Esc 或点外部均可关闭。
+- Reviews on a profile are clickable: pick any review and the reviewed chart opens in the same floating browser.
+- 主页里的评论可点击：点任意评论，被评论的谱面在同一浮窗中展开。
+- Notification "Go to chart" opens the same floating browser instead of navigating away.
+- 通知里的“前往谱面”同样改为浮窗打开，不再跳转。
+- The profile banner no longer clips the avatar, the profile has a visible close button that returns to where you were, and its chart cards show views, downloads and review counts.
+- 主页横幅不再裁切头像；主页有清晰可见的返回按钮；主页谱面卡片补齐浏览量、下载量与评论数。
+- Own charts can be managed (deleted) from wherever their cards appear, including your profile.
+- 自己的谱面在任意出现其卡片的位置（含个人主页）均可管理（删除）。
+
 ## 2.3.5 — 2026-10-25
 
 - The top-bar player works again in every window state once a song is playing. A stale limit in the native window layer silently rejected the layout that appears when you are signed in, leaving the player covered by the drag region.

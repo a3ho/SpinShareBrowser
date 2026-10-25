@@ -73,7 +73,6 @@ async function rebuild(resolveUsers=true,preservePage=false){
   filtered=installationMode==='all'?installationCandidates.slice():installationCandidates.filter(row=>{
     const value=installationPresence(row);return installationMode==='installed'?value===true||value==='different':installationMode==='different'?value==='different':value===false;
   });
-  if(typeof playlistFilter!=='undefined'&&playlistFilter)filtered=filtered.filter(row=>playlistFilter.songIds.has(row[0]));
   tagResultCounts=countTagResults(filtered);
   if(!preservePage){page=1;visibleCount=scrollBatchSize;}
   if(resolveUsers)startTextSearch(text);

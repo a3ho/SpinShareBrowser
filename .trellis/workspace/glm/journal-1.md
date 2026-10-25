@@ -678,3 +678,13 @@ repeated-pitfalls.md 新增 #7-#11 并修正 #6（UA popover 劫持、冻结 APP
 - **#2 默认浏览器登录**：技术上不可行（会话捕获必须拥有渲染引擎；外部浏览器 cookie 不可读，Connect API 无 ApiKey）——已向用户呈报取舍。
 - 验证：孪生浏览器 DOM 精确验证 #3/4/5/6（含登出全链路、未登录重开 >0 抽屉、主页 1544×1374 渲染）；真机 #1/#7 因前台被占用（用户在用机）留待安装后走查——根因链已由代码+单测双重建死。
 - 发布：2.3.5 版本六处一致性、CHANGELOG 双语、218 Python + 全 Node + build check + browser_smoke 5 + installer_cancel_smoke 4 全绿。
+
+## 2026-10-25（续）— 浮窗化交互重设计 → 2.4.0（glm）
+
+所有者六项反馈（主页横幅裁切/无返回/统计缺失/歌单跳转+chip 重叠/评论不可点）+ 元指令"少跳转、浮层化、一切可返回"：
+- 新增 chart-overlay 大浮窗组件（chart-overlay.js/css）：完整谱面卡片浏览、无筛选器、沿用外层播放器；显式关闭钮 + Esc + 点外部三种返回。
+- 歌单"打开"→"查看"（浮窗）；通知"前往谱面"→浮窗；主页评论行可点击→被评谱面浮窗；openPlaylistFilter/chip/playlistFilter 整条跳转范式删除（含分页过滤、个人视图 applyPersonalView 死代码）；"我的谱面/我的评论"入口并入主页标签页；自家谱面删除按钮解绑个人视图门控。
+- 主页修复：横幅顶部 padding（头像不再被 overflow:hidden 裁掉）、关闭钮挂到定位上下文+可见 × 图标、谱面卡片用本地目录补全统计（API 是瘦身载荷）+ 接入评论数管线。
+- 踩坑：给 .chart-overlay 写 display:flex 覆盖了 UA 关闭态 display:none → 关闭的浮窗拦截全页点击（browser_smoke 抓住）→ :not([open]) 守卫，入 pitfalls #13。另：向 IAB 发真实 Escape 会取消我自己的工具调用（两次"停止"的原因）。
+- 验证：孪生 DOM 实测——头像 107-179 落横幅 88-193 内、返回钮可见有效、浏览量 398/评论数真实显示、歌单浮窗 2 张全量卡片（补目录数据后）、48 条评论行可点→Voidwalkers 卡片弹出、Esc 原生关闭。
+- 2.4.0：MINOR（新交互模式）。

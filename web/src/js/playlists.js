@@ -1,5 +1,4 @@
 let myPlaylists=null,playlistsFetchedAt=0,playlistsPanelBusy=false,playlistsHintText='',playlistsHintError=false;
-let playlistFilter=null;
 let playlistPickerState=null,playlistPickerAnchor=null,playlistPickerNewVisible=false,playlistPickerBusy=false;
 let playlistDetailsCache=new Map();
 const PLAYLISTS_FRESH_MS=45000;
@@ -40,7 +39,6 @@ function playlistHint(message,error=false){playlistsHintText=message;playlistsHi
 function syncPlaylistsUI(){
   if(typeof syncAccountChip==='function')syncAccountChip();
   renderPlaylistsPanel();
-  renderPlaylistFilterBar();
   refreshPlaylistButtons();
 }
 function playlistCountLabel(entry){return entry.songs===1?m('1 song'):number(entry.songs)+m(' songs');}
@@ -62,9 +60,9 @@ function renderPlaylistsPanel(){
     info.append(title,count);
     const actions=element('div',undefined,'playlists-actions');
     const open=element('button',undefined,'button secondary');open.type='button';
-    open.append(element('span',m('Open')));
-    uiAttr(open,'aria-label',m('Open playlist: ')+entry.title);
-    open.addEventListener('click',()=>openPlaylistFilter(entry.id));
+    open.append(element('span',m('View')));
+    uiAttr(open,'aria-label',m('View playlist: ')+entry.title);
+    open.addEventListener('click',()=>viewPlaylistCharts(entry.id));
     const sync=element('button',undefined,'button secondary');sync.type='button';
     sync.append(element('span',m('Sync to game')));
     uiAttr(sync,'aria-label',m('Sync playlist to game')+': '+entry.title);
@@ -92,7 +90,6 @@ async function deletePlaylist(playlistId){
     await installerRequest('POST','/v1/playlists/delete',{playlistId});
     if(Array.isArray(myPlaylists))myPlaylists=myPlaylists.filter(entry=>entry.id!==playlistId);
     playlistDetailsCache.delete(playlistId);
-    if(playlistFilter&&playlistFilter.id===playlistId)clearPlaylistFilter();
     playlistHint(m('Playlist deleted'));
   }catch(error){playlistHint(errorText(error),true);}
   playlistsPanelBusy=false;renderPlaylistsPanel();refreshPlaylistButtons();
@@ -116,34 +113,6 @@ function openPlaylistsPanel(){
   $('playlists-new-title').focus();
 }
 function closePlaylistsPanel(){$('playlists-panel').close();}
-async function openPlaylistFilter(playlistId){
-  try{
-    const detail=await playlistDetailCached(playlistId);
-    playlistFilter={id:playlistId,title:detail.title||'',songIds:new Set(detail.songIds),kind:'playlist'};
-    closePlaylistsPanel();
-    page=1;visibleCount=scrollBatchSize;
-    rebuild(false);
-    renderPlaylistFilterBar();
-  }catch(error){playlistHint(errorText(error),true);}
-}
-function clearPlaylistFilter(){
-  if(!playlistFilter)return;
-  playlistFilter=null;page=1;visibleCount=scrollBatchSize;
-  rebuild(false);renderPlaylistFilterBar();focusResults();
-}
-function renderPlaylistFilterBar(){
-  const bar=$('playlist-filter-bar');
-  if(!playlistFilter){bar.hidden=true;bar.replaceChildren();return;}
-  bar.hidden=false;bar.replaceChildren();
-  const chip=element('span',undefined,'playlist-chip');
-  const iconNode=element('span',undefined,'playlist-chip-icon');iconNode.append(icon('playlist'));
-  const label=element('span',undefined,'playlist-chip-label');uiText(label,(playlistFilter.kind==='playlist'?m('Playlist')+': ':'')+playlistFilter.title+' ('+number(playlistFilter.songIds.size)+')');
-  const close=element('button',undefined,'playlist-chip-close');close.type='button';
-  uiAttr(close,'aria-label',m('Clear playlist filter'));
-  close.append(element('span',m('Clear playlist filter')));
-  close.addEventListener('click',clearPlaylistFilter);
-  chip.append(iconNode,label,close);bar.append(chip);
-}
 function openPlaylistPicker(row,anchor){
   if(!playlistSessionReady())return;
   // Open instantly with whatever is cached; membership is confirmed in the

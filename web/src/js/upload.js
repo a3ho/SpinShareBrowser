@@ -60,7 +60,6 @@ async function submitUpload(){
     uploadChosenPath='';uiText($('upload-file'),m('No file chosen'));
     $('upload-description').value='';$('upload-tags').value='';$('upload-explicit').checked=false;
     $('upload-submit').disabled=true;
-    myReviewsCache=null;
   }catch(error){
     uiText($('upload-note'),errorText(error));$('upload-note').classList.add('is-error');
     $('upload-submit').disabled=false;

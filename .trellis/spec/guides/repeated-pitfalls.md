@@ -65,6 +65,10 @@
 
 发布端（window-regions.js 的排除选择器）与接收端（desktop.py `valid_frame_layout` 的 `len(excluded)<=6`）各自演化：登录态+播放器出现=7-8 个矩形，超过上限的 POST 被 400 拒收且**无任何界面提示**，always-apply 把旧布局永远钉死。**防线：** 后端上限已提到 12；发布端固定 6 个选择器（铃铛/头像本就在 .topbar-actions 容器矩形内，删除冗余）；`test_window_regions.cjs` 的节点表与发布端选择器一一对应。改任何一端的"数量上限/字段形状"时必须同步另一端并跑对方的测试。
 
+## 13. 作者样式压过 UA 的 dialog/popover 状态规则（2026-10-25：chart-overlay 关闭态拦截全页点击）
+
+给 `<dialog>`/`[popover]` 写 CSS 时，任何**无条件**的 `display`/定位声明都会覆盖浏览器样式表对关闭态的 `display:none` 与 `inset:0;margin:auto`——关闭的浮窗因此留在文档流里拦截点击（冒烟测试当场抓住）。**防线：** 每个 dialog/popover 自定义样式必须带关闭态守卫（`dialog:not([open]){display:none}` 或把布局声明挂 `[open]` 选择器）；browser_smoke 是这类问题的门禁，改浮层 CSS 后必跑。
+
 ## 11. 视觉模型的坐标读数不可信（用户"修一遍之后和没修一样"的元教训）
 
 截图喂给视觉模型问坐标，读数可以错 300+ 像素（把设置面板当右侧栏——实际是居中 modal；把帮助图标当复选框）。**防线：** 位置断言只用两种来源——浏览器里的 **DOM rect**（getBoundingClientRect）或真机**像素差分**（前后截图 numpy diff 得 bbox）；视觉模型只用来描述"长什么样"，永远不用来定位点击目标。

@@ -115,7 +115,7 @@ function harness(options = {}) {
     },
     requestAnimationFrame: () => 0,
     cancelAnimationFrame() {},
-    rebuild() {}, renderPlaylistFilterBar() {}, renderPlaylistsPanel() {}, refreshPlaylistButtons() {},
+    rebuild() {}, renderPlaylistsPanel() {}, refreshPlaylistButtons() {},
   });
   vm.runInContext(extract('let myPlaylists=', 'function setupPlaylists('), context);
   const run = (expression, values = {}) => { Object.assign(context, values); return vm.runInContext(expression, context); };
@@ -223,17 +223,13 @@ test('picker new-playlist flow creates and pre-checks the fresh list', async () 
   assert.equal(h.run('playlistPickerState.checks.get(970)'), true, 'a playlist created from the picker is pre-checked');
 });
 
-test('playlist filter bar renders the chip and clears it', async () => {
-  const h = harness();
-  h.run('playlistFilter={id:827,title:"1",songIds:new Set([1,2,3])}');
-  h.run('renderPlaylistFilterBar()');
-  const bar = h.node('playlist-filter-bar');
-  assert.equal(bar.hidden, false);
-  assert.equal(bar.children.length, 1);
-  assert.match(bar.children[0].querySelector('playlist-chip-label').textContent, /1 \(3\)/);
-  h.run('clearPlaylistFilter()');
-  assert.equal(h.run('playlistFilter'), null);
-  assert.equal(h.node('playlist-filter-bar').hidden, true);
+test('the playlist jump paradigm stays removed (owner 2026-10-25: view in the overlay, never navigate)', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert(!html.includes('playlist-filter-bar'), 'no filter chip bar in the page');
+  assert(!html.includes('playlist-chip'), 'no chip markup');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
+  assert(!app.includes('function openPlaylistFilter'), 'no navigation entry point');
+  assert(app.includes('viewPlaylistCharts'), 'playlists open through the browse overlay');
 });
 
 test('session gating hides the entry and refuses panel opens', async () => {

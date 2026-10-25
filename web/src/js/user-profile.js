@@ -98,7 +98,7 @@ function renderUserProfileShell(userId,tab,loading){
   const close=element('button',undefined,'profile-close');
   close.type='button';
   uiAttr(close,'aria-label',m('Close profile'));
-  close.append(element('span',m('Close profile')));
+  close.append(icon('close'),element('span',m('Close profile')));
   close.addEventListener('click',closeUserProfile);
   const content=element('div',undefined,'profile-tab-content');
   content.id='profile-tab-content';
@@ -137,14 +137,22 @@ function renderProfileCharts(profile,content){
   if(!charts.length){const empty=element('p',undefined,'profile-empty');uiText(empty,m('No charts yet'));content.append(empty);return;}
   const grid=element('div',undefined,'chart-grid profile-grid');
   grid.setAttribute('role','list');
-  const rows=compact(charts,{dateFrom:'',dateTo:'',diffs:[0,1,2,3,4],min:0,max:99});
+  // /api/user/:id/charts returns slim songs (no views/downloads/dates); merge
+  // the full record from the local catalog so the cards carry real stats.
+  const byId=new Map();
+  if(Array.isArray(catalog))for(const song of catalog){const id=Number(song&&song.id);if(Number.isSafeInteger(id))byId.set(id,song);}
+  const enriched=charts.map(song=>byId.get(Number(song&&song.id))||song);
+  const rows=compact(enriched,{dateFrom:'',dateTo:'',diffs:[0,1,2,3,4],min:0,max:99});
+  const cells=[];
   for(const row of rows){
     const view=createChartCard(row);
     view.card.classList.add('profile-card-item');
+    cells.push(view.cell);
     grid.append(view.card);
   }
   content.append(grid);
   if(typeof syncCovers==='function')syncCovers();
+  if(typeof watchPageReviews==='function')watchPageReviews(cells.slice());
   if(typeof queueInstallationChecks==='function')queueInstallationChecks([...installationViews.values()].map(v=>v.row));
 }
 function renderProfilePlaylists(profile,content){
@@ -170,17 +178,9 @@ function renderProfilePlaylists(profile,content){
     const actions=element('div',undefined,'playlists-actions');
     const open=element('button',undefined,'button secondary');
     open.type='button';
-    open.append(element('span',m('Open')));
-    uiAttr(open,'aria-label',m('Open playlist: ')+entry.title);
-    open.addEventListener('click',async()=>{
-      try{
-        const detail=await playlistDetailCached(entry.id);
-        closeUserProfile();
-        playlistFilter={id:entry.id,title:detail.title||entry.title,songIds:new Set(detail.songIds),kind:'playlist'};
-        page=1;visibleCount=scrollBatchSize;
-        await apply();renderPlaylistFilterBar();focusResults();
-      }catch(error){/* leave profile open on failure */}
-    });
+    open.append(element('span',m('View')));
+    uiAttr(open,'aria-label',m('View playlist: ')+entry.title);
+    open.addEventListener('click',()=>viewPlaylistCharts(entry.id,entry.title));
     actions.append(open);
     if(mine){
       const sync=element('button',undefined,'button secondary');
@@ -211,8 +211,13 @@ function renderProfileReviews(profile,content){
     if(!item||typeof item!=='object')continue;
     const song=item.song&&typeof item.song==='object'?item.song:null;
     if(!song||typeof song.title!=='string')continue;
-    const row=element('div',undefined,'profile-review-row');
+    const row=element('div',undefined,'profile-review-row is-clickable');
     row.setAttribute('role','listitem');
+    row.tabIndex=0;
+    uiAttr(row,'aria-label',m('View the reviewed chart')+': '+song.title);
+    const openReviewed=()=>viewChartById(Number(song.id),song.title);
+    row.addEventListener('click',openReviewed);
+    row.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openReviewed();}});
     const head=element('div',undefined,'profile-review-head');
     const title=element('span',song.title,'profile-review-song');
     const verdict=element('span',undefined,'profile-review-verdict '+(item.recommended===true?'is-up':item.recommended===false?'is-down':''));
