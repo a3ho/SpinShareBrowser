@@ -85,7 +85,7 @@ class DesktopFrameTests(unittest.TestCase):
         self.assertEqual(len(posted),1)
         posted.pop()()
         self.assertEqual(self.instance.frame_layout,layout)
-        for count in (4,6):
+        for count in (4,6,8,12):
             expanded=dict(layout,excluded=[[index*100,12,48,34] for index in range(count)])
             self.assertTrue(self.instance.update_frame_layout(expanded))
             self.assertEqual(len(posted),1)
@@ -93,7 +93,7 @@ class DesktopFrameTests(unittest.TestCase):
             self.assertEqual(self.instance.frame_layout,expanded)
         for invalid in (dict(layout,viewport=[True,860]),dict(layout,viewport=[0,860]),
                         dict(layout,headerHeight=float('nan')),dict(layout,headerHeight=float('inf')),
-                        dict(layout,excluded=[[0,0,1,1]]*7),dict(layout,excluded=[[-1,0,1,1]]),
+                        dict(layout,excluded=[[0,0,1,1]]*13),dict(layout,excluded=[[-1,0,1,1]]),
                         dict(layout,extra=1),dict(layout,excluded=[[1,2,3]])):
             self.assertFalse(self.instance.update_frame_layout(invalid))
         self.assertEqual(posted,[])
@@ -178,11 +178,11 @@ class FrameLayoutAPITests(unittest.TestCase):
             try:
                 self.assertEqual(request(layout,key="0"*64),403)
                 self.assertEqual(request(layout,origin="https://example.com"),403)
-                self.assertEqual(request(dict(layout,excluded=[[0,0,1,1]]*7)),400)
+                self.assertEqual(request(dict(layout,excluded=[[0,0,1,1]]*13)),400)
                 self.assertEqual(calls,[])
                 self.assertEqual(request(layout),202)
                 self.assertEqual(calls,[layout])
-                for count in (4,6):
+                for count in (4,6,8,12):
                     expanded=dict(layout,excluded=[[index*100,12,48,34] for index in range(count)])
                     self.assertEqual(request(expanded),202)
                     self.assertEqual(calls[-1],expanded)

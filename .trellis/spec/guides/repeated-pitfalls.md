@@ -53,13 +53,17 @@
 
 `APP_CONFIG` 是 `Object.freeze` 的（安全设计，别改）。对它属性赋值在非严格脚本体里**静默 no-op**——`APP_CONFIG.autoUpdateCharts=result.autoUpdateCharts` 不生效，UI 读旧值把开关弹回。**防线：** 模块可变状态一律用模块级 `let` 从 APP_CONFIG **拷贝初值**（`closeBehavior`/`previewVolume`/`sessionAccount` 全是这个模式），绝不写 `APP_CONFIG.*`。`tests/test_auto_update.cjs` 用冻结 APP_CONFIG 做回归门禁。
 
-## 9. 方法被删但调用还在（2.3.3 事故：`_try_capture_session`/`_close_login_window`）
+## 9. 方法被删但调用还在（两次事故：2.3.3 `_try_capture_session`/`_close_login_window`；2.3.4 `choose_zip`——同一次 3c1dcf0 重构删掉的第三个方法）
 
 重构 `desktop.py` 时两个方法被删而调用点保留 → 登录监视线程 20 秒后 AttributeError → cancel_login → 用户输密码时弹"登录超时"，且窗口不关。**防线：** 线程/异步循环必须有**跑真循环的测试**（`tests/test_desktop_login.py` 用假时钟驱动完整 watcher），只测孤立方法测不到"方法不存在"。重构删除任何 `def` 前先 grep 调用点。
 
 ## 10. 运行中服务的 bundle 是启动时内联的（2026-10-24 验证踩坑）
 
 服务端把 `web/app.js`/`interface.css` 内联进 browser.html 的时机是**进程启动**。改了 `web/src/*` 并 `build_web.py` 后，正在跑的实例仍然服务旧 bundle——浏览器里 reload 也没用。**防线：** 真机/浏览器验证前先重启实例（`/v1/shutdown` + 重启），再验证。
+
+## 12. 前后端数量契约漂移（2.3.4 事故：排除矩形 8>6 被静默拒收 → 拖拽区永久冻结 → 播放器全状态死）
+
+发布端（window-regions.js 的排除选择器）与接收端（desktop.py `valid_frame_layout` 的 `len(excluded)<=6`）各自演化：登录态+播放器出现=7-8 个矩形，超过上限的 POST 被 400 拒收且**无任何界面提示**，always-apply 把旧布局永远钉死。**防线：** 后端上限已提到 12；发布端固定 6 个选择器（铃铛/头像本就在 .topbar-actions 容器矩形内，删除冗余）；`test_window_regions.cjs` 的节点表与发布端选择器一一对应。改任何一端的"数量上限/字段形状"时必须同步另一端并跑对方的测试。
 
 ## 11. 视觉模型的坐标读数不可信（用户"修一遍之后和没修一样"的元教训）
 

@@ -1,5 +1,7 @@
 let reviewComposeBusy=false;
-function myReviewIdentity(){return sessionConnected()&&APP_CONFIG.session&&Number.isInteger(APP_CONFIG.session.userId)?APP_CONFIG.session:null;}
+// APP_CONFIG is frozen at boot: read the live sessionAccount instead, or a
+// sign-in after launch would never expose the composer or own-review state.
+function myReviewIdentity(){return typeof sessionConnected==='function'&&sessionConnected()&&typeof sessionAccount==='object'&&sessionAccount&&Number.isInteger(sessionAccount.userId)?sessionAccount:null;}
 function findMyReview(cell){
   const identity=myReviewIdentity();if(!identity)return null;
   const cached=reviewCache.get(cell.row[0]);

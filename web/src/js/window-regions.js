@@ -51,7 +51,10 @@ async function publishWindowRegions(){
   const bar=document.querySelector('.topbar');
   if(!bar||!document.documentElement.classList.contains('desktop-chrome')||!globalThis.innerWidth||!globalThis.innerHeight)return;
   // Layout coordinates intentionally ignore player/cover animation transforms.
-  const excluded=['.brand','.topbar-actions','#notifications-open','#account-chip','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
+  // The bell and account chip sit inside .topbar-actions, so its container rect
+  // already covers them — keep the list at six rects (the publisher and the
+  // native validator stay in lockstep).
+  const excluded=['.brand','.topbar-actions','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
     .filter(node=>node&&node.offsetWidth>0&&node.offsetHeight>0)
     .map(windowRegionRect);
   const layout={viewport:[innerWidth,innerHeight],pixelRatio:globalThis.devicePixelRatio||1,headerHeight:document.querySelector('dialog[open]')?0:bar.offsetHeight,excluded};

@@ -374,7 +374,7 @@ def valid_frame_layout(value):
             all(number(item, 1) for item in viewport) and
             number(value["pixelRatio"], 0.1, 8) and
             number(value["headerHeight"], maximum=min(256, viewport[1])) and
-            isinstance(excluded, list) and len(excluded) <= 6 and
+            isinstance(excluded, list) and len(excluded) <= 12 and
             all(isinstance(rect, list) and len(rect) == 4 and all(number(item) for item in rect)
                 for rect in excluded))
 
@@ -599,6 +599,39 @@ class Desktop:
         except concurrent.futures.TimeoutError as exc:
             result.cancel()
             raise OSError("Folder selection timed out.") from exc
+
+    def choose_zip(self, title):
+        import spinshare_portable as core
+
+        if not self.ready.wait(15) or self.exiting:
+            raise OSError("The app window is unavailable.")
+        result = concurrent.futures.Future()
+
+        def choose():
+            if not result.set_running_or_notify_cancel():
+                return
+            with self.manager.lock:
+                if self.exiting or self.manager.exiting or self.dialog is not None or self.prompt is not None:
+                    result.set_exception(OSError("The app is exiting or another dialog is open."))
+                    return
+                self.picker_open = True
+            try:
+                self._show()
+                result.set_result(core.choose_zip_file(title, owner_handle=self.form.Handle.ToInt64()))
+            except Exception as exc:
+                result.set_exception(exc)
+            finally:
+                self.picker_open = False
+
+        if not self.form.InvokeRequired:
+            choose()
+        elif not self.post(choose):
+            raise OSError("The app window is unavailable.")
+        try:
+            return result.result(timeout=600)
+        except concurrent.futures.TimeoutError as exc:
+            result.cancel()
+            raise OSError("File selection timed out.") from exc
 
     def open_session_login(self):
         """Open the login window, focused and visible in the taskbar."""

@@ -90,6 +90,7 @@ function setCatalogHelp(visible){
   const open=panel.matches?.(':popover-open');button.classList.toggle('is-active',visible);
   if(!visible){if(open)panel.hidePopover();return;}
   for(const id of closeHelpIds)setCloseHelp(id,false);
+  if(typeof setAutoUpdateHelp==='function')setAutoUpdateHelp(false);
   if(!open)panel.showPopover();positionCatalogHelp();
 }
 function setupCatalogHelp(){

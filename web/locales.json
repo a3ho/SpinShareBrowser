@@ -543,13 +543,7 @@
     "Local chart data could not be read or saved": "Local chart data could not be read or saved",
     "Chart data could not be loaded": "Chart data could not be loaded",
     "Downloaded; waiting for installation.": "Downloaded; waiting for installation",
-    "Update data": "Update data",
-    "About data updates": "About data updates",
-    "Data update guide": "Data update guide",
     "Automatic sync": "Automatic sync",
-    "Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything.": "Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything",
-    "Manual update": "Manual update",
-    "At most one manual update can run every 10 minutes.": "At most one manual update can run every 10 minutes",
     "Keep the current page and data in memory for a quick return. CPU use stays low while idle. Chart data older than 12 hours is updated quietly; queued tasks can keep running.": "Keep the current page and data in memory for a quick return. CPU use stays low while idle. Chart data older than 12 hours is updated quietly; queued tasks can keep running",
     "Updating chart data": "Updating chart data",
     "Preparing chart data for your first search.": "Preparing chart data for your first search",
@@ -714,7 +708,13 @@
     "Apply": "Apply",
     "Chart auto-update": "Chart auto-update",
     "About chart auto-update": "About chart auto-update",
-    "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone.": "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone"
+    "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone.": "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone",
+    "Sync chart library": "Sync chart library",
+    "About chart library sync": "About chart library sync",
+    "Chart library sync": "Chart library sync",
+    "The chart library is downloaded from spinsha.re. A local copy older than 12 hours syncs automatically, so you rarely need to do anything.": "The chart library is downloaded from spinsha.re. A local copy older than 12 hours syncs automatically, so you rarely need to do anything",
+    "Manual sync": "Manual sync",
+    "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes.": "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes"
   },
   "zh-CN": {
     "Search charts": "搜索谱面",
@@ -1260,13 +1260,7 @@
     "Local chart data could not be read or saved": "无法读写本地谱面数据",
     "Chart data could not be loaded": "无法加载谱面数据",
     "Downloaded; waiting for installation.": "下载完成，等待安装",
-    "Update data": "更新数据",
-    "About data updates": "关于数据更新",
-    "Data update guide": "数据更新说明",
     "Automatic sync": "自动同步",
-    "Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything.": "本地谱面数据超过 12 小时后自动同步，通常无需手动操作",
-    "Manual update": "手动更新",
-    "At most one manual update can run every 10 minutes.": "两次手动更新至少间隔 10 分钟",
     "Keep the current page and data in memory for a quick return. CPU use stays low while idle. Chart data older than 12 hours is updated quietly; queued tasks can keep running.": "保留当前页面与内存中的数据，方便快速返回。空闲时 CPU 占用很低；谱面数据超过 12 小时后会低干扰自动同步，排队中的任务也可继续运行",
     "Updating chart data": "正在更新谱面数据",
     "Preparing chart data for your first search.": "正在为首次筛选准备谱面数据",
@@ -1431,6 +1425,12 @@
     "Apply": "应用",
     "Chart auto-update": "谱面自动更新",
     "About chart auto-update": "关于谱面自动更新",
-    "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone.": "当已安装谱面的本地内容与云端最新版本不同时，自动更新本地谱面。手动修改过的谱面不会被触碰。已从 spinsha.re 下架的谱面保持原样"
+    "When the local copy of an installed chart differs from the cloud's latest version, it is automatically reinstalled. Charts you have manually edited are never touched. Charts removed from spinsha.re are left alone.": "当已安装谱面的本地内容与云端最新版本不同时，自动更新本地谱面。手动修改过的谱面不会被触碰。已从 spinsha.re 下架的谱面保持原样",
+    "Sync chart library": "同步谱面库",
+    "About chart library sync": "关于谱面库同步",
+    "Chart library sync": "谱面库同步",
+    "The chart library is downloaded from spinsha.re. A local copy older than 12 hours syncs automatically, so you rarely need to do anything.": "谱面库从 spinsha.re 云端拉取。本地副本超过 12 小时会自动同步，通常无需手动操作",
+    "Manual sync": "手动同步",
+    "Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes.": "点击按钮从 spinsha.re 拉取最新谱面库；两次手动同步至少间隔 10 分钟"
   }
 }

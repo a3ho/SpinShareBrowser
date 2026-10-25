@@ -105,7 +105,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <h1 class="sr-only" data-ui-static="Chart browser">Chart browser</h1>
     <div id="chart-panel">
     <details id="filter-panel" class="filter-panel" open>
-      <summary><svg class="icon" aria-hidden="true"><use href="#icon-filter"/></svg><span data-ui-static="Filters">Filters</span><span class="filter-summary-actions"><span class="refresh-data-control"><button id="refresh-data" class="button secondary" type="button" disabled><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg><span data-ui-static="Update data">Update data</span></button><button id="refresh-data-help" class="help-toggle refresh-data-help-toggle" type="button" aria-label="About data updates" data-ui-attr-aria-label="About data updates" aria-describedby="refresh-data-help-panel"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3v1"/></svg></button></span></span></summary>
+      <summary><svg class="icon" aria-hidden="true"><use href="#icon-filter"/></svg><span data-ui-static="Filters">Filters</span><span class="filter-summary-actions"><span class="refresh-data-control"><button id="refresh-data" class="button secondary" type="button" disabled><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg><span data-ui-static="Sync chart library">Sync chart library</span></button><button id="refresh-data-help" class="help-toggle refresh-data-help-toggle" type="button" aria-label="About chart library sync" data-ui-attr-aria-label="About chart library sync" aria-describedby="refresh-data-help-panel"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3v1"/></svg></button></span></span></summary>
       <form id="filters" novalidate>
         <fieldset id="difficulty-fields" class="filter-main-fields">
           <legend class="sr-only" data-ui-static="Difficulty">Difficulty</legend>
@@ -135,7 +135,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <div class="filter-actions"><p id="filter-dirty" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p><button id="reset-filters" class="button secondary filter-reset" type="button" data-ui-static="Reset">Reset</button><button id="apply-filters" class="button primary filter-apply" type="submit" data-ui-static="Apply">Apply</button></div>
       </form>
     </details>
-    <div id="refresh-data-help-panel" class="catalog-help" popover="manual" role="tooltip" tabindex="-1"><strong data-ui-static="Data update guide">Data update guide</strong><dl class="catalog-help-rules"><div><dt data-ui-static="Automatic sync">Automatic sync</dt><dd data-ui-static="Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything.">Saved chart data older than 12 hours syncs automatically. You usually do not need to do anything</dd></div><div><dt data-ui-static="Manual update">Manual update</dt><dd data-ui-static="At most one manual update can run every 10 minutes.">At most one manual update can run every 10 minutes</dd></div></dl></div>
+    <div id="refresh-data-help-panel" class="catalog-help" popover="manual" role="tooltip" tabindex="-1"><strong data-ui-static="Chart library sync">Chart library sync</strong><dl class="catalog-help-rules"><div><dt data-ui-static="Automatic sync">Automatic sync</dt><dd data-ui-static="The chart library is downloaded from spinsha.re. A local copy older than 12 hours syncs automatically, so you rarely need to do anything.">The chart library is downloaded from spinsha.re. A local copy older than 12 hours syncs automatically, so you rarely need to do anything</dd></div><div><dt data-ui-static="Manual sync">Manual sync</dt><dd data-ui-static="Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes.">Use the button to pull the latest chart library from spinsha.re. At most one manual sync can run every 10 minutes</dd></div></dl></div>
     <p id="status" class="status" role="status" aria-live="polite"></p>
     <p id="installation-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
     <div id="result-tools" class="result-tools" hidden inert>
@@ -192,7 +192,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       <div id="page-jump" class="page-jump"><label for="page-number" data-ui-static="Jump to page">Jump to page</label><input id="page-number" type="number" min="1" step="1" inputmode="numeric" value="1"><button id="jump" type="button" data-ui-static="Go">Go</button></div>
     </nav>
     <div id="playlist-filter-bar" class="playlist-filter-bar" hidden></div>
-    <div id="user-profile-view" class="user-profile-view" hidden></div>
     <section class="result-stage" aria-label="Chart query results" data-ui-attr-aria-label="Chart query results">
       <div id="rows" class="chart-grid" role="list" aria-label="Chart list" data-ui-attr-aria-label="Chart list"></div>
       <div id="empty-state" class="empty-state" hidden>
@@ -211,6 +210,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       <div id="page-jump-bottom" class="page-jump"><label for="page-number-bottom" data-ui-static="Jump to page">Jump to page</label><input id="page-number-bottom" type="number" min="1" step="1" inputmode="numeric" value="1"><button id="jump-bottom" type="button" data-ui-static="Go">Go</button></div>
     </nav>
     </div>
+    <div id="user-profile-view" class="user-profile-view" hidden></div>
     <footer class="footer">
       <nav class="footer-links" aria-label="Quick navigation" data-ui-attr-aria-label="Quick navigation">
         <a href="https://spinsha.re" target="_blank" rel="noopener noreferrer" aria-label="Official home" data-ui-attr-aria-label="Official home"><svg class="icon" aria-hidden="true"><use href="#icon-home"/></svg><span data-ui-static="Website">Website</span></a>

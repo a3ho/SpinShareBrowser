@@ -100,7 +100,7 @@ html[data-input-modality=keyboard] .chart-disclosure.has-overflow:focus-visible:
 .metric-value { color: #cdd0db; font-variant-numeric: tabular-nums; }
 .metric-label { font-size: var(--type-meta); }
 .review-toggle { min-height: 30px; padding: 5px 8px; border: 1px solid #ffffff0d; border-radius: 6px; background: #ffffff05; color: #b6bac7; transition: background var(--motion-feedback), border-color var(--motion-feedback), color var(--motion-feedback); }
-.review-toggle:hover:not([aria-disabled=true]) { background: #ffffff0d; border-color: #ffffff1c; color: var(--text); }
+.review-toggle:hover:not(:disabled):not([aria-disabled=true]) { background: #ffffff0d; border-color: #ffffff1c; color: var(--text); }
 .review-toggle[aria-expanded=true] { background: var(--pink-soft); border-color: #eb5ba129; color: #efb3d1; }
 .review-toggle[aria-disabled=true] { background: #ffffff08; border-color: #ffffff12; color: #c5c8d3; cursor: default; }
 .review-toggle:disabled { opacity: 1; background: #ffffff05; border-color: #ffffff0d; color: var(--muted); cursor: default; }

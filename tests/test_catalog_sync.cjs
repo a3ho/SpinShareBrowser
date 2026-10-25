@@ -105,7 +105,7 @@ function harness({now = 2_000_000_000_000, visible = true, hidden = false, catal
 function checkMarkupAndMotion() {
   assert.match(html, /const CATALOG_STALE_MS=12\*60\*60\*1000/, 'The production automatic update threshold stays at 12 hours');
   const summary = html.slice(html.indexOf('<summary>'), html.indexOf('</summary>') + 10);
-  assert.match(summary, /id="refresh-data"[\s\S]*data-ui-static="Update data"/);
+  assert.match(summary, /id="refresh-data"[\s\S]*data-ui-static="Sync chart library"/);
   assert.match(summary, /id="refresh-data-help"[\s\S]*aria-describedby="refresh-data-help-panel"/);
   assert.doesNotMatch(summary, /\btitle=/i, 'Update controls must not create native hover text');
   const refreshHelpButton = summary.match(/<button id="refresh-data-help"[^>]*>/)?.[0] || '';
@@ -117,10 +117,10 @@ function checkMarkupAndMotion() {
   const refreshHelpPanel = html.indexOf('id="refresh-data-help-panel"');
   assert(filterStart >= 0 && filterEnd > filterStart && refreshHelpPanel > filterEnd,
     'The data help panel must remain renderable when the filter details is collapsed');
-  assert.match(html, /data-ui-static="Data update guide">Data update guide</);
+  assert.match(html, /data-ui-static="Chart library sync">Chart library sync</);
   assert.doesNotMatch(html, /Automatic data updates/, 'The help heading must not make the manual button look automatic');
-  assert.match(html, /data-ui-static="Automatic sync">Automatic sync<[\s\S]*Saved chart data older than 12 hours syncs automatically/);
-  assert.match(html, /data-ui-static="Manual update">Manual update<[\s\S]*At most one manual update can run every 10 minutes/);
+  assert.match(html, /data-ui-static="Automatic sync">Automatic sync<[\s\S]*chart library is downloaded from spinsha\.re/);
+  assert.match(html, /data-ui-static="Manual sync">Manual sync<[\s\S]*At most one manual sync can run every 10 minutes/);
   assert.match(css, /\.catalog-help-rules > div\s*\{[^}]*grid-template-columns:\s*max-content minmax\(0, 1fr\)/s, 'Automatic and manual rules share one aligned layout');
   assert.doesNotMatch(html, /Loading charts timed out\. Retry will follow the catalog refresh interval\./, 'Cache-only retries never inherit the remote cooldown wording');
   assert.match(html, /id="catalog-sync-toast"[^>]*aria-live="polite"[^>]*aria-atomic="true"[\s\S]*id="catalog-sync-toast-message"(?![^>]*role="status")/, 'The toast has one live region owner');

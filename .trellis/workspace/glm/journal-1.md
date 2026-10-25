@@ -666,3 +666,15 @@ repeated-pitfalls.md 新增 #7-#11 并修正 #6（UA popover 劫持、冻结 APP
 
 ### 状态
 [OK] 2.3.4 已正式发布并完成公开核对。dist/ 留有本地安装包（含旧版本历史文件，未动）。
+
+## 2026-10-25（深夜）— 2.3.4 七项外场反馈修复 → 2.3.5（glm）
+
+- **#1 播放器全状态死**：真因是前后端数量契约漂移——登录态（铃铛+头像）+播放器出现时发布 7-8 个排除矩形，后端 valid_frame_layout 上限 6 → 400 拒收且无提示 → always-apply 把没有播放器矩形的旧布局钉死。修：上限 6→12（测试同步），发布端去掉与 .topbar-actions 重叠的铃铛/头像两个冗余选择器（固定 6 个）。教训入 pitfalls #12。
+- **#3 评论门控**：syncReviewSessionState 挂进 syncSessionControls；busy 期间视为未登录（登出请求飞行中即刻禁用 0 评论按钮）；composer 重渲染不设 readingVisible 门槛（第一遍 busy 关抽屉、第二遍必须仍能清理，否则重开 >0 评论再现旧 composer——测试中现场抓到）；禁用态悬停反馈用 :not(:disabled) 消除。
+- **#4 问号浮窗**：auto-update help 从裸 showPopover()（UA 样式表甩到左上角）改为与 catalog/close help 同款的 hover + 锚定定位 + 互斥 + Escape。
+- **#5 更名**：更新数据→同步谱面库（en: Sync chart library），帮助文案改为"从 spinsha.re 云端拉取"语义，6 个 locale 键双语同步。
+- **#6 我的主页**：双根因——profileIdentity/myReviewIdentity 读冻结 APP_CONFIG.session（启动后登录永远 null，pitfalls #8 再犯）；视图嵌在它自己要隐藏的 #chart-panel 里（0×0 渲染）。前者改读活跃 sessionAccount，后者移出面板。test_user_profile.cjs 4 断言。
+- **#7 上传选 zip**：choose_zip 被 3c1dcf0 删除（同一次重构的第三个受害者，pitfalls #9 升级为两次事故）→ 从 116dd71 原样恢复。
+- **#2 默认浏览器登录**：技术上不可行（会话捕获必须拥有渲染引擎；外部浏览器 cookie 不可读，Connect API 无 ApiKey）——已向用户呈报取舍。
+- 验证：孪生浏览器 DOM 精确验证 #3/4/5/6（含登出全链路、未登录重开 >0 抽屉、主页 1544×1374 渲染）；真机 #1/#7 因前台被占用（用户在用机）留待安装后走查——根因链已由代码+单测双重建死。
+- 发布：2.3.5 版本六处一致性、CHANGELOG 双语、218 Python + 全 Node + build check + browser_smoke 5 + installer_cancel_smoke 4 全绿。

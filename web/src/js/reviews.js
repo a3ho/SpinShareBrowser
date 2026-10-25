@@ -1,4 +1,18 @@
 function reviewsOpen(cell){return !cell.retired&&cardViews.get(cell.row[0])?.cell===cell&&(showChartReviews||cell.reviewTemporaryOpen);}
+// Session changes must reach every open review surface at once: signing out
+// hides the composer, closes unsigned 0-review drawers, and re-gates toggles.
+function syncReviewSessionState(){
+  const unsigned=(typeof sessionConnected==='function'&&!sessionConnected())||(typeof sessionBusy==='boolean'&&sessionBusy);
+  for(const view of cardViews.values()){
+    const cell=view.cell;
+    if(unsigned&&cell.reviewTemporaryOpen&&reviewCounts.get(cell.row[0])===0)cell.reviewTemporaryOpen=false;
+    // Re-render even for already-closed drawers: the first busy pass closes
+    // the drawer while the session still looks connected, and a stale composer
+    // must not survive inside it (it would reappear on reopen).
+    if(typeof renderReviewCompose==='function'&&(cell.readingVisible||cell.compose))renderReviewCompose(cell);
+  }
+  syncReviewVisibility();
+}
 function reviewRefreshRemaining(){
   try{
     const stored=Number(globalThis.localStorage.getItem(REVIEW_REFRESH_STORAGE_KEY));
@@ -109,7 +123,9 @@ function syncReviewCount(cell){
 }
 function syncReviewToggle(cell){
   const empty=reviewCounts.get(cell.row[0])===0,open=reviewsOpen(cell),pinned=showChartReviews&&open;
-  const unsigned=typeof sessionConnected==='function'&&!sessionConnected();
+  // Treat a pending sign-in/out as unsigned too: the server round trip can
+  // take seconds, and a 0-review toggle must not stay clickable in that gap.
+  const unsigned=(typeof sessionConnected==='function'&&!sessionConnected())||(typeof sessionBusy==='boolean'&&sessionBusy);
   cell.toggle.disabled=empty&&unsigned;cell.chevron.hidden=empty&&unsigned;
   cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);
   cell.toggle.setAttribute('aria-disabled',String(pinned));

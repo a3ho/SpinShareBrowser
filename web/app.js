@@ -177,7 +177,7 @@ const CHART_TOAST_ERROR_TEXT=Object.freeze({charts_network_error:m('Could not co
 function localizeInstallerMessage(message){let text=typeof message==="string"?message:"";if(UI_KEY_INDEX.has(text))return m(text);for(const [english,key] of INSTALLER_MESSAGE_REPLACEMENTS){text=text.replaceAll(english+'.',m(key));text=text.replaceAll(english+'。',m(key));text=text.replaceAll(english,m(key));}return text.replace(/[。.]$/u,'');}
 function directoryText(value){return typeof value==='string'&&value.length>0&&value.length<=32767&&!/[\x00-\x1f]/.test(value);}
 function validateRuntimeConfig(config){
-  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.3.4'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
+  let valid=config&&typeof config==='object'&&config.mode==='desktop'&&config.version==='2.3.5'&&typeof config.key==='string'&&/^[a-f0-9]{64}$/i.test(config.key)&&directoryText(config.targetDirectory)&&directoryText(config.defaultDirectory)&&typeof config.origin==='string';
   if(valid){try{const url=new URL(config.origin);valid=url.protocol==='http:'&&url.hostname==='127.0.0.1'&&Number(url.port)>=1&&Number(url.port)<=65535&&url.origin===config.origin&&globalThis.location?.origin===config.origin&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}catch{valid=false;}}
   if(valid)valid=typeof config.settingsRevision==='string'&&/^[a-f0-9]{32}$/.test(config.settingsRevision);
   if(valid)valid=['zh-CN','en'].includes(config.language);
@@ -203,7 +203,7 @@ function refreshSettingsControls(){
 function updateAllInstallationViews(){refreshInstallationActivity();for(const songId of installationViews.keys())updateInstallationView(songId);refreshSettingsControls();if(settingsStale)refreshInstallationResults();}
 function readSettings(payload){
   const settings=payload?.settings;
-  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.3.4')throw uiError(m("Settings could not be loaded. Reopen Settings."));
+  if(!settings||typeof settings!=='object'||!directoryText(settings.targetDirectory)||!directoryText(settings.defaultDirectory)||!(settings.customDirectory===null||directoryText(settings.customDirectory))||typeof settings.revision!=='string'||!/^[a-f0-9]{32}$/.test(settings.revision)||typeof settings.installDirectoryConfirmed!=='boolean'||settings.version!=='2.3.5')throw uiError(m("Settings could not be loaded. Reopen Settings."));
   if(settings.targetDirectory!==(settings.customDirectory===null?settings.defaultDirectory:settings.customDirectory))throw uiError(m("Open Settings and choose the install folder again."));
   if(settings.closeBehavior!==undefined&&!['ask','exit','tray'].includes(settings.closeBehavior))throw uiError(m("Settings could not be loaded. Reopen Settings."));
   return {targetDirectory:settings.targetDirectory,defaultDirectory:settings.defaultDirectory,customDirectory:settings.customDirectory,revision:settings.revision,version:settings.version,closeBehavior:settings.closeBehavior||'ask',installDirectoryConfirmed:settings.installDirectoryConfirmed,exiting:settings.exiting===true};
@@ -294,6 +294,7 @@ function setCloseHelp(id,visible){
   button.classList.toggle('is-active',visible);
   if(!visible){if(panel.matches(':popover-open'))panel.hidePopover();return;}
   setCatalogHelp(false);
+  if(typeof setAutoUpdateHelp==='function')setAutoUpdateHelp(false);
   for(const other of closeHelpIds)if(other!==id&&$(other+'-panel').matches(':popover-open'))setCloseHelp(other,false);
   refreshCloseHelpTasks();if(!panel.matches(':popover-open'))panel.showPopover();positionCloseHelp(id);
 }
@@ -306,7 +307,7 @@ function setupCloseHelp(){
   const reposition=()=>{for(const id of closeHelpIds)positionCloseHelp(id);};
   globalThis.addEventListener?.('resize',reposition);globalThis.addEventListener?.('scroll',reposition,true);
   globalThis.addEventListener?.('blur',()=>{for(const id of closeHelpIds)setCloseHelp(id,false);});
-  document.addEventListener('keydown',event=>{if(event.key!=='Escape'||event.defaultPrevented)return;const open=[...closeHelpIds,'refresh-data-help'].find(helpId=>$(helpId+'-panel')?.matches?.(':popover-open'));if(!open)return;event.preventDefault();event.stopPropagation();open==='refresh-data-help'?setCatalogHelp(false):setCloseHelp(open,false);$(open).focus({preventScroll:true});});
+  document.addEventListener('keydown',event=>{if(event.key!=='Escape'||event.defaultPrevented)return;const open=[...closeHelpIds,'refresh-data-help','settings-auto-update-help'].find(helpId=>$(helpId+'-panel')?.matches?.(':popover-open'));if(!open)return;event.preventDefault();event.stopPropagation();open==='refresh-data-help'?setCatalogHelp(false):open==='settings-auto-update-help'?setAutoUpdateHelp(false):setCloseHelp(open,false);$(open).focus({preventScroll:true});});
   if(typeof ResizeObserver==='function'){const observer=new ResizeObserver(reposition);for(const id of closeHelpIds)observer.observe($(id+'-panel'));}
 }
 async function openSettings(){
@@ -426,6 +427,7 @@ function syncSessionControls(){
   const connected=sessionConnected();
   if(typeof syncPlaylistsUI==='function')syncPlaylistsUI();
   if(typeof syncNotificationsUI==='function')syncNotificationsUI();
+  if(typeof syncReviewSessionState==='function')syncReviewSessionState();
   // P6: predictively load playlist data the moment the user connects.
   if(typeof fetchMyPlaylists==='function'&&sessionConnected())void fetchMyPlaylists(true);
   $('session-signed-out').hidden=connected;
@@ -910,7 +912,9 @@ function setupPlaylistSync(){
   $('playlist-sync-stop').addEventListener('click',stopPlaylistSync);
 }
 let reviewComposeBusy=false;
-function myReviewIdentity(){return sessionConnected()&&APP_CONFIG.session&&Number.isInteger(APP_CONFIG.session.userId)?APP_CONFIG.session:null;}
+// APP_CONFIG is frozen at boot: read the live sessionAccount instead, or a
+// sign-in after launch would never expose the composer or own-review state.
+function myReviewIdentity(){return typeof sessionConnected==='function'&&sessionConnected()&&typeof sessionAccount==='object'&&sessionAccount&&Number.isInteger(sessionAccount.userId)?sessionAccount:null;}
 function findMyReview(cell){
   const identity=myReviewIdentity();if(!identity)return null;
   const cached=reviewCache.get(cell.row[0]);
@@ -1399,15 +1403,37 @@ async function setAutoUpdate(enabled){
   autoUpdateBusy=false;
   box.disabled=false;
 }
+// Help popover: same hover pattern as the close-behavior and catalog helps —
+// anchored beside its button, never the bare showPopover() that parked the
+// panel in the window's top-left corner.
+function positionAutoUpdateHelp(){
+  const button=$('settings-auto-update-help'),panel=$('settings-auto-update-help-panel');
+  if(!button||!panel?.matches?.(':popover-open'))return;
+  const anchor=button.getBoundingClientRect(),width=document.documentElement.clientWidth,height=document.documentElement.clientHeight,edge=12,gap=8;
+  const box=panel.getBoundingClientRect(),left=Math.max(edge,Math.min(anchor.right+gap,width-edge-box.width));
+  const below=height-anchor.bottom-edge-gap,top=below>=box.height?anchor.bottom+gap:Math.max(edge,anchor.top-gap-box.height);
+  panel.style.left=left+'px';panel.style.top=top+'px';
+}
+function setAutoUpdateHelp(visible){
+  clearHelpPopoverTimer('settings-auto-update-help');
+  const button=$('settings-auto-update-help'),panel=$('settings-auto-update-help-panel');
+  if(!button||!panel)return;
+  if(visible&&(button.hidden||button.disabled||!hostVisible||document.hidden))return;
+  const open=panel.matches?.(':popover-open');button.classList.toggle('is-active',visible);
+  if(!visible){if(open)panel.hidePopover();return;}
+  if(typeof setCatalogHelp==='function')setCatalogHelp(false);
+  if(typeof setCloseHelp==='function')for(const id of closeHelpIds)setCloseHelp(id,false);
+  if(!open)panel.showPopover();positionAutoUpdateHelp();
+}
 function setupAutoUpdate(){
   readAutoUpdateFromBootstrap();
   $('settings-auto-update').addEventListener('change',event=>setAutoUpdate(event.target.checked));
   const help=$('settings-auto-update-help'),panel=$('settings-auto-update-help-panel');
   if(help&&panel){
-    help.addEventListener('click',()=>{panel.matches(':popover-open')?panel.hidePopover():panel.showPopover();});
-    document.addEventListener('pointerdown',e=>{
-      if(panel.matches(':popover-open')&&!panel.contains(e.target)&&!help.contains(e.target))panel.hidePopover();
-    },true);
+    setupHoverHelp('settings-auto-update-help',setAutoUpdateHelp,{preventClick:true});
+    panel.addEventListener('toggle',()=>{const visible=panel.matches(':popover-open');help.classList.toggle('is-active',visible);if(visible)positionAutoUpdateHelp();});
+    globalThis.addEventListener?.('resize',positionAutoUpdateHelp);globalThis.addEventListener?.('scroll',positionAutoUpdateHelp,true);
+    if(typeof ResizeObserver==='function')new ResizeObserver(positionAutoUpdateHelp).observe(panel);
   }
 }
 // Unified popover positioning engine (P8: measure after show, all popovers share this).
@@ -1475,7 +1501,9 @@ function createPopoverEngine(options){
 let userProfileCache=new Map(),userProfileBusy=false;
 let activeProfile=null; // {userId, data, tab, charts, playlists, reviews, spinplays}
 const USER_PROFILE_FRESH_MS=120000,USER_PROFILE_CACHE_LIMIT=24;
-function profileIdentity(){return sessionConnected()&&APP_CONFIG.session&&Number.isInteger(APP_CONFIG.session.userId)?APP_CONFIG.session:null;}
+// Live session state (APP_CONFIG is a frozen boot snapshot; a sign-in after
+// launch would leave its userId null and "My profile" silently dead).
+function profileIdentity(){return typeof sessionConnected==='function'&&sessionConnected()&&typeof sessionAccount==='object'&&sessionAccount&&Number.isInteger(sessionAccount.userId)?sessionAccount:null;}
 function rememberUserProfile(userId,payload){
   userProfileCache.delete(userId);
   userProfileCache.set(userId,{at:Date.now(),payload});
@@ -1777,7 +1805,10 @@ async function publishWindowRegions(){
   const bar=document.querySelector('.topbar');
   if(!bar||!document.documentElement.classList.contains('desktop-chrome')||!globalThis.innerWidth||!globalThis.innerHeight)return;
   // Layout coordinates intentionally ignore player/cover animation transforms.
-  const excluded=['.brand','.topbar-actions','#notifications-open','#account-chip','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
+  // The bell and account chip sit inside .topbar-actions, so its container rect
+  // already covers them — keep the list at six rects (the publisher and the
+  // native validator stay in lockstep).
+  const excluded=['.brand','.topbar-actions','#preview-player-toggle','#preview-player-progress','#preview-player-retry','#preview-player-volume'].map(selector=>bar.querySelector(selector))
     .filter(node=>node&&node.offsetWidth>0&&node.offsetHeight>0)
     .map(windowRegionRect);
   const layout={viewport:[innerWidth,innerHeight],pixelRatio:globalThis.devicePixelRatio||1,headerHeight:document.querySelector('dialog[open]')?0:bar.offsetHeight,excluded};
@@ -3566,6 +3597,20 @@ function setupActivity(){
   globalThis.addEventListener?.('focus',refreshActivity);refreshActivity();
 }
 function reviewsOpen(cell){return !cell.retired&&cardViews.get(cell.row[0])?.cell===cell&&(showChartReviews||cell.reviewTemporaryOpen);}
+// Session changes must reach every open review surface at once: signing out
+// hides the composer, closes unsigned 0-review drawers, and re-gates toggles.
+function syncReviewSessionState(){
+  const unsigned=(typeof sessionConnected==='function'&&!sessionConnected())||(typeof sessionBusy==='boolean'&&sessionBusy);
+  for(const view of cardViews.values()){
+    const cell=view.cell;
+    if(unsigned&&cell.reviewTemporaryOpen&&reviewCounts.get(cell.row[0])===0)cell.reviewTemporaryOpen=false;
+    // Re-render even for already-closed drawers: the first busy pass closes
+    // the drawer while the session still looks connected, and a stale composer
+    // must not survive inside it (it would reappear on reopen).
+    if(typeof renderReviewCompose==='function'&&(cell.readingVisible||cell.compose))renderReviewCompose(cell);
+  }
+  syncReviewVisibility();
+}
 function reviewRefreshRemaining(){
   try{
     const stored=Number(globalThis.localStorage.getItem(REVIEW_REFRESH_STORAGE_KEY));
@@ -3676,7 +3721,9 @@ function syncReviewCount(cell){
 }
 function syncReviewToggle(cell){
   const empty=reviewCounts.get(cell.row[0])===0,open=reviewsOpen(cell),pinned=showChartReviews&&open;
-  const unsigned=typeof sessionConnected==='function'&&!sessionConnected();
+  // Treat a pending sign-in/out as unsigned too: the server round trip can
+  // take seconds, and a 0-review toggle must not stay clickable in that gap.
+  const unsigned=(typeof sessionConnected==='function'&&!sessionConnected())||(typeof sessionBusy==='boolean'&&sessionBusy);
   cell.toggle.disabled=empty&&unsigned;cell.chevron.hidden=empty&&unsigned;
   cell.toggle.setAttribute('aria-expanded',String(open));cell.toggle.setAttribute('aria-controls',cell.target.id);
   cell.toggle.setAttribute('aria-disabled',String(pinned));
@@ -4047,6 +4094,7 @@ function setCatalogHelp(visible){
   const open=panel.matches?.(':popover-open');button.classList.toggle('is-active',visible);
   if(!visible){if(open)panel.hidePopover();return;}
   for(const id of closeHelpIds)setCloseHelp(id,false);
+  if(typeof setAutoUpdateHelp==='function')setAutoUpdateHelp(false);
   if(!open)panel.showPopover();positionCatalogHelp();
 }
 function setupCatalogHelp(){

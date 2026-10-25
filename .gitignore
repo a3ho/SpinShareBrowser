@@ -43,6 +43,7 @@
 !/tests/test_playlist_sync.cjs
 !/tests/test_auto_update.cjs
 !/tests/test_popover_engine.cjs
+!/tests/test_user_profile.cjs
 !/tests/test_reviews_write.cjs
 !/web/locales.json
 

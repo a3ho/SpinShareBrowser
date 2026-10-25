@@ -62,6 +62,7 @@ function setCloseHelp(id,visible){
   button.classList.toggle('is-active',visible);
   if(!visible){if(panel.matches(':popover-open'))panel.hidePopover();return;}
   setCatalogHelp(false);
+  if(typeof setAutoUpdateHelp==='function')setAutoUpdateHelp(false);
   for(const other of closeHelpIds)if(other!==id&&$(other+'-panel').matches(':popover-open'))setCloseHelp(other,false);
   refreshCloseHelpTasks();if(!panel.matches(':popover-open'))panel.showPopover();positionCloseHelp(id);
 }
@@ -74,6 +75,6 @@ function setupCloseHelp(){
   const reposition=()=>{for(const id of closeHelpIds)positionCloseHelp(id);};
   globalThis.addEventListener?.('resize',reposition);globalThis.addEventListener?.('scroll',reposition,true);
   globalThis.addEventListener?.('blur',()=>{for(const id of closeHelpIds)setCloseHelp(id,false);});
-  document.addEventListener('keydown',event=>{if(event.key!=='Escape'||event.defaultPrevented)return;const open=[...closeHelpIds,'refresh-data-help'].find(helpId=>$(helpId+'-panel')?.matches?.(':popover-open'));if(!open)return;event.preventDefault();event.stopPropagation();open==='refresh-data-help'?setCatalogHelp(false):setCloseHelp(open,false);$(open).focus({preventScroll:true});});
+  document.addEventListener('keydown',event=>{if(event.key!=='Escape'||event.defaultPrevented)return;const open=[...closeHelpIds,'refresh-data-help','settings-auto-update-help'].find(helpId=>$(helpId+'-panel')?.matches?.(':popover-open'));if(!open)return;event.preventDefault();event.stopPropagation();open==='refresh-data-help'?setCatalogHelp(false):open==='settings-auto-update-help'?setAutoUpdateHelp(false):setCloseHelp(open,false);$(open).focus({preventScroll:true});});
   if(typeof ResizeObserver==='function'){const observer=new ResizeObserver(reposition);for(const id of closeHelpIds)observer.observe($(id+'-panel'));}
 }

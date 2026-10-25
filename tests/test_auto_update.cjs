@@ -39,6 +39,7 @@ function harness({bootstrap = false, respondWith, rejectWith} = {}) {
     console,
     document: {getElementById: node, addEventListener() {}},
     APP_CONFIG: Object.freeze({autoUpdateCharts: bootstrap}),  // frozen, like production
+    setupHoverHelp: () => {}, clearHelpPopoverTimer: () => {}, hostVisible: true,
     $: node,
     installerRequest: async (method, path, body) => {
       posts.push({method, path, body});

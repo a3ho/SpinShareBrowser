@@ -1,7 +1,9 @@
 let userProfileCache=new Map(),userProfileBusy=false;
 let activeProfile=null; // {userId, data, tab, charts, playlists, reviews, spinplays}
 const USER_PROFILE_FRESH_MS=120000,USER_PROFILE_CACHE_LIMIT=24;
-function profileIdentity(){return sessionConnected()&&APP_CONFIG.session&&Number.isInteger(APP_CONFIG.session.userId)?APP_CONFIG.session:null;}
+// Live session state (APP_CONFIG is a frozen boot snapshot; a sign-in after
+// launch would leave its userId null and "My profile" silently dead).
+function profileIdentity(){return typeof sessionConnected==='function'&&sessionConnected()&&typeof sessionAccount==='object'&&sessionAccount&&Number.isInteger(sessionAccount.userId)?sessionAccount:null;}
 function rememberUserProfile(userId,payload){
   userProfileCache.delete(userId);
   userProfileCache.set(userId,{at:Date.now(),payload});

@@ -4,6 +4,17 @@ SpinShare Browser retains, maintains, and supports only the latest stable releas
 
 SpinShare Browser 仅保留、维护和支持最新稳定版。新版验证并发布后，删除全部旧版发布页、下载附件和版本标签，旧版本不再保留。以下条目仅记录开发历史。
 
+## 2.3.5 — 2026-10-25
+
+- The top-bar player works again in every window state once a song is playing. A stale limit in the native window layer silently rejected the layout that appears when you are signed in, leaving the player covered by the drag region.
+- 播放歌曲后，顶栏播放器在任意窗口状态下恢复可用。此前的原生窗口层存在一个过期的数量上限，登录状态下会把播放器所在区域错误地留给窗口拖拽。
+- Signing out immediately gates reviews: the publish entry disappears, charts without reviews can no longer be opened, and disabled review buttons no longer react to clicks.
+- 退出登录立即收敛评论区：发布入口消失、无评论谱面不再可点、禁用状态的评论按钮不再有点击反馈。
+- "My profile" opens again; the question-mark help beside Chart auto-update now anchors next to its button like every other help, and "Update data" is now "Sync chart library" with a help note that says exactly that.
+- “我的主页”恢复正常打开；“谱面自动更新”旁的问号说明改为与其它帮助浮层一致的锚定样式；“更新数据”更名为“同步谱面库”，说明文字同步更新。
+- Choosing a backup .zip for upload works again.
+- 上传谱面时选择 backup.zip 恢复正常。
+
 ## 2.3.4 — 2026-10-25
 
 - Sign-in is reliable again: the sign-in window always opens inside the app, stays open while you type your password or a two-factor code, and no longer reports a timeout early.
